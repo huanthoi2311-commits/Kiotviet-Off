@@ -16,6 +16,7 @@ import { CategoryModule } from './modules/category/category.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { InventoryAdjustmentModule } from './modules/inventory-adjustment/inventory-adjustment.module';
 import { PurchaseOrderModule } from './modules/purchase-order/purchase-order.module';
+import { PurchaseReturnModule } from './modules/purchase-return/purchase-return.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { StockCountModule } from './modules/stock-count/stock-count.module';
 import { SupplierModule } from './modules/supplier/supplier.module';
@@ -59,6 +60,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     InventoryAdjustmentModule,
     SupplierModule,
     PurchaseOrderModule,
+    PurchaseReturnModule,
   ],
   controllers: [AppController],
   providers: [

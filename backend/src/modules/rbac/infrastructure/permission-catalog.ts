@@ -100,6 +100,31 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
     description: 'Hoàn tất kiểm kê',
   },
   ...crud('purchase', 'đơn nhập hàng', ['approve', 'receive', 'cancel']),
+  {
+    code: 'purchase_return:view',
+    group: 'purchase_return',
+    description: 'Xem phiếu trả hàng nhà cung cấp',
+  },
+  {
+    code: 'purchase_return:create',
+    group: 'purchase_return',
+    description: 'Tạo phiếu trả hàng nhà cung cấp',
+  },
+  {
+    code: 'purchase_return:approve',
+    group: 'purchase_return',
+    description: 'Duyệt phiếu trả hàng nhà cung cấp',
+  },
+  {
+    code: 'purchase_return:complete',
+    group: 'purchase_return',
+    description: 'Hoàn tất phiếu trả hàng nhà cung cấp',
+  },
+  {
+    code: 'purchase_return:cancel',
+    group: 'purchase_return',
+    description: 'Hủy phiếu trả hàng nhà cung cấp',
+  },
   ...crud('supplier', 'nhà cung cấp', ['restore', 'import', 'export']),
   ...crud('customer', 'khách hàng'),
   { code: 'order:view', group: 'order', description: 'Xem đơn hàng' },

@@ -229,6 +229,7 @@ model Organization {
   products             Product[]
   suppliers            Supplier[]
   purchaseOrders       PurchaseOrder[]
+  purchaseReturns      PurchaseReturn[]
   orders               Order[]
   invoices             Invoice[]
   returns              Return[]
@@ -327,6 +328,7 @@ model Warehouse {
   deletedAt DateTime?
 
   purchaseItems        PurchaseItem[]
+  purchaseReturnItems  PurchaseReturnItem[]
   orders               Order[]
   inventories          Inventory[]
   inventoryMovements   InventoryMovement[]
@@ -695,6 +697,7 @@ model Product {
   inventories              Inventory[]
   inventoryMovements       InventoryMovement[]
   purchaseItems            PurchaseItem[]
+  purchaseReturnItems      PurchaseReturnItem[]
   orderItems               OrderItem[]
   returnItems              ReturnItem[]
   transferItems            TransferItem[]
@@ -948,6 +951,7 @@ model Supplier {
   deletedAt DateTime?
 
   purchaseOrders   PurchaseOrder[]
+  purchaseReturns  PurchaseReturn[]
   debts            Debt[]
   payments         Payment[]
   supplierProducts SupplierProduct[]
@@ -1005,8 +1009,9 @@ model PurchaseOrder {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  purchaseItems PurchaseItem[]
-  payments      Payment[]
+  purchaseItems   PurchaseItem[]
+  purchaseReturns PurchaseReturn[]
+  payments        Payment[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -1038,10 +1043,88 @@ model PurchaseItem {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  purchaseReturnItems PurchaseReturnItem[]
+
   @@index([purchaseOrderId])
   @@index([productId])
   @@index([warehouseId])
   @@map("purchase_items")
+}
+
+enum PurchaseReturnStatus {
+  DRAFT
+  APPROVED
+  COMPLETED
+  CANCELLED
+}
+
+enum PurchaseReturnReason {
+  DAMAGED
+  WRONG_PRODUCT
+  EXPIRED
+  OTHER
+}
+
+model PurchaseReturn {
+  id              String        @id @default(uuid()) @db.Uuid
+  organizationId  String        @db.Uuid
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  purchaseOrderId String        @db.Uuid
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  supplierId      String        @db.Uuid
+  supplier        Supplier      @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+
+  code        String
+  status      PurchaseReturnStatus @default(DRAFT)
+  reason      PurchaseReturnReason
+  totalAmount Decimal              @default(0) @db.Decimal(18, 2)
+  note        String?
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  items PurchaseReturnItem[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([purchaseOrderId])
+  @@index([supplierId])
+  @@index([status])
+  @@map("purchase_returns")
+}
+
+/// Mỗi dòng gắn với đúng 1 PurchaseItem gốc (không chỉ Product) để biết chính xác đã
+/// nhập vào Kho nào và với Đơn giá nào — Inventory Out phải trừ đúng Kho, Debt Reduce
+/// phải tính đúng theo giá vốn gốc của lần nhập đó.
+model PurchaseReturnItem {
+  id               String         @id @default(uuid()) @db.Uuid
+  purchaseReturnId String         @db.Uuid
+  purchaseReturn   PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  purchaseItemId   String         @db.Uuid
+  purchaseItem     PurchaseItem   @relation(fields: [purchaseItemId], references: [id], onDelete: Restrict)
+  productId        String         @db.Uuid
+  product          Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouseId      String         @db.Uuid
+  warehouse        Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  quantity    Decimal @db.Decimal(18, 3)
+  unitCost    Decimal @db.Decimal(18, 2)
+  totalAmount Decimal @default(0) @db.Decimal(18, 2)
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([purchaseReturnId])
+  @@index([purchaseItemId])
+  @@index([productId])
+  @@index([warehouseId])
+  @@map("purchase_return_items")
 }
 
 enum TransferStatus {
