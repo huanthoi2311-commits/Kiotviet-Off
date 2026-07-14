@@ -63,15 +63,6 @@ enum PriceType {
   SELLING
 }
 
-enum InventoryHistoryType {
-  PURCHASE_IN
-  SALE_OUT
-  TRANSFER_IN
-  TRANSFER_OUT
-  ADJUSTMENT
-  RETURN_IN
-}
-
 enum PurchaseOrderStatus {
   DRAFT
   ORDERED
@@ -257,7 +248,7 @@ model Organization {
   apiKeys            ApiKey[]
   auditLogs          AuditLog[]
   inventories        Inventory[]
-  inventoryHistories InventoryHistory[]
+  inventoryMovements InventoryMovement[]
   sequences          Sequence[]
 
   @@map("organizations")
@@ -334,7 +325,7 @@ model Warehouse {
   purchaseOrders     PurchaseOrder[]
   orders             Order[]
   inventories        Inventory[]
-  inventoryHistories InventoryHistory[]
+  inventoryMovements InventoryMovement[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -694,7 +685,7 @@ model Product {
   barcodes           Barcode[]
   priceHistories     PriceHistory[]
   inventories        Inventory[]
-  inventoryHistories InventoryHistory[]
+  inventoryMovements InventoryMovement[]
   purchaseItems      PurchaseItem[]
   orderItems         OrderItem[]
   returnItems        ReturnItem[]
@@ -839,9 +830,12 @@ model Inventory {
   productId      String       @db.Uuid
   product        Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
 
+  /// Snapshot đọc nhanh — KHÔNG được ghi trực tiếp, chỉ được cập nhật bởi
+  /// InventoryRepository.recordMovement() trong cùng transaction với InventoryMovement.
   quantity    Decimal @default(0) @db.Decimal(18, 3)
   reservedQty Decimal @default(0) @db.Decimal(18, 3)
   avgCost     Decimal @default(0) @db.Decimal(18, 2)
+  lastCost    Decimal @default(0) @db.Decimal(18, 2)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -854,7 +848,31 @@ model Inventory {
   @@map("inventories")
 }
 
-model InventoryHistory {
+enum InventoryMovementType {
+  PURCHASE
+  SALE
+  RETURN
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  COUNT
+  DAMAGE
+  INITIAL
+}
+
+enum InventoryReferenceType {
+  PURCHASE
+  POS
+  TRANSFER
+  COUNT
+  RETURN
+  SYSTEM
+}
+
+/// Ledger bất biến (append-only) — nguồn sự thật (Source of Truth) cho mọi biến động
+/// tồn kho. Không có updatedAt/deletedAt: một dòng Movement không bao giờ được sửa
+/// hay xóa sau khi ghi — sai sót được sửa bằng một Movement bù trừ mới, không sửa dòng cũ.
+model InventoryMovement {
   id             String       @id @default(uuid()) @db.Uuid
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
@@ -863,23 +881,24 @@ model InventoryHistory {
   productId      String       @db.Uuid
   product        Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
 
-  type           InventoryHistoryType
-  quantityChange Decimal              @db.Decimal(18, 3)
-  quantityAfter  Decimal              @db.Decimal(18, 3)
-  refType        String?
-  refId          String?              @db.Uuid
-  note           String?
+  movementType   InventoryMovementType
+  referenceType  InventoryReferenceType
+  referenceId    String?                @db.Uuid
+  /// Delta có dấu áp dụng lên quantity (dương = nhập, âm = xuất).
+  quantity       Decimal                @db.Decimal(18, 3)
+  beforeQuantity Decimal                @db.Decimal(18, 3)
+  afterQuantity  Decimal                @db.Decimal(18, 3)
+  unitCost       Decimal?               @db.Decimal(18, 2)
+  remark         String?
 
-  createdBy String?   @db.Uuid
-  updatedBy String?   @db.Uuid
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  createdBy String?  @db.Uuid
+  createdAt DateTime @default(now())
 
   @@index([organizationId])
   @@index([warehouseId])
   @@index([productId, createdAt])
-  @@map("inventory_histories")
+  @@index([referenceType, referenceId])
+  @@map("inventory_movements")
 }
 
 // =========================================================================

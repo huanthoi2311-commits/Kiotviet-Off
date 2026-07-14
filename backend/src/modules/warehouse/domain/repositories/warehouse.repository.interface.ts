@@ -71,7 +71,7 @@ export interface IWarehouseRepository {
     code: string,
     excludeId?: string,
   ): Promise<boolean>;
-  /** Còn tồn kho (Inventory.quantity/reservedQty > 0) hoặc còn lịch sử giao dịch (InventoryHistory) tại kho này. */
+  /** Còn tồn kho (Inventory.quantity/reservedQty > 0) hoặc còn giao dịch (InventoryMovement) tại kho này. */
   hasStockOrTransactions(warehouseId: string): Promise<boolean>;
 }
 

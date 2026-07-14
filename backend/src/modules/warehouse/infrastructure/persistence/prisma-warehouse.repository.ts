@@ -161,7 +161,7 @@ export class PrismaWarehouseRepository implements IWarehouseRepository {
   }
 
   async hasStockOrTransactions(warehouseId: string): Promise<boolean> {
-    const [stockRow, historyRow] = await Promise.all([
+    const [stockRow, movementRow] = await Promise.all([
       this.prisma.inventory.findFirst({
         where: {
           warehouseId,
@@ -170,12 +170,12 @@ export class PrismaWarehouseRepository implements IWarehouseRepository {
         },
         select: { id: true },
       }),
-      this.prisma.inventoryHistory.findFirst({
+      this.prisma.inventoryMovement.findFirst({
         where: { warehouseId },
         select: { id: true },
       }),
     ]);
-    return !!stockRow || !!historyRow;
+    return !!stockRow || !!movementRow;
   }
 
   private translateWriteError(error: unknown): Error {

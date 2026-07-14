@@ -13,6 +13,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { BarcodeModule } from './modules/barcode/barcode.module';
 import { BrandModule } from './modules/brand/brand.module';
 import { CategoryModule } from './modules/category/category.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { ProductModule } from './modules/product/product.module';
@@ -47,6 +48,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     UnitModule,
     BarcodeModule,
     WarehouseModule,
+    InventoryModule,
   ],
   controllers: [AppController],
   providers: [

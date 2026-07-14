@@ -22,7 +22,7 @@ describe('PrismaWarehouseRepository', () => {
       count: jest.Mock;
     };
     inventory: { findFirst: jest.Mock };
-    inventoryHistory: { findFirst: jest.Mock };
+    inventoryMovement: { findFirst: jest.Mock };
     $transaction: jest.Mock;
   };
 
@@ -54,7 +54,7 @@ describe('PrismaWarehouseRepository', () => {
         count: jest.fn(),
       },
       inventory: { findFirst: jest.fn() },
-      inventoryHistory: { findFirst: jest.fn() },
+      inventoryMovement: { findFirst: jest.fn() },
       $transaction: jest.fn(),
     };
     repository = new PrismaWarehouseRepository(
@@ -218,7 +218,7 @@ describe('PrismaWarehouseRepository', () => {
   describe('hasStockOrTransactions', () => {
     it('false khi không có tồn kho và không có lịch sử giao dịch', async () => {
       prisma.inventory.findFirst.mockResolvedValue(null);
-      prisma.inventoryHistory.findFirst.mockResolvedValue(null);
+      prisma.inventoryMovement.findFirst.mockResolvedValue(null);
       await expect(repository.hasStockOrTransactions('wh-1')).resolves.toBe(
         false,
       );
@@ -226,7 +226,7 @@ describe('PrismaWarehouseRepository', () => {
 
     it('true khi còn tồn kho khác 0', async () => {
       prisma.inventory.findFirst.mockResolvedValue({ id: 'inv-1' });
-      prisma.inventoryHistory.findFirst.mockResolvedValue(null);
+      prisma.inventoryMovement.findFirst.mockResolvedValue(null);
       await expect(repository.hasStockOrTransactions('wh-1')).resolves.toBe(
         true,
       );
@@ -234,7 +234,7 @@ describe('PrismaWarehouseRepository', () => {
 
     it('true khi còn lịch sử giao dịch', async () => {
       prisma.inventory.findFirst.mockResolvedValue(null);
-      prisma.inventoryHistory.findFirst.mockResolvedValue({ id: 'hist-1' });
+      prisma.inventoryMovement.findFirst.mockResolvedValue({ id: 'hist-1' });
       await expect(repository.hasStockOrTransactions('wh-1')).resolves.toBe(
         true,
       );
