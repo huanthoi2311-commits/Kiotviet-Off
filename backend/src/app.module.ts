@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -23,6 +24,9 @@ import { WebsocketModule } from './websocket/websocket.module';
       load: [configuration],
       validate: validateEnv,
     }),
+    // Rate limit mặc định: 100 request / phút / IP. Endpoint nhạy cảm (login, refresh,
+    // forgot-password) tự siết chặt hơn qua @Throttle() ngay tại route (xem AuthController).
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
     PrismaModule,
     RedisModule,
     QueueModule,
@@ -36,6 +40,7 @@ import { WebsocketModule } from './websocket/websocket.module';
   providers: [
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: TransformInterceptor },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule implements NestModule {

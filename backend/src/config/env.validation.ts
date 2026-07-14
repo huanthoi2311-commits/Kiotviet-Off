@@ -57,7 +57,7 @@ class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
-  CORS_ORIGIN: string = '*';
+  CORS_ORIGIN: string = 'http://localhost:3001';
 
   @IsString()
   @IsOptional()

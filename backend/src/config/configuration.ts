@@ -2,7 +2,12 @@ export default () => ({
   env: process.env.NODE_ENV ?? 'development',
   port: parseInt(process.env.PORT ?? '3000', 10),
   cors: {
-    origin: process.env.CORS_ORIGIN ?? '*',
+    // Danh sách whitelist origin, phân tách bởi dấu phẩy — KHÔNG dùng '*' khi credentials:true
+    // (trình duyệt sẽ tự chặn, và về bảo mật cũng không nên cho phép mọi origin gửi cookie).
+    origins: (process.env.CORS_ORIGIN ?? 'http://localhost:3001')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
   },
   database: {
     url: process.env.DATABASE_URL,

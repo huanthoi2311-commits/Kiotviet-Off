@@ -1,10 +1,12 @@
 import { Controller, Get, Inject } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import Redis from 'ioredis';
 import { PrismaService } from './prisma/prisma.service';
 import { REDIS_CLIENT } from './redis/redis.constants';
 
 @ApiTags('Health')
+@SkipThrottle()
 @Controller('health')
 export class AppController {
   constructor(

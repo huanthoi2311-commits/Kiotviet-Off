@@ -19,6 +19,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { ApiCommonErrors } from '../../../common/swagger/api-common-errors.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
@@ -51,6 +52,7 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Đăng nhập bằng organizationSlug + email + mật khẩu',
   })
@@ -73,6 +75,7 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Cấp lại access/refresh token (refresh token rotation)',
   })
@@ -160,6 +163,7 @@ export class AuthController {
 
   @Post('forgot-password')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary:
       'Gửi OTP đặt lại mật khẩu qua email (cooldown 60s, tối đa 5 lần/giờ)',
@@ -174,6 +178,7 @@ export class AuthController {
 
   @Post('verify-otp')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Xác thực OTP (hiệu lực 5 phút)' })
   @ApiCommonErrors()
   async verifyOtp(@Body() dto: VerifyOtpDto): Promise<void> {
