@@ -297,18 +297,33 @@ model Branch {
   @@map("branches")
 }
 
+enum WarehouseType {
+  MAIN
+  RETAIL
+  ONLINE
+  RETURN
+  DAMAGED
+  TRANSIT
+  CUSTOM
+}
+
 model Warehouse {
   id             String       @id @default(uuid()) @db.Uuid
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   branchId       String       @db.Uuid
   branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  managerId      String?      @db.Uuid
+  manager        User?        @relation(fields: [managerId], references: [id], onDelete: SetNull)
 
-  code      String
-  name      String
-  address   String?
-  isDefault Boolean      @default(false)
-  status    CommonStatus @default(ACTIVE)
+  code        String
+  name        String
+  type        WarehouseType @default(MAIN)
+  address     String?
+  phone       String?
+  email       String?
+  description String?
+  status      CommonStatus  @default(ACTIVE)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -324,6 +339,7 @@ model Warehouse {
   @@unique([organizationId, code])
   @@index([organizationId])
   @@index([branchId])
+  @@index([managerId])
   @@map("warehouses")
 }
 
@@ -374,15 +390,16 @@ model User {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  userRoles        UserRole[]
-  sessions         Session[]
-  notifications    Notification[]
-  uploadedFiles    File[]
-  auditLogs        AuditLog[]
-  ordersSold       Order[]        @relation("OrderSoldBy")
-  returnsProcessed Return[]       @relation("ReturnProcessedBy")
-  priceChanges     PriceHistory[] @relation("PriceHistoryChangedBy")
-  paymentsReceived Payment[]      @relation("PaymentReceivedBy")
+  userRoles         UserRole[]
+  sessions          Session[]
+  notifications     Notification[]
+  uploadedFiles     File[]
+  auditLogs         AuditLog[]
+  ordersSold        Order[]        @relation("OrderSoldBy")
+  returnsProcessed  Return[]       @relation("ReturnProcessedBy")
+  priceChanges      PriceHistory[] @relation("PriceHistoryChangedBy")
+  paymentsReceived  Payment[]      @relation("PaymentReceivedBy")
+  managedWarehouses Warehouse[]
 
   @@unique([organizationId, username])
   @@unique([organizationId, email])

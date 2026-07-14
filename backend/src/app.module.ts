@@ -17,6 +17,7 @@ import { RbacModule } from './modules/rbac/rbac.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { ProductModule } from './modules/product/product.module';
 import { UnitModule } from './modules/unit/unit.module';
+import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { QueueModule } from './queue/queue.module';
 import { RedisModule } from './redis/redis.module';
@@ -45,6 +46,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     BrandModule,
     UnitModule,
     BarcodeModule,
+    WarehouseModule,
   ],
   controllers: [AppController],
   providers: [
