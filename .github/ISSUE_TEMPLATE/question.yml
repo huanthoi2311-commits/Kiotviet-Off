@@ -1,0 +1,16 @@
+name: ❓ Question
+description: Câu hỏi về cách dùng, kiến trúc, hoặc quyết định thiết kế
+title: "docs(<scope>): <câu hỏi ngắn gọn>"
+labels: ["question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Câu hỏi
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Bối cảnh
+      description: Bạn đã đọc tài liệu nào trong docs/architecture/ chưa? Đang cố làm gì?

@@ -1,0 +1,10 @@
+# CODEOWNERS — tự động yêu cầu review khi PR đụng vào thư mục tương ứng.
+# Hiện dự án chỉ có 1 người (@huanthoi2311-commits) nên mọi owner đều trỏ về đây.
+# Khi có thêm thành viên team, tách theo backend/frontend/docs như bên dưới đã chuẩn bị sẵn.
+
+* @huanthoi2311-commits
+
+/backend/   @huanthoi2311-commits
+/frontend/  @huanthoi2311-commits
+/docs/      @huanthoi2311-commits
+/.github/   @huanthoi2311-commits

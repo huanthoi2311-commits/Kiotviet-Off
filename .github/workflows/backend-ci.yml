@@ -1,0 +1,65 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+defaults:
+  run:
+    working-directory: backend
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Lint · Typecheck · Test · Prisma Validate · Build
+    runs-on: ubuntu-latest
+    env:
+      # Giá trị giả — đủ để env.validation.ts/prisma validate pass, KHÔNG kết nối DB/Redis thật.
+      # Gate A (xem docs/release-gates.md) chỉ kiểm tra đúng cú pháp/kiểu/logic đơn vị,
+      # không cần Postgres/Redis thật (đó là phạm vi Gate B).
+      NODE_ENV: test
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/pos_erp?schema=public"
+      REDIS_HOST: localhost
+      REDIS_PORT: "6379"
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema=prisma/schema.prisma
+
+      - name: Lint
+        run: npx eslint "{src,test}/**/*.ts"
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Unit test
+        run: npx jest --ci
+
+      - name: Prisma validate
+        run: npx prisma validate --schema=prisma/schema.prisma
+
+      - name: Build
+        run: npm run build

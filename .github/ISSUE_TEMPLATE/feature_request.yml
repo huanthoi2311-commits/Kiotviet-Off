@@ -1,0 +1,41 @@
+name: ✨ Feature Request
+description: Đề xuất tính năng mới cho POS ERP Enterprise
+title: "feat(<scope>): <mô tả ngắn>"
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Vấn đề cần giải quyết
+      description: Tính năng này giúp giải quyết vấn đề gì? Cho ai (chủ cửa hàng, nhân viên bán hàng, thu ngân...)?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Đề xuất giải pháp
+      description: Mô tả cách tính năng nên hoạt động. Có thể đính kèm wireframe/mockup nếu có.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Phương án khác đã cân nhắc
+  - type: dropdown
+    id: module
+    attributes:
+      label: Thuộc module nào (theo docs/architecture/001-architecture.md)
+      options:
+        - Authentication/RBAC
+        - Product/Category
+        - Inventory/Warehouse
+        - POS/Order
+        - Purchase/Supplier
+        - Customer/CRM
+        - Finance (Payment/CashBook/Expense)
+        - Marketing (Promotion/Voucher)
+        - Report/Dashboard
+        - Platform (Notification/File/Webhook)
+        - Khác
+    validations:
+      required: true

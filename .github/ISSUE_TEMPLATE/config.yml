@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Tài liệu kiến trúc
+    url: https://github.com/huanthoi2311-commits/Kiotviet-Off/tree/main/docs/architecture
+    about: Đọc trước khi tạo issue — nhiều câu hỏi đã có câu trả lời ở đây.

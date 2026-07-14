@@ -1,0 +1,30 @@
+name: 📋 Task
+description: Công việc kỹ thuật cụ thể (refactor, DevOps, viết test, dọn nợ kỹ thuật...)
+title: "chore(<scope>): <mô tả ngắn>"
+labels: ["task"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Mô tả công việc
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Definition of Done
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Độ ưu tiên
+      options:
+        - P0 - Ngay lập tức
+        - P1 - Sprint này
+        - P2 - Backlog
+    validations:
+      required: true

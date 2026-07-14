@@ -1,0 +1,56 @@
+name: 🐛 Bug Report
+description: Báo lỗi trong hệ thống POS ERP Enterprise
+title: "fix(<scope>): <mô tả ngắn>"
+labels: ["bug", "triage"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Mô tả lỗi
+      description: Chuyện gì xảy ra? Bạn mong đợi điều gì?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Các bước tái hiện
+      placeholder: |
+        1. Vào trang '...'
+        2. Bấm '...'
+        3. Thấy lỗi '...'
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Khu vực ảnh hưởng
+      options:
+        - Backend (API)
+        - Frontend (UI)
+        - Auth/RBAC
+        - Database/Migration
+        - DevOps/CI
+        - Khác
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Mức độ nghiêm trọng
+      options:
+        - Critical (sập hệ thống / mất dữ liệu)
+        - High (chặn nghiệp vụ chính)
+        - Medium (có cách né tạm thời)
+        - Low (nhỏ, không gấp)
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Môi trường
+      placeholder: "VD: local dev, staging, production — kèm version/commit nếu biết"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log / Screenshot liên quan
+      description: Dán log lỗi, traceId (từ response envelope), hoặc ảnh chụp màn hình.
