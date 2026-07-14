@@ -15,6 +15,7 @@ import { BrandModule } from './modules/brand/brand.module';
 import { CategoryModule } from './modules/category/category.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { RbacModule } from './modules/rbac/rbac.module';
+import { TransferModule } from './modules/transfer/transfer.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { ProductModule } from './modules/product/product.module';
 import { UnitModule } from './modules/unit/unit.module';
@@ -49,6 +50,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     BarcodeModule,
     WarehouseModule,
     InventoryModule,
+    TransferModule,
   ],
   controllers: [AppController],
   providers: [

@@ -249,6 +249,7 @@ model Organization {
   auditLogs          AuditLog[]
   inventories        Inventory[]
   inventoryMovements InventoryMovement[]
+  transfers          Transfer[]
   sequences          Sequence[]
 
   @@map("organizations")
@@ -326,6 +327,8 @@ model Warehouse {
   orders             Order[]
   inventories        Inventory[]
   inventoryMovements InventoryMovement[]
+  transfersFrom      Transfer[]          @relation("TransferFromWarehouse")
+  transfersTo        Transfer[]          @relation("TransferToWarehouse")
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -689,6 +692,7 @@ model Product {
   purchaseItems      PurchaseItem[]
   orderItems         OrderItem[]
   returnItems        ReturnItem[]
+  transferItems      TransferItem[]
 
   @@unique([organizationId, sku])
   @@unique([organizationId, slug])
@@ -989,6 +993,66 @@ model PurchaseItem {
   @@index([purchaseOrderId])
   @@index([productId])
   @@map("purchase_items")
+}
+
+enum TransferStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  SHIPPING
+  RECEIVED
+  CANCELLED
+}
+
+model Transfer {
+  id              String       @id @default(uuid()) @db.Uuid
+  organizationId  String       @db.Uuid
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  fromWarehouseId String       @db.Uuid
+  fromWarehouse   Warehouse    @relation("TransferFromWarehouse", fields: [fromWarehouseId], references: [id], onDelete: Restrict)
+  toWarehouseId   String       @db.Uuid
+  toWarehouse     Warehouse    @relation("TransferToWarehouse", fields: [toWarehouseId], references: [id], onDelete: Restrict)
+
+  code   String
+  status TransferStatus @default(PENDING)
+  note   String?
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  items TransferItem[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([fromWarehouseId])
+  @@index([toWarehouseId])
+  @@index([status])
+  @@map("transfers")
+}
+
+model TransferItem {
+  id         String   @id @default(uuid()) @db.Uuid
+  transferId String   @db.Uuid
+  transfer   Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  productId  String   @db.Uuid
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  quantity Decimal  @db.Decimal(18, 3)
+  /// Average Cost của Kho nguồn tại thời điểm Approve — mang theo sang Kho đích khi Receive.
+  unitCost Decimal? @db.Decimal(18, 2)
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([transferId])
+  @@index([productId])
+  @@map("transfer_items")
 }
 
 // =========================================================================

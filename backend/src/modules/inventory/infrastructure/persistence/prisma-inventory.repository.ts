@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { applyInventoryDelta } from '../../../../common/utils/average-cost.util';
 import {
   InventoryEntity,
   InventoryMovementEntity,
@@ -114,20 +115,15 @@ export class PrismaInventoryRepository implements IInventoryRepository {
 
       const delta = new Prisma.Decimal(input.quantity);
       const beforeQuantity = existing?.quantity ?? new Prisma.Decimal(0);
-      const afterQuantity = beforeQuantity.plus(delta);
-
-      let avgCost = existing?.avgCost ?? new Prisma.Decimal(0);
-      let lastCost = existing?.lastCost ?? new Prisma.Decimal(0);
-
-      if (delta.greaterThan(0) && input.unitCost != null) {
-        const unitCostDecimal = new Prisma.Decimal(input.unitCost);
-        const existingValue = beforeQuantity.times(avgCost);
-        const incomingValue = delta.times(unitCostDecimal);
-        avgCost = afterQuantity.isZero()
-          ? new Prisma.Decimal(0)
-          : existingValue.plus(incomingValue).dividedBy(afterQuantity);
-        lastCost = unitCostDecimal;
-      }
+      const { afterQuantity, avgCost, lastCost } = applyInventoryDelta({
+        beforeQuantity,
+        beforeAvgCost: existing?.avgCost ?? new Prisma.Decimal(0),
+        delta,
+        unitCost:
+          input.unitCost != null ? new Prisma.Decimal(input.unitCost) : null,
+      });
+      const resolvedLastCost =
+        lastCost ?? existing?.lastCost ?? new Prisma.Decimal(0);
 
       await tx.inventory.upsert({
         where: {
@@ -143,14 +139,14 @@ export class PrismaInventoryRepository implements IInventoryRepository {
           quantity: afterQuantity,
           reservedQty: 0,
           avgCost,
-          lastCost,
+          lastCost: resolvedLastCost,
           createdBy: input.createdBy,
           updatedBy: input.createdBy,
         },
         update: {
           quantity: afterQuantity,
           avgCost,
-          lastCost,
+          lastCost: resolvedLastCost,
           updatedBy: input.createdBy,
         },
       });

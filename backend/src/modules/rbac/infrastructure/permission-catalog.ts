@@ -44,6 +44,31 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
     description: 'Điều chỉnh/kiểm kê tồn kho',
   },
   { code: 'inventory:transfer', group: 'inventory', description: 'Chuyển kho' },
+  {
+    code: 'transfer:view',
+    group: 'transfer',
+    description: 'Xem phiếu điều chuyển kho',
+  },
+  {
+    code: 'transfer:create',
+    group: 'transfer',
+    description: 'Tạo phiếu điều chuyển kho',
+  },
+  {
+    code: 'transfer:approve',
+    group: 'transfer',
+    description: 'Duyệt phiếu điều chuyển kho',
+  },
+  {
+    code: 'transfer:receive',
+    group: 'transfer',
+    description: 'Nhận hàng điều chuyển',
+  },
+  {
+    code: 'transfer:cancel',
+    group: 'transfer',
+    description: 'Hủy phiếu điều chuyển kho',
+  },
   ...crud('purchase', 'đơn nhập hàng'),
   ...crud('supplier', 'nhà cung cấp'),
   ...crud('customer', 'khách hàng'),
