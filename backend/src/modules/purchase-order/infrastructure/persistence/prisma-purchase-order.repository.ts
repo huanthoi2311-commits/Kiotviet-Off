@@ -242,6 +242,25 @@ export class PrismaPurchaseOrderRepository implements IPurchaseOrderRepository {
         });
       }
 
+      // "Purchase increases Debt" (Prompt 029) — ghi 1 dòng Debt (PAYABLE, dương) vào
+      // sổ cái ghi-thêm chung với PurchaseReturn (Prompt 028, amount âm) và Payment
+      // (giảm công nợ, đối trừ ở tầng truy vấn GET /supplier-debt). Không update dòng
+      // Debt nào đã có — đúng nguyên tắc "không update Debt trực tiếp".
+      await tx.debt.create({
+        data: {
+          organizationId,
+          supplierId: current.supplierId,
+          type: 'PAYABLE',
+          refType: 'PurchaseOrder',
+          refId: id,
+          amount: current.totalAmount,
+          paidAmount: 0,
+          status: 'OPEN',
+          createdBy: updatedBy,
+          updatedBy,
+        },
+      });
+
       const updated = await tx.purchaseOrder.update({
         where: { id },
         data: { status: 'RECEIVED', updatedBy },

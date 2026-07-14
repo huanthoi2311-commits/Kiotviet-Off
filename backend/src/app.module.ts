@@ -18,6 +18,7 @@ import { InventoryAdjustmentModule } from './modules/inventory-adjustment/invent
 import { PurchaseOrderModule } from './modules/purchase-order/purchase-order.module';
 import { PurchaseReturnModule } from './modules/purchase-return/purchase-return.module';
 import { RbacModule } from './modules/rbac/rbac.module';
+import { SupplierDebtModule } from './modules/supplier-debt/supplier-debt.module';
 import { StockCountModule } from './modules/stock-count/stock-count.module';
 import { SupplierModule } from './modules/supplier/supplier.module';
 import { TransferModule } from './modules/transfer/transfer.module';
@@ -61,6 +62,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     SupplierModule,
     PurchaseOrderModule,
     PurchaseReturnModule,
+    SupplierDebtModule,
   ],
   controllers: [AppController],
   providers: [

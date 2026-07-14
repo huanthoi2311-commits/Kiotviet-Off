@@ -234,6 +234,14 @@ describe('PurchaseOrder Module (e2e, integration)', () => {
     expect(history.body.data.total).toBe(1);
     expect(history.body.data.items[0].quantity).toBe('10');
     expect(history.body.data.items[0].referenceId).toBe(purchaseOrderId);
+
+    const debts = await prisma.debt.findMany({
+      where: { refType: 'PurchaseOrder', refId: purchaseOrderId },
+    });
+    expect(debts).toHaveLength(1);
+    expect(debts[0].type).toBe('PAYABLE');
+    expect(debts[0].supplierId).toBe(supplierId);
+    expect(debts[0].amount.toString()).toBe('80000');
   });
 
   it('INVALID-TRANSITION: từ chối receive khi đơn còn ở DRAFT (chưa approve)', async () => {

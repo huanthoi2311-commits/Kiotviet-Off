@@ -235,6 +235,7 @@ describe('PrismaPurchaseOrderRepository', () => {
         },
         inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
         purchaseItem: { update: jest.fn().mockResolvedValue({}) },
+        debt: { create: jest.fn().mockResolvedValue({}) },
       };
       prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
         Promise.resolve(fn(tx)),
@@ -278,6 +279,14 @@ describe('PrismaPurchaseOrderRepository', () => {
         where: { id: 'item-1' },
         data: { receivedQuantity: rawItem.quantity, updatedBy: 'user-1' },
       });
+
+      const debtArg = tx.debt.create.mock.calls[0][0].data;
+      expect(debtArg.type).toBe('PAYABLE');
+      expect(debtArg.supplierId).toBe('supplier-1');
+      expect(debtArg.refType).toBe('PurchaseOrder');
+      expect(debtArg.refId).toBe('po-1');
+      expect(debtArg.amount).toBe(rawOrder.totalAmount);
+      expect(debtArg.status).toBe('OPEN');
 
       expect(tx.purchaseOrder.update).toHaveBeenCalledWith(
         expect.objectContaining({
