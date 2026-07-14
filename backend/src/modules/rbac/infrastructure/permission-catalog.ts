@@ -100,7 +100,7 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
     description: 'Hoàn tất kiểm kê',
   },
   ...crud('purchase', 'đơn nhập hàng'),
-  ...crud('supplier', 'nhà cung cấp'),
+  ...crud('supplier', 'nhà cung cấp', ['restore', 'import', 'export']),
   ...crud('customer', 'khách hàng'),
   { code: 'order:view', group: 'order', description: 'Xem đơn hàng' },
   { code: 'order:create', group: 'order', description: 'Tạo đơn hàng' },

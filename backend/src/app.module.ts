@@ -17,6 +17,7 @@ import { InventoryModule } from './modules/inventory/inventory.module';
 import { InventoryAdjustmentModule } from './modules/inventory-adjustment/inventory-adjustment.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { StockCountModule } from './modules/stock-count/stock-count.module';
+import { SupplierModule } from './modules/supplier/supplier.module';
 import { TransferModule } from './modules/transfer/transfer.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { ProductModule } from './modules/product/product.module';
@@ -55,6 +56,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     TransferModule,
     StockCountModule,
     InventoryAdjustmentModule,
+    SupplierModule,
   ],
   controllers: [AppController],
   providers: [

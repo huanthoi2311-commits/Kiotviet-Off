@@ -699,6 +699,7 @@ model Product {
   transferItems            TransferItem[]
   stockCountItems          StockCountItem[]
   inventoryAdjustmentItems InventoryAdjustmentItem[]
+  supplierProducts         SupplierProduct[]
 
   @@unique([organizationId, sku])
   @@unique([organizationId, slug])
@@ -920,14 +921,24 @@ model Supplier {
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  code       String
-  name       String
-  phone      String?
-  email      String?
-  address    String?
-  taxCode    String?
-  debtAmount Decimal      @default(0) @db.Decimal(18, 2)
-  status     CommonStatus @default(ACTIVE)
+  code        String
+  taxCode     String?
+  companyName String
+  contactName String?
+  phone       String?
+  email       String?
+  website     String?
+  address     String?
+  province    String?
+  district    String?
+  ward        String?
+  bankName    String?
+  bankAccount String?
+  /// Số ngày công nợ cho phép (vd: 30 = NET 30).
+  paymentTerm Int?
+  creditLimit Decimal?     @db.Decimal(18, 2)
+  status      CommonStatus @default(ACTIVE)
+  note        String?
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -935,13 +946,41 @@ model Supplier {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  purchaseOrders PurchaseOrder[]
-  debts          Debt[]
-  payments       Payment[]
+  purchaseOrders   PurchaseOrder[]
+  debts            Debt[]
+  payments         Payment[]
+  supplierProducts SupplierProduct[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
   @@map("suppliers")
+}
+
+model SupplierProduct {
+  id         String   @id @default(uuid()) @db.Uuid
+  supplierId String   @db.Uuid
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  productId  String   @db.Uuid
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  supplierSku          String?
+  /// Thứ tự ưu tiên chọn NCC khi 1 sản phẩm có nhiều NCC (số nhỏ hơn = ưu tiên hơn).
+  priority             Int?     @default(0)
+  defaultPrice         Decimal? @db.Decimal(18, 2)
+  /// Số ngày giao hàng dự kiến kể từ khi đặt.
+  leadTime             Int?
+  minimumOrderQuantity Decimal? @db.Decimal(18, 3)
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([supplierId, productId])
+  @@index([supplierId])
+  @@index([productId])
+  @@map("supplier_products")
 }
 
 model PurchaseOrder {
