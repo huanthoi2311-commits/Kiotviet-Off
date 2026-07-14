@@ -10,6 +10,7 @@ import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { JwtConfigModule } from './config/jwt-config.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { BarcodeModule } from './modules/barcode/barcode.module';
 import { BrandModule } from './modules/brand/brand.module';
 import { CategoryModule } from './modules/category/category.module';
 import { RbacModule } from './modules/rbac/rbac.module';
@@ -43,6 +44,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     CategoryModule,
     BrandModule,
     UnitModule,
+    BarcodeModule,
   ],
   controllers: [AppController],
   providers: [

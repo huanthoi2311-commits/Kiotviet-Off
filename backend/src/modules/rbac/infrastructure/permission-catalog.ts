@@ -35,6 +35,7 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
   ...crud('category', 'danh mục ngành hàng', ['restore']),
   ...crud('brand', 'thương hiệu'),
   ...crud('unit', 'đơn vị tính'),
+  ...crud('barcode', 'mã vạch'),
   ...crud('warehouse', 'kho'),
   { code: 'inventory:view', group: 'inventory', description: 'Xem tồn kho' },
   {
