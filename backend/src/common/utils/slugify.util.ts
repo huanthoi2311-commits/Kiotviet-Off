@@ -4,9 +4,10 @@ const VIETNAMESE_MAP: Record<string, string> = {
 };
 
 /**
- * Chuyển tên sản phẩm tiếng Việt thành slug ASCII (không thêm dependency ngoài —
+ * Chuyển tên tiếng Việt có dấu thành slug ASCII (không thêm dependency ngoài —
  * NFD normalize xử lý được mọi dấu thanh/nguyên âm, riêng "đ" phải map tay vì
- * không decompose qua Unicode NFD).
+ * không decompose qua Unicode NFD). Dùng chung cho Product/Category/mọi entity
+ * cần slug sau này.
  */
 export function slugify(input: string): string {
   const withoutDStroke = input.replace(/[đĐ]/g, (ch) => VIETNAMESE_MAP[ch]);

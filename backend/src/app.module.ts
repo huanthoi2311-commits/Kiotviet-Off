@@ -10,6 +10,7 @@ import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { JwtConfigModule } from './config/jwt-config.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { CategoryModule } from './modules/category/category.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { ProductModule } from './modules/product/product.module';
@@ -37,6 +38,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     RbacModule,
     AuthModule,
     ProductModule,
+    CategoryModule,
   ],
   controllers: [AppController],
   providers: [

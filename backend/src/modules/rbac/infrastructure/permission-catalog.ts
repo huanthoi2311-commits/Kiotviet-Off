@@ -32,7 +32,7 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
     description: 'Truy cập màn hình bán hàng',
   },
   ...crud('product', 'sản phẩm', ['restore']),
-  ...crud('category', 'danh mục ngành hàng'),
+  ...crud('category', 'danh mục ngành hàng', ['restore']),
   ...crud('brand', 'thương hiệu'),
   ...crud('unit', 'đơn vị tính'),
   ...crud('warehouse', 'kho'),

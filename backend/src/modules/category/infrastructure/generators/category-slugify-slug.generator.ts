@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { slugify } from '../../../../common/utils/slugify.util';
-import { ISlugGenerator } from '../../domain/services/slug-generator.interface';
+import { ICategorySlugGenerator } from '../../domain/services/category-slug-generator.interface';
 
 const MAX_ATTEMPTS = 100;
 
 @Injectable()
-export class SlugifySlugGenerator implements ISlugGenerator {
+export class CategorySlugifySlugGenerator implements ICategorySlugGenerator {
   constructor(private readonly prisma: PrismaService) {}
 
   async generateUnique(
@@ -14,11 +14,11 @@ export class SlugifySlugGenerator implements ISlugGenerator {
     name: string,
     excludeId?: string,
   ): Promise<string> {
-    const base = slugify(name) || 'san-pham';
+    const base = slugify(name) || 'danh-muc';
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`;
-      const existing = await this.prisma.product.findFirst({
+      const existing = await this.prisma.category.findFirst({
         where: {
           organizationId,
           slug: candidate,

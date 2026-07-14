@@ -541,11 +541,13 @@ model Category {
   parentId       String?      @db.Uuid
   parent         Category?    @relation("CategoryParent", fields: [parentId], references: [id], onDelete: SetNull)
 
-  code      String
-  name      String
-  slug      String
-  sortOrder Int          @default(0)
-  status    CommonStatus @default(ACTIVE)
+  code        String
+  name        String
+  slug        String
+  description String?
+  imageUrl    String?
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
