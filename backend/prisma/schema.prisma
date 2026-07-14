@@ -216,42 +216,43 @@ model Organization {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  branches           Branch[]
-  warehouses         Warehouse[]
-  users              User[]
-  roles              Role[]
-  settings           Setting[]
-  categories         Category[]
-  brands             Brand[]
-  units              Unit[]
-  taxes              Tax[]
-  products           Product[]
-  suppliers          Supplier[]
-  purchaseOrders     PurchaseOrder[]
-  orders             Order[]
-  invoices           Invoice[]
-  returns            Return[]
-  customerGroups     CustomerGroup[]
-  customers          Customer[]
-  debts              Debt[]
-  points             Point[]
-  payments           Payment[]
-  cashBooks          CashBook[]
-  expenseCategories  ExpenseCategory[]
-  expenses           Expense[]
-  promotions         Promotion[]
-  vouchers           Voucher[]
-  deliveries         Delivery[]
-  notifications      Notification[]
-  files              File[]
-  webhooks           Webhook[]
-  apiKeys            ApiKey[]
-  auditLogs          AuditLog[]
-  inventories        Inventory[]
-  inventoryMovements InventoryMovement[]
-  transfers          Transfer[]
-  stockCounts        StockCount[]
-  sequences          Sequence[]
+  branches             Branch[]
+  warehouses           Warehouse[]
+  users                User[]
+  roles                Role[]
+  settings             Setting[]
+  categories           Category[]
+  brands               Brand[]
+  units                Unit[]
+  taxes                Tax[]
+  products             Product[]
+  suppliers            Supplier[]
+  purchaseOrders       PurchaseOrder[]
+  orders               Order[]
+  invoices             Invoice[]
+  returns              Return[]
+  customerGroups       CustomerGroup[]
+  customers            Customer[]
+  debts                Debt[]
+  points               Point[]
+  payments             Payment[]
+  cashBooks            CashBook[]
+  expenseCategories    ExpenseCategory[]
+  expenses             Expense[]
+  promotions           Promotion[]
+  vouchers             Voucher[]
+  deliveries           Delivery[]
+  notifications        Notification[]
+  files                File[]
+  webhooks             Webhook[]
+  apiKeys              ApiKey[]
+  auditLogs            AuditLog[]
+  inventories          Inventory[]
+  inventoryMovements   InventoryMovement[]
+  transfers            Transfer[]
+  stockCounts          StockCount[]
+  inventoryAdjustments InventoryAdjustment[]
+  sequences            Sequence[]
 
   @@map("organizations")
 }
@@ -324,13 +325,14 @@ model Warehouse {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  purchaseOrders     PurchaseOrder[]
-  orders             Order[]
-  inventories        Inventory[]
-  inventoryMovements InventoryMovement[]
-  transfersFrom      Transfer[]          @relation("TransferFromWarehouse")
-  transfersTo        Transfer[]          @relation("TransferToWarehouse")
-  stockCounts        StockCount[]
+  purchaseOrders       PurchaseOrder[]
+  orders               Order[]
+  inventories          Inventory[]
+  inventoryMovements   InventoryMovement[]
+  transfersFrom        Transfer[]            @relation("TransferFromWarehouse")
+  transfersTo          Transfer[]            @relation("TransferToWarehouse")
+  stockCounts          StockCount[]
+  inventoryAdjustments InventoryAdjustment[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -685,17 +687,18 @@ model Product {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  prices             ProductPrice[]
-  images             ProductImage[]
-  barcodes           Barcode[]
-  priceHistories     PriceHistory[]
-  inventories        Inventory[]
-  inventoryMovements InventoryMovement[]
-  purchaseItems      PurchaseItem[]
-  orderItems         OrderItem[]
-  returnItems        ReturnItem[]
-  transferItems      TransferItem[]
-  stockCountItems    StockCountItem[]
+  prices                   ProductPrice[]
+  images                   ProductImage[]
+  barcodes                 Barcode[]
+  priceHistories           PriceHistory[]
+  inventories              Inventory[]
+  inventoryMovements       InventoryMovement[]
+  purchaseItems            PurchaseItem[]
+  orderItems               OrderItem[]
+  returnItems              ReturnItem[]
+  transferItems            TransferItem[]
+  stockCountItems          StockCountItem[]
+  inventoryAdjustmentItems InventoryAdjustmentItem[]
 
   @@unique([organizationId, sku])
   @@unique([organizationId, slug])
@@ -1116,6 +1119,71 @@ model StockCountItem {
   @@index([stockCountId])
   @@index([productId])
   @@map("stock_count_items")
+}
+
+enum InventoryAdjustmentStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  COMPLETED
+}
+
+enum InventoryAdjustmentReason {
+  LOST
+  DAMAGED
+  FOUND
+  SYSTEM
+  OTHER
+}
+
+model InventoryAdjustment {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  warehouseId    String       @db.Uuid
+  warehouse      Warehouse    @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  code   String
+  status InventoryAdjustmentStatus @default(DRAFT)
+  reason InventoryAdjustmentReason
+  note   String?
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  items InventoryAdjustmentItem[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([warehouseId])
+  @@index([status])
+  @@map("inventory_adjustments")
+}
+
+model InventoryAdjustmentItem {
+  id           String              @id @default(uuid()) @db.Uuid
+  adjustmentId String              @db.Uuid
+  adjustment   InventoryAdjustment @relation(fields: [adjustmentId], references: [id], onDelete: Cascade)
+  productId    String              @db.Uuid
+  product      Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  /// Delta có dấu do người tạo nhập (dương = tăng tồn kho, âm = giảm).
+  quantity Decimal @db.Decimal(18, 3)
+  remark   String?
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([adjustmentId, productId])
+  @@index([adjustmentId])
+  @@index([productId])
+  @@map("inventory_adjustment_items")
 }
 
 // =========================================================================

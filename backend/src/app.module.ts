@@ -14,6 +14,7 @@ import { BarcodeModule } from './modules/barcode/barcode.module';
 import { BrandModule } from './modules/brand/brand.module';
 import { CategoryModule } from './modules/category/category.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
+import { InventoryAdjustmentModule } from './modules/inventory-adjustment/inventory-adjustment.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { StockCountModule } from './modules/stock-count/stock-count.module';
 import { TransferModule } from './modules/transfer/transfer.module';
@@ -53,6 +54,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     InventoryModule,
     TransferModule,
     StockCountModule,
+    InventoryAdjustmentModule,
   ],
   controllers: [AppController],
   providers: [

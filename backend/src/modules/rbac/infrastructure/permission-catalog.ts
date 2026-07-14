@@ -43,6 +43,16 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
     group: 'inventory',
     description: 'Điều chỉnh/kiểm kê tồn kho',
   },
+  {
+    code: 'inventory:approve',
+    group: 'inventory',
+    description: 'Duyệt phiếu điều chỉnh tồn kho',
+  },
+  {
+    code: 'inventory:complete',
+    group: 'inventory',
+    description: 'Hoàn tất phiếu điều chỉnh tồn kho',
+  },
   { code: 'inventory:transfer', group: 'inventory', description: 'Chuyển kho' },
   {
     code: 'transfer:view',
