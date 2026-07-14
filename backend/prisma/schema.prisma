@@ -1017,6 +1017,9 @@ model PurchaseOrder {
   @@index([organizationId])
   @@index([supplierId])
   @@index([status])
+  /// Phục vụ Purchase Report (Prompt 030): lọc theo tổ chức + trạng thái đã nhận rồi
+  /// group theo tháng/khoảng ngày — join order cho query planner đúng thứ tự lọc.
+  @@index([organizationId, status, createdAt])
   @@map("purchase_orders")
 }
 
