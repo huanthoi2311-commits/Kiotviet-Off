@@ -250,6 +250,7 @@ model Organization {
   inventories        Inventory[]
   inventoryMovements InventoryMovement[]
   transfers          Transfer[]
+  stockCounts        StockCount[]
   sequences          Sequence[]
 
   @@map("organizations")
@@ -329,6 +330,7 @@ model Warehouse {
   inventoryMovements InventoryMovement[]
   transfersFrom      Transfer[]          @relation("TransferFromWarehouse")
   transfersTo        Transfer[]          @relation("TransferToWarehouse")
+  stockCounts        StockCount[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -693,6 +695,7 @@ model Product {
   orderItems         OrderItem[]
   returnItems        ReturnItem[]
   transferItems      TransferItem[]
+  stockCountItems    StockCountItem[]
 
   @@unique([organizationId, sku])
   @@unique([organizationId, slug])
@@ -1053,6 +1056,66 @@ model TransferItem {
   @@index([transferId])
   @@index([productId])
   @@map("transfer_items")
+}
+
+enum StockCountStatus {
+  DRAFT
+  COUNTING
+  COMPLETED
+  CANCELLED
+}
+
+model StockCount {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  warehouseId    String       @db.Uuid
+  warehouse      Warehouse    @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  code   String
+  status StockCountStatus @default(DRAFT)
+  note   String?
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  items StockCountItem[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([warehouseId])
+  @@index([status])
+  @@map("stock_counts")
+}
+
+model StockCountItem {
+  id           String     @id @default(uuid()) @db.Uuid
+  stockCountId String     @db.Uuid
+  stockCount   StockCount @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  productId    String     @db.Uuid
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  /// Tồn kho hệ thống — chụp tại thời điểm tạo phiếu kiểm kê.
+  systemQty  Decimal  @db.Decimal(18, 3)
+  /// Số lượng đếm thực tế — chỉ có giá trị sau khi Complete.
+  actualQty  Decimal? @db.Decimal(18, 3)
+  /// = actualQty - systemQty, tính khi Complete.
+  difference Decimal? @db.Decimal(18, 3)
+  remark     String?
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([stockCountId, productId])
+  @@index([stockCountId])
+  @@index([productId])
+  @@map("stock_count_items")
 }
 
 // =========================================================================

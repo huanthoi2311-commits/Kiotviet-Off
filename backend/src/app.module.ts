@@ -15,6 +15,7 @@ import { BrandModule } from './modules/brand/brand.module';
 import { CategoryModule } from './modules/category/category.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { RbacModule } from './modules/rbac/rbac.module';
+import { StockCountModule } from './modules/stock-count/stock-count.module';
 import { TransferModule } from './modules/transfer/transfer.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { ProductModule } from './modules/product/product.module';
@@ -51,6 +52,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     WarehouseModule,
     InventoryModule,
     TransferModule,
+    StockCountModule,
   ],
   controllers: [AppController],
   providers: [
