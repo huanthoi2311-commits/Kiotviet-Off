@@ -1,8 +1,10 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
+import { CustomerModule } from './modules/customer/customer.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -42,6 +44,9 @@ import { WebsocketModule } from './websocket/websocket.module';
     // Rate limit mặc định: 100 request / phút / IP. Endpoint nhạy cảm (login, refresh,
     // forgot-password) tự siết chặt hơn qua @Throttle() ngay tại route (xem AuthController).
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
+    // Domain Event bus trong-tiến-trình (Prompt 031) — module publish qua DomainEventPublisher
+    // (platform/events), subscriber lắng nghe bằng @OnEvent(...), không gọi thẳng service module khác.
+    EventEmitterModule.forRoot(),
     PrismaModule,
     RedisModule,
     QueueModule,
@@ -65,6 +70,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     PurchaseReturnModule,
     SupplierDebtModule,
     PurchaseReportModule,
+    CustomerModule,
   ],
   controllers: [AppController],
   providers: [

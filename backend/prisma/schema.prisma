@@ -52,6 +52,14 @@ enum Gender {
   OTHER
 }
 
+enum CustomerType {
+  RETAIL
+  WHOLESALE
+  VIP
+  DEALER
+  COMPANY
+}
+
 enum ProductStatus {
   ACTIVE
   INACTIVE
@@ -1487,28 +1495,39 @@ model CustomerGroup {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  customers Customer[]
-
   @@index([organizationId])
   @@map("customer_groups")
 }
 
 model Customer {
-  id             String         @id @default(uuid()) @db.Uuid
-  organizationId String         @db.Uuid
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  groupId        String?        @db.Uuid
-  group          CustomerGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   code         String
-  name         String
+  customerType CustomerType @default(RETAIL)
+  fullName     String
   phone        String
   email        String?
-  address      String?
-  debtAmount   Decimal      @default(0) @db.Decimal(18, 2)
-  pointBalance Int          @default(0)
   birthday     DateTime?
   gender       Gender?
+  /// Chỉ có ý nghĩa với customerType DEALER/COMPANY — không bắt buộc ở tầng schema.
+  taxCode      String?
+  companyName  String?
+  address      String?
+  province     String?
+  district     String?
+  ward         String?
+  avatar       String?
+  note         String?
+  creditLimit  Decimal?     @db.Decimal(18, 2)
+  /// Do hệ thống duy trì (Customer Debt — Prompt tương lai), không cho client sửa trực tiếp.
+  currentDebt  Decimal      @default(0) @db.Decimal(18, 2)
+  /// Do hệ thống duy trì (Order module — Volume 11), không cho client sửa trực tiếp.
+  totalRevenue Decimal      @default(0) @db.Decimal(18, 2)
+  totalOrder   Int          @default(0)
+  /// Do hệ thống duy trì (Customer Point Ledger — Prompt 032), không cho client sửa trực tiếp.
+  totalPoint   Int          @default(0)
   status       CommonStatus @default(ACTIVE)
 
   createdBy String?   @db.Uuid
@@ -1525,7 +1544,7 @@ model Customer {
   @@unique([organizationId, code])
   @@unique([organizationId, phone])
   @@index([organizationId])
-  @@index([name])
+  @@index([fullName])
   @@map("customers")
 }
 
