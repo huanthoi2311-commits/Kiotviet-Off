@@ -31,3 +31,20 @@ export function ApiCommonErrors() {
     }),
   );
 }
+
+/** Dùng thêm cho endpoint ghi dữ liệu (create/update/delete): 409 trùng dữ liệu, 422 vi phạm business rule. */
+export function ApiWriteErrors() {
+  return applyDecorators(
+    ApiCommonErrors(),
+    ApiResponse({
+      status: 409,
+      type: ErrorResponseDto,
+      description: 'Dữ liệu trùng lặp (VD: SKU, slug, barcode đã tồn tại)',
+    }),
+    ApiResponse({
+      status: 422,
+      type: ErrorResponseDto,
+      description: 'Vi phạm quy tắc nghiệp vụ (VD: thiếu giá RETAIL)',
+    }),
+  );
+}

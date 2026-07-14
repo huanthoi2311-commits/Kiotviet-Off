@@ -33,9 +33,10 @@ export default tseslint.config(
     },
   },
   {
-    // Jest mock objects (jest.Mocked<T>, jest.fn()) trigger nhiều false-positive
-    // ở các rule type-checked này — chỉ nới lỏng cho file test, giữ nguyên cho code nghiệp vụ.
-    files: ['**/*.spec.ts'],
+    // Jest mock objects (jest.Mocked<T>, jest.fn()) và supertest response body (any)
+    // trigger nhiều false-positive ở các rule type-checked này — chỉ nới lỏng cho
+    // file test (unit *.spec.ts và integration/e2e *.e2e-spec.ts), giữ nguyên cho code nghiệp vụ.
+    files: ['**/*.spec.ts', '**/*.e2e-spec.ts'],
     rules: {
       '@typescript-eslint/unbound-method': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',

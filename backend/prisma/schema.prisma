@@ -258,6 +258,7 @@ model Organization {
   auditLogs          AuditLog[]
   inventories        Inventory[]
   inventoryHistories InventoryHistory[]
+  sequences          Sequence[]
 
   @@map("organizations")
 }
@@ -624,8 +625,6 @@ model Tax {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  products Product[]
-
   @@unique([organizationId, code])
   @@index([organizationId])
   @@map("taxes")
@@ -639,22 +638,28 @@ model Product {
   category       Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   brandId        String?      @db.Uuid
   brand          Brand?       @relation(fields: [brandId], references: [id], onDelete: SetNull)
-  baseUnitId     String       @db.Uuid
-  baseUnit       Unit         @relation(fields: [baseUnitId], references: [id], onDelete: Restrict)
-  taxId          String?      @db.Uuid
-  tax            Tax?         @relation(fields: [taxId], references: [id], onDelete: SetNull)
+  unitId         String       @db.Uuid
+  unit           Unit         @relation(fields: [unitId], references: [id], onDelete: Restrict)
 
-  sku          String
-  name         String
-  costPrice    Decimal       @db.Decimal(18, 2)
-  sellingPrice Decimal       @db.Decimal(18, 2)
-  minStock     Decimal?      @db.Decimal(18, 3)
-  maxStock     Decimal?      @db.Decimal(18, 3)
-  description  String?
-  image        String?
-  isService    Boolean       @default(false)
-  allowSale    Boolean       @default(true)
-  status       ProductStatus @default(ACTIVE)
+  sku         String
+  slug        String
+  name        String
+  description String?
+  costPrice   Decimal       @db.Decimal(18, 2)
+  /// % thuế GTGT áp cho sản phẩm (VD: 8.00, 10.00) — snapshot đơn giản, không phải FK tới Tax.
+  vat         Decimal       @default(0) @db.Decimal(5, 2)
+  weight      Decimal?      @db.Decimal(18, 3)
+  length      Decimal?      @db.Decimal(18, 3)
+  width       Decimal?      @db.Decimal(18, 3)
+  height      Decimal?      @db.Decimal(18, 3)
+  minStock    Decimal?      @db.Decimal(18, 3)
+  maxStock    Decimal?      @db.Decimal(18, 3)
+  isService   Boolean       @default(false)
+  allowSale   Boolean       @default(true)
+  /// Trạng thái vòng đời (ACTIVE/INACTIVE/DISCONTINUED).
+  status      ProductStatus @default(ACTIVE)
+  /// Bật/tắt nhanh không đổi vòng đời — VD: tạm ẩn khỏi POS mà không đổi status.
+  isActive    Boolean       @default(true)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -662,6 +667,8 @@ model Product {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  prices             ProductPrice[]
+  images             ProductImage[]
   barcodes           Barcode[]
   priceHistories     PriceHistory[]
   inventories        Inventory[]
@@ -671,11 +678,87 @@ model Product {
   returnItems        ReturnItem[]
 
   @@unique([organizationId, sku])
+  @@unique([organizationId, slug])
   @@index([organizationId])
   @@index([categoryId])
   @@index([brandId])
   @@index([name])
   @@map("products")
+}
+
+enum ProductPriceType {
+  RETAIL
+  WHOLESALE
+  VIP
+  DEALER
+}
+
+/// Giá bán tách khỏi Product — 1 product có nhiều mức giá theo nhóm khách hàng,
+/// không hard-code sellingPrice vào Product (Prompt 016).
+model ProductPrice {
+  id        String  @id @default(uuid()) @db.Uuid
+  productId String  @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  type  ProductPriceType
+  price Decimal          @db.Decimal(18, 2)
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([productId, type])
+  @@index([productId])
+  @@map("product_prices")
+}
+
+/// Nhiều hình ảnh/sản phẩm — không lưu image trong Product (Prompt 016).
+model ProductImage {
+  id        String  @id @default(uuid()) @db.Uuid
+  productId String  @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  url         String
+  sortOrder   Int     @default(0)
+  isThumbnail Boolean @default(false)
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+/// Counter nguyên tử theo Organization, dùng sinh SKU tự động (SP000001, SP000002...).
+model Sequence {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  name  String
+  value Int    @default(0)
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([organizationId, name])
+  @@map("sequences")
+}
+
+enum BarcodeType {
+  EAN13
+  EAN8
+  CODE128
+  QR
+  CUSTOM
 }
 
 model Barcode {
@@ -685,8 +768,9 @@ model Barcode {
   unitId    String? @db.Uuid
   unit      Unit?   @relation(fields: [unitId], references: [id], onDelete: SetNull)
 
-  code      String  @unique
-  isDefault Boolean @default(false)
+  code      String      @unique
+  type      BarcodeType @default(CUSTOM)
+  isDefault Boolean     @default(false)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid

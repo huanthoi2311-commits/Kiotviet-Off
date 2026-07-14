@@ -12,6 +12,7 @@ import { JwtConfigModule } from './config/jwt-config.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { PlatformModule } from './modules/platform/platform.module';
+import { ProductModule } from './modules/product/product.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { QueueModule } from './queue/queue.module';
 import { RedisModule } from './redis/redis.module';
@@ -35,6 +36,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     PlatformModule,
     RbacModule,
     AuthModule,
+    ProductModule,
   ],
   controllers: [AppController],
   providers: [
