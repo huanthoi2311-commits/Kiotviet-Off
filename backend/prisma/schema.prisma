@@ -65,9 +65,10 @@ enum PriceType {
 
 enum PurchaseOrderStatus {
   DRAFT
-  ORDERED
-  PARTIALLY_RECEIVED
+  PENDING
+  APPROVED
   RECEIVED
+  COMPLETED
   CANCELLED
 }
 
@@ -325,7 +326,7 @@ model Warehouse {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  purchaseOrders       PurchaseOrder[]
+  purchaseItems        PurchaseItem[]
   orders               Order[]
   inventories          Inventory[]
   inventoryMovements   InventoryMovement[]
@@ -989,8 +990,6 @@ model PurchaseOrder {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   branchId       String       @db.Uuid
   branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  warehouseId    String       @db.Uuid
-  warehouse      Warehouse    @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   supplierId     String       @db.Uuid
   supplier       Supplier     @relation(fields: [supplierId], references: [id], onDelete: Restrict)
 
@@ -1022,11 +1021,15 @@ model PurchaseItem {
   purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   productId       String        @db.Uuid
   product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  /// Mỗi dòng hàng có thể nhập vào kho khác nhau (1 đơn nhập từ 1 NCC có thể chia về nhiều kho).
+  warehouseId     String        @db.Uuid
+  warehouse       Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
 
   quantity         Decimal @db.Decimal(18, 3)
   receivedQuantity Decimal @default(0) @db.Decimal(18, 3)
   unitCost         Decimal @db.Decimal(18, 2)
   discount         Decimal @default(0) @db.Decimal(18, 2)
+  taxAmount        Decimal @default(0) @db.Decimal(18, 2)
   totalAmount      Decimal @default(0) @db.Decimal(18, 2)
 
   createdBy String?   @db.Uuid
@@ -1037,6 +1040,7 @@ model PurchaseItem {
 
   @@index([purchaseOrderId])
   @@index([productId])
+  @@index([warehouseId])
   @@map("purchase_items")
 }
 

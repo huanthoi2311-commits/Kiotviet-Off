@@ -217,21 +217,10 @@ describe('Supplier Module (e2e, integration)', () => {
       create: { organizationId, code: 'E2E-BRANCH', name: 'Chi nhánh E2E' },
       update: {},
     });
-    const warehouse = await prisma.warehouse.upsert({
-      where: { organizationId_code: { organizationId, code: 'E2E-WH' } },
-      create: {
-        organizationId,
-        branchId: branch.id,
-        code: 'E2E-WH',
-        name: 'Kho E2E',
-      },
-      update: {},
-    });
     await prisma.purchaseOrder.create({
       data: {
         organizationId,
         branchId: branch.id,
-        warehouseId: warehouse.id,
         supplierId: created.body.data.id,
         code: `PO-${Date.now()}`,
       },
