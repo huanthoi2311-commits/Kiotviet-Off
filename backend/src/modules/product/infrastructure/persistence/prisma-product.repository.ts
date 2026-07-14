@@ -297,6 +297,22 @@ export class PrismaProductRepository implements IProductRepository {
     return !!found;
   }
 
+  async hasActiveProductsInBrand(brandId: string): Promise<boolean> {
+    const found = await this.prisma.product.findFirst({
+      where: { brandId, deletedAt: null },
+      select: { id: true },
+    });
+    return !!found;
+  }
+
+  async hasActiveProductsInUnit(unitId: string): Promise<boolean> {
+    const found = await this.prisma.product.findFirst({
+      where: { unitId, deletedAt: null },
+      select: { id: true },
+    });
+    return !!found;
+  }
+
   private translateWriteError(error: unknown): Error {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {

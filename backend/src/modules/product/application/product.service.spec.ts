@@ -76,6 +76,8 @@ describe('ProductService', () => {
       existsBySlug: jest.fn(),
       existsByBarcode: jest.fn(),
       hasActiveProductsInCategory: jest.fn(),
+      hasActiveProductsInBrand: jest.fn(),
+      hasActiveProductsInUnit: jest.fn(),
     };
     skuGenerator = { generate: jest.fn().mockResolvedValue('SP000001') };
     slugGenerator = {

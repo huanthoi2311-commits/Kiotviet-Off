@@ -569,10 +569,13 @@ model Brand {
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  code   String
-  name   String
-  logo   String?
-  status CommonStatus @default(ACTIVE)
+  code        String
+  name        String
+  logo        String?
+  description String?
+  website     String?
+  country     String?
+  status      CommonStatus @default(ACTIVE)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid

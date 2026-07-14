@@ -118,6 +118,8 @@ export interface IProductRepository {
   ): Promise<boolean>;
   existsByBarcode(organizationId: string, code: string): Promise<boolean>;
   hasActiveProductsInCategory(categoryId: string): Promise<boolean>;
+  hasActiveProductsInBrand(brandId: string): Promise<boolean>;
+  hasActiveProductsInUnit(unitId: string): Promise<boolean>;
 }
 
 export const PRODUCT_REPOSITORY = Symbol('PRODUCT_REPOSITORY');
