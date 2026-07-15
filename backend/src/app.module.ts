@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { CartModule } from './modules/cart/cart.module';
 import { CustomerModule } from './modules/customer/customer.module';
 import { CustomerPointModule } from './modules/customer-point/customer-point.module';
+import { DiscountModule } from './modules/discount/discount.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -75,6 +76,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     CustomerModule,
     CustomerPointModule,
     CartModule,
+    DiscountModule,
   ],
   controllers: [AppController],
   providers: [
