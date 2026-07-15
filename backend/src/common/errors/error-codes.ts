@@ -124,6 +124,11 @@ export const ErrorCode = {
   // Customer Point (CUSTOMER_POINT_xxx)
   CUSTOMER_POINT_INSUFFICIENT_BALANCE: 'CUSTOMER_POINT_001',
 
+  // Cart (CART_xxx)
+  CART_PRODUCT_NOT_FOUND: 'CART_001',
+  CART_PRODUCT_NOT_SELLABLE: 'CART_002',
+  CART_ITEM_NOT_FOUND: 'CART_003',
+
   // Generic (dùng khi exception không tự gắn code cụ thể)
   VALIDATION_FAILED: 'VALIDATION_001',
   NOT_FOUND: 'HTTP_404',

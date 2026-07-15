@@ -4,6 +4,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
+import { CartModule } from './modules/cart/cart.module';
 import { CustomerModule } from './modules/customer/customer.module';
 import { CustomerPointModule } from './modules/customer-point/customer-point.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
@@ -73,6 +74,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     PurchaseReportModule,
     CustomerModule,
     CustomerPointModule,
+    CartModule,
   ],
   controllers: [AppController],
   providers: [
