@@ -231,4 +231,15 @@ describe('PrismaCustomerRepository', () => {
       );
     });
   });
+
+  describe('syncTotalPoint', () => {
+    it('gọi update với đúng totalPoint, không đổi trường nào khác', async () => {
+      prisma.customer.update.mockResolvedValue(rawCustomer);
+      await repository.syncTotalPoint('cus-1', 250);
+      expect(prisma.customer.update).toHaveBeenCalledWith({
+        where: { id: 'cus-1' },
+        data: { totalPoint: 250 },
+      });
+    });
+  });
 });

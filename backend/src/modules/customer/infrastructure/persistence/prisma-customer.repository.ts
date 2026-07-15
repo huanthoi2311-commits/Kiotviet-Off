@@ -155,6 +155,13 @@ export class PrismaCustomerRepository implements ICustomerRepository {
     return !!found;
   }
 
+  async syncTotalPoint(customerId: string, totalPoint: number): Promise<void> {
+    await this.prisma.customer.update({
+      where: { id: customerId },
+      data: { totalPoint },
+    });
+  }
+
   private buildWhere(
     params: Omit<
       CustomerSearchParams,

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { RbacModule } from '../rbac/rbac.module';
 import { CustomerService } from './application/customer.service';
+import { CustomerPointSubscriber } from './application/subscribers/customer-point.subscriber';
 import { CUSTOMER_REPOSITORY } from './domain/repositories/customer.repository.interface';
 import { CUSTOMER_CODE_GENERATOR } from './domain/services/customer-code-generator.interface';
 import { SequenceCustomerCodeGenerator } from './infrastructure/generators/sequence-customer-code.generator';
@@ -12,6 +13,7 @@ import { CustomerController } from './presentation/customer.controller';
   controllers: [CustomerController],
   providers: [
     CustomerService,
+    CustomerPointSubscriber,
     {
       provide: CUSTOMER_REPOSITORY,
       useClass: PrismaCustomerRepository,

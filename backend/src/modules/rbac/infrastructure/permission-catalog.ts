@@ -154,6 +154,12 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
   ...crud('promotion', 'khuyến mãi'),
   ...crud('voucher', 'mã giảm giá'),
   { code: 'point:view', group: 'point', description: 'Xem điểm tích lũy' },
+  { code: 'point:add', group: 'point', description: 'Cộng điểm tích lũy' },
+  {
+    code: 'point:use',
+    group: 'point',
+    description: 'Sử dụng (trừ) điểm tích lũy',
+  },
   { code: 'delivery:view', group: 'delivery', description: 'Xem vận đơn' },
   {
     code: 'delivery:update',

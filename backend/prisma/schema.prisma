@@ -119,13 +119,6 @@ enum DebtStatus {
   OVERDUE
 }
 
-enum PointType {
-  EARN
-  REDEEM
-  EXPIRE
-  ADJUST
-}
-
 enum PaymentMethod {
   CASH
   BANK_TRANSFER
@@ -244,7 +237,7 @@ model Organization {
   customerGroups       CustomerGroup[]
   customers            Customer[]
   debts                Debt[]
-  points               Point[]
+  pointLedgers         CustomerPointLedger[]
   payments             Payment[]
   cashBooks            CashBook[]
   expenseCategories    ExpenseCategory[]
@@ -1536,10 +1529,10 @@ model Customer {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  orders   Order[]
-  debts    Debt[]
-  points   Point[]
-  payments Payment[]
+  orders       Order[]
+  debts        Debt[]
+  pointLedgers CustomerPointLedger[]
+  payments     Payment[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, phone])
@@ -1578,28 +1571,32 @@ model Debt {
   @@map("debts")
 }
 
-model Point {
+/// Sổ cái điểm thưởng ghi-thêm (append-only) — nguồn sự thật duy nhất cho điểm của Customer
+/// (Prompt 032). Không có updatedAt/deletedAt: một dòng không bao giờ được sửa/xóa, cùng
+/// triết lý InventoryMovement (Prompt 022). Customer.totalPoint chỉ là cache đọc nhanh,
+/// được đồng bộ qua Domain Event (PointAdded/PointUsed/PointExpired), không phải nguồn sự thật.
+model CustomerPointLedger {
   id             String       @id @default(uuid()) @db.Uuid
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   customerId     String       @db.Uuid
   customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
-  type      PointType
-  points    Int
-  refType   String?
-  refId     String?   @db.Uuid
-  expiresAt DateTime?
+  /// Nguồn phát sinh dòng điểm này (vd: "ORDER", "MANUAL", "PROMOTION") — tự do, không FK.
+  referenceType String?
+  referenceId   String?   @db.Uuid
+  /// Delta có dấu: dương = cộng điểm (add), âm = trừ điểm (use).
+  point         Int
+  /// Số dư tích lũy NGAY SAU dòng này — snapshot bất biến, không tính lại từ đầu mỗi lần đọc.
+  balance       Int
+  expiredAt     DateTime?
 
-  createdBy String?   @db.Uuid
-  updatedBy String?   @db.Uuid
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  createdBy String?  @db.Uuid
+  createdAt DateTime @default(now())
 
   @@index([organizationId])
-  @@index([customerId])
-  @@map("points")
+  @@index([customerId, createdAt])
+  @@map("customer_point_ledgers")
 }
 
 // =========================================================================

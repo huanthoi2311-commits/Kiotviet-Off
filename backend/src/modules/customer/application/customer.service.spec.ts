@@ -65,6 +65,7 @@ describe('CustomerService', () => {
       restore: jest.fn(),
       search: jest.fn(),
       existsByPhone: jest.fn(),
+      syncTotalPoint: jest.fn(),
     };
     codeGenerator = { generate: jest.fn().mockResolvedValue('CUS000001') };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };

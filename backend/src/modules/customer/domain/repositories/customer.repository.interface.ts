@@ -72,6 +72,12 @@ export interface ICustomerRepository {
     phone: string,
     excludeId?: string,
   ): Promise<boolean>;
+  /**
+   * Đồng bộ cache `totalPoint` từ Customer Point Ledger (nguồn sự thật) — CHỈ được gọi bởi
+   * subscriber lắng nghe PointAdded/PointUsed/PointExpired (Prompt 032), không phải API ghi
+   * chung `update()`. Không có tác dụng phụ nào khác (không đổi updatedAt/updatedBy).
+   */
+  syncTotalPoint(customerId: string, totalPoint: number): Promise<void>;
 }
 
 export const CUSTOMER_REPOSITORY = Symbol('CUSTOMER_REPOSITORY');
