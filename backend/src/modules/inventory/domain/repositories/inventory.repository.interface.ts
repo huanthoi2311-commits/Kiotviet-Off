@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import {
   InventoryEntity,
   InventoryMovementEntity,
@@ -60,6 +61,42 @@ export interface MovementSearchResult {
   limit: number;
 }
 
+/**
+ * Input cho recordSaleMovement (Prompt 035 — POS Checkout) — quantity luôn là số DƯƠNG
+ * (số lượng bán ra); repository tự trừ, không nhận delta có dấu như recordMovement().
+ */
+export interface RecordSaleMovementInput {
+  organizationId: string;
+  warehouseId: string;
+  productId: string;
+  quantity: number;
+  referenceId?: string | null;
+  createdBy: string;
+}
+
+/** Ném bởi recordSaleMovement() khi tồn kho không đủ VÀ tổ chức không bật `inventory.allowNegativeStock`. */
+export class InventoryInsufficientStockError extends Error {
+  constructor(
+    public readonly productId: string,
+    public readonly available: string,
+  ) {
+    super(`Không đủ tồn kho cho sản phẩm (còn ${available})`);
+  }
+}
+
+/**
+ * Ném bởi recordSaleMovement() khi optimistic lock thất bại — tồn kho đã bị 1 giao dịch
+ * khác ghi đè giữa lúc đọc và lúc ghi (race condition, vd nhiều cashier bán cùng sản phẩm
+ * đồng thời). Caller (Checkout Engine) nên rollback toàn bộ transaction và có thể thử lại.
+ */
+export class InventoryConcurrencyConflictError extends Error {
+  constructor(public readonly productId: string) {
+    super(
+      `Tồn kho sản phẩm vừa bị thay đổi bởi giao dịch khác, vui lòng thử lại`,
+    );
+  }
+}
+
 export interface IInventoryRepository {
   search(params: InventorySearchParams): Promise<InventorySearchResult>;
   getByProduct(
@@ -68,6 +105,18 @@ export interface IInventoryRepository {
   ): Promise<InventoryEntity[]>;
   getHistory(params: MovementSearchParams): Promise<MovementSearchResult>;
   recordMovement(input: RecordMovementInput): Promise<InventoryMovementEntity>;
+  /**
+   * Xuất kho cho bán hàng (SALE/POS) với Optimistic Lock — UPDATE có điều kiện
+   * `WHERE quantity = <giá trị vừa đọc>`, nếu 0 dòng bị ảnh hưởng nghĩa là tồn kho đã đổi
+   * do giao dịch khác chạy chen giữa → ném InventoryConcurrencyConflictError thay vì ghi
+   * đè mù. Tôn trọng setting `inventory.allowNegativeStock` giống Purchase Return/Adjustment.
+   * `tx` tùy chọn — truyền vào khi cần gộp chung 1 Prisma transaction lớn hơn (Checkout
+   * Engine, Prompt 035); không truyền thì tự mở transaction riêng như mọi method khác.
+   */
+  recordSaleMovement(
+    input: RecordSaleMovementInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<InventoryMovementEntity>;
 }
 
 export const INVENTORY_REPOSITORY = Symbol('INVENTORY_REPOSITORY');

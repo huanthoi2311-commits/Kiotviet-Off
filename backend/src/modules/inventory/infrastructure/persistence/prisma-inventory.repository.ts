@@ -8,12 +8,17 @@ import {
 } from '../../domain/entities/inventory.entity';
 import {
   IInventoryRepository,
+  InventoryConcurrencyConflictError,
+  InventoryInsufficientStockError,
   InventorySearchParams,
   InventorySearchResult,
   MovementSearchParams,
   MovementSearchResult,
   RecordMovementInput,
+  RecordSaleMovementInput,
 } from '../../domain/repositories/inventory.repository.interface';
+
+const ALLOW_NEGATIVE_STOCK_SETTING_KEY = 'inventory.allowNegativeStock';
 
 type RawInventory = Prisma.InventoryGetPayload<Record<string, never>>;
 type RawMovement = Prisma.InventoryMovementGetPayload<Record<string, never>>;
@@ -170,6 +175,95 @@ export class PrismaInventoryRepository implements IInventoryRepository {
 
       return this.toMovementEntity(movement);
     });
+  }
+
+  async recordSaleMovement(
+    input: RecordSaleMovementInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<InventoryMovementEntity> {
+    const run = async (
+      client: Prisma.TransactionClient,
+    ): Promise<InventoryMovementEntity> => {
+      const existing = await client.inventory.findUnique({
+        where: {
+          warehouseId_productId: {
+            warehouseId: input.warehouseId,
+            productId: input.productId,
+          },
+        },
+      });
+      const beforeQuantity = existing?.quantity ?? new Prisma.Decimal(0);
+      const delta = new Prisma.Decimal(input.quantity).negated();
+      const afterQuantity = beforeQuantity.plus(delta);
+
+      const negativeStockSetting = await client.setting.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          branchId: null,
+          key: ALLOW_NEGATIVE_STOCK_SETTING_KEY,
+        },
+      });
+      const allowNegativeStock = negativeStockSetting?.value === true;
+      if (!allowNegativeStock && afterQuantity.lessThan(0)) {
+        throw new InventoryInsufficientStockError(
+          input.productId,
+          beforeQuantity.toString(),
+        );
+      }
+
+      // Optimistic Lock: WHERE quantity = beforeQuantity đóng vai trò "version check" — nếu
+      // 1 giao dịch khác đã ghi đè quantity giữa lúc đọc và lúc ghi ở đây, updateMany trả về
+      // count=0 (điều kiện WHERE không còn khớp), ta phát hiện conflict thay vì ghi đè mù.
+      const updateResult = await client.inventory.updateMany({
+        where: {
+          warehouseId: input.warehouseId,
+          productId: input.productId,
+          quantity: beforeQuantity,
+        },
+        data: { quantity: afterQuantity, updatedBy: input.createdBy },
+      });
+
+      if (updateResult.count === 0) {
+        if (!existing) {
+          await client.inventory.create({
+            data: {
+              organizationId: input.organizationId,
+              warehouseId: input.warehouseId,
+              productId: input.productId,
+              quantity: afterQuantity,
+              reservedQty: 0,
+              avgCost: 0,
+              lastCost: 0,
+              createdBy: input.createdBy,
+              updatedBy: input.createdBy,
+            },
+          });
+        } else {
+          throw new InventoryConcurrencyConflictError(input.productId);
+        }
+      }
+
+      const movement = await client.inventoryMovement.create({
+        data: {
+          organizationId: input.organizationId,
+          warehouseId: input.warehouseId,
+          productId: input.productId,
+          movementType: 'SALE',
+          referenceType: 'POS',
+          referenceId: input.referenceId ?? null,
+          quantity: delta,
+          beforeQuantity,
+          afterQuantity,
+          unitCost: null,
+          remark: null,
+          createdBy: input.createdBy,
+        },
+      });
+
+      return this.toMovementEntity(movement);
+    };
+
+    return tx ? run(tx) : this.prisma.$transaction(run);
   }
 
   private toEntity(inventory: RawInventory): InventoryEntity {

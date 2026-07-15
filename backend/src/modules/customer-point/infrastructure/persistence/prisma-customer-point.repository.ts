@@ -40,9 +40,17 @@ export class PrismaCustomerPointRepository implements ICustomerPointRepository {
     });
   }
 
-  async usePoint(input: UsePointInput): Promise<CustomerPointLedgerEntity> {
-    return this.prisma.$transaction(async (tx) => {
-      const currentBalance = await this.lockAndGetBalance(tx, input.customerId);
+  async usePoint(
+    input: UsePointInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<CustomerPointLedgerEntity> {
+    const run = async (
+      client: Prisma.TransactionClient,
+    ): Promise<CustomerPointLedgerEntity> => {
+      const currentBalance = await this.lockAndGetBalance(
+        client,
+        input.customerId,
+      );
       if (input.point > currentBalance) {
         throw new CustomerPointInsufficientBalanceError(
           input.customerId,
@@ -51,7 +59,7 @@ export class PrismaCustomerPointRepository implements ICustomerPointRepository {
       }
       const balance = currentBalance - input.point;
 
-      const created = await tx.customerPointLedger.create({
+      const created = await client.customerPointLedger.create({
         data: {
           organizationId: input.organizationId,
           customerId: input.customerId,
@@ -63,7 +71,9 @@ export class PrismaCustomerPointRepository implements ICustomerPointRepository {
         },
       });
       return this.toEntity(created);
-    });
+    };
+
+    return tx ? run(tx) : this.prisma.$transaction(run);
   }
 
   async getHistory(

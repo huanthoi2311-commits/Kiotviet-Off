@@ -13,5 +13,6 @@ import { CartController } from './presentation/cart.controller';
     CartService,
     { provide: CART_REPOSITORY, useClass: RedisCartRepository },
   ],
+  exports: [CART_REPOSITORY],
 })
 export class CartModule {}

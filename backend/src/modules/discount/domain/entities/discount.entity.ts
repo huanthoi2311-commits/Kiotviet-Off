@@ -15,10 +15,14 @@ export const DISCOUNT_PRIORITY: Record<DiscountSource, number> = {
   MEMBER: 3,
 };
 
-/** 1 dòng trong giỏ hàng — input thuần túy, Discount Engine không tự truy vấn Cart/Product. */
+/**
+ * 1 dòng trong giỏ hàng — input thuần túy, Discount Engine không tự truy vấn Cart/Product.
+ * `categoryId` optional — dự phòng cho Promotion theo danh mục (chưa Strategy nào dùng ở
+ * Prompt 034/035, xem PROMOTION source đang bị hoãn); caller không có sẵn thì bỏ qua.
+ */
 export interface DiscountLineItem {
   productId: string;
-  categoryId: string;
+  categoryId?: string;
   quantity: Prisma.Decimal;
   unitPrice: Prisma.Decimal;
 }

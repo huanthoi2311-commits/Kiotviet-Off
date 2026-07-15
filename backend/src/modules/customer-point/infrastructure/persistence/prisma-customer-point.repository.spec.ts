@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { CustomerPointInsufficientBalanceError } from '../../domain/repositories/customer-point.repository.interface';
 import { PrismaCustomerPointRepository } from './prisma-customer-point.repository';
@@ -121,6 +122,24 @@ describe('PrismaCustomerPointRepository', () => {
       await expect(repository.usePoint(input)).rejects.toThrow(
         CustomerPointInsufficientBalanceError,
       );
+    });
+
+    it('dùng thẳng tx được truyền vào (Checkout Engine), không tự mở $transaction mới', async () => {
+      const tx = {
+        $queryRaw: jest.fn().mockResolvedValue([]),
+        customerPointLedger: {
+          findFirst: jest.fn().mockResolvedValue({ balance: 100 }),
+          create: jest.fn().mockResolvedValue(rawEntry),
+        },
+      };
+
+      await repository.usePoint(
+        input,
+        tx as unknown as Prisma.TransactionClient,
+      );
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.customerPointLedger.create).toHaveBeenCalled();
     });
   });
 

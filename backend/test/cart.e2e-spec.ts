@@ -64,7 +64,10 @@ describe('Cart Module (e2e, integration)', () => {
     });
     const user = await prisma.user.upsert({
       where: {
-        organizationId_email: { organizationId, email: 'cart-e2e@pos-erp.local' },
+        organizationId_email: {
+          organizationId,
+          email: 'cart-e2e@pos-erp.local',
+        },
       },
       create: {
         organizationId,
@@ -93,7 +96,12 @@ describe('Cart Module (e2e, integration)', () => {
 
     const unit = await prisma.unit.upsert({
       where: { organizationId_code: { organizationId, code: 'E2E-UNIT-CART' } },
-      create: { organizationId, code: 'E2E-UNIT-CART', name: 'Cái', symbol: 'cái' },
+      create: {
+        organizationId,
+        code: 'E2E-UNIT-CART',
+        name: 'Cái',
+        symbol: 'cái',
+      },
       update: {},
     });
 

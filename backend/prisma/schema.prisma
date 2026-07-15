@@ -705,6 +705,7 @@ model Product {
   stockCountItems          StockCountItem[]
   inventoryAdjustmentItems InventoryAdjustmentItem[]
   supplierProducts         SupplierProduct[]
+  invoiceItems             InvoiceItem[]
 
   @@unique([organizationId, sku])
   @@unique([organizationId, slug])
@@ -1387,14 +1388,22 @@ model OrderItem {
   @@map("order_items")
 }
 
+/**
+ * `orderId` optional (Prompt 035): Order Module chưa xây (quy hoạch Volume 036-040) — Checkout
+ * Engine tạo Invoice trực tiếp từ Cart, không qua Order. Giữ field + quan hệ để Order Module
+ * sau này có thể gắn ngược vào Invoice đã có mà KHÔNG cần đổi schema lần nữa (không rewrite).
+ * `customerId` optional vì Cart Engine (Prompt 033) không bắt buộc khách hàng.
+ */
 model Invoice {
   id             String       @id @default(uuid()) @db.Uuid
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   branchId       String       @db.Uuid
   branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  orderId        String       @db.Uuid
-  order          Order        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderId        String?      @db.Uuid
+  order          Order?       @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  customerId     String?      @db.Uuid
+  customer       Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   code        String
   status      InvoiceStatus @default(UNPAID)
@@ -1403,19 +1412,40 @@ model Invoice {
   dueAmount   Decimal       @default(0) @db.Decimal(18, 2)
   dueDate     DateTime?
 
-  createdBy String?   @db.Uuid
-  updatedBy String?   @db.Uuid
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  createdBy String?  @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  items    InvoiceItem[]
   payments Payment[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
   @@index([orderId])
+  @@index([customerId])
   @@index([status])
   @@map("invoices")
+}
+
+/// Dòng chi tiết hóa đơn — snapshot tại thời điểm Checkout, không đổi sau khi tạo (Prompt 035).
+model InvoiceItem {
+  id        String  @id @default(uuid()) @db.Uuid
+  invoiceId String  @db.Uuid
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId String  @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  quantity    Decimal @db.Decimal(18, 3)
+  unitPrice   Decimal @db.Decimal(18, 2)
+  discount    Decimal @default(0) @db.Decimal(18, 2)
+  taxAmount   Decimal @default(0) @db.Decimal(18, 2)
+  totalAmount Decimal @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([invoiceId])
+  @@index([productId])
+  @@map("invoice_items")
 }
 
 model Return {
@@ -1533,6 +1563,7 @@ model Customer {
   debts        Debt[]
   pointLedgers CustomerPointLedger[]
   payments     Payment[]
+  invoices     Invoice[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, phone])

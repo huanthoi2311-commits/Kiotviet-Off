@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { CustomerPointLedgerEntity } from '../entities/customer-point-ledger.entity';
 
 export interface AddPointInput {
@@ -53,8 +54,15 @@ export class CustomerPointInsufficientBalanceError extends Error {
  */
 export interface ICustomerPointRepository {
   addPoint(input: AddPointInput): Promise<CustomerPointLedgerEntity>;
-  /** Ném CustomerPointInsufficientBalanceError nếu point > số dư hiện tại. */
-  usePoint(input: UsePointInput): Promise<CustomerPointLedgerEntity>;
+  /**
+   * Ném CustomerPointInsufficientBalanceError nếu point > số dư hiện tại. `tx` tùy chọn —
+   * truyền vào khi cần gộp chung 1 Prisma transaction lớn hơn (Checkout Engine, Prompt 035:
+   * "Toàn bộ → Một Transaction"); không truyền thì tự mở transaction riêng như trước.
+   */
+  usePoint(
+    input: UsePointInput,
+    tx?: Prisma.TransactionClient,
+  ): Promise<CustomerPointLedgerEntity>;
   getHistory(
     params: CustomerPointHistoryParams,
   ): Promise<CustomerPointHistoryResult>;
