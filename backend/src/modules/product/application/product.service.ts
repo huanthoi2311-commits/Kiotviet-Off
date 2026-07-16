@@ -54,6 +54,7 @@ export class ProductService {
     await this.assertValidVariantRelationship(
       dto.type,
       dto.parentProductId ?? null,
+      dto.categoryId,
       actor.organizationId,
     );
 
@@ -159,9 +160,11 @@ export class ProductService {
       dto.parentProductId !== undefined
         ? dto.parentProductId
         : existing.parentProductId;
+    const effectiveCategoryId = dto.categoryId ?? existing.categoryId;
     await this.assertValidVariantRelationship(
       effectiveType,
       effectiveParentProductId,
+      effectiveCategoryId,
       actor.organizationId,
     );
 
@@ -331,10 +334,15 @@ export class ProductService {
    * Bất biến Variant (RFC §8, SPEC-PRODUCT-001 §5) - luôn thực thi, không gate Feature Flag vì
    * `type=VARIANT_CHILD`/`VARIANT_PARENT` chưa từng tồn tại trước SPEC này, không có hành vi cũ
    * nào cần bảo vệ (khác với A06/Archive Rule vốn thay đổi hành vi ĐÃ CÓ trước đây).
+   *
+   * Bổ sung T006 (RFC-0002 §7, SPEC-CATEGORY-001 §5, Decision Q8/S03): Variant Child bắt buộc
+   * cùng `categoryId` với Variant Parent - invariant thuộc domain Category nhưng thực thi ở
+   * đây vì đây là nơi duy nhất Product biết cả `type`/`parentProductId`/`categoryId` cùng lúc.
    */
   private async assertValidVariantRelationship(
     type: ProductType,
     parentProductId: string | null,
+    categoryId: string,
     organizationId: string,
   ): Promise<void> {
     if (type === 'VARIANT_CHILD') {
@@ -355,6 +363,14 @@ export class ProductService {
           withCode(
             ErrorCode.PRODUCT_VARIANT_PARENT_INVALID,
             'parentProductId phải trỏ tới 1 sản phẩm loại VARIANT_PARENT',
+          ),
+        );
+      }
+      if (parent.categoryId !== categoryId) {
+        throw new UnprocessableEntityException(
+          withCode(
+            ErrorCode.PRODUCT_VARIANT_CATEGORY_MISMATCH,
+            'Variant Child phải cùng danh mục với Variant Parent',
           ),
         );
       }
