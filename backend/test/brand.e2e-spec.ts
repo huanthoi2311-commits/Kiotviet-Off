@@ -211,13 +211,15 @@ describe('Brand Module (e2e, integration)', () => {
       .send({ code: `LIFECYCLE-${Date.now()}`, name: 'Thương hiệu vòng đời' })
       .expect(201);
     const id = brandRes.body.data.id;
+    expect(brandRes.body.data.version).toBe(1);
 
     const updated = await request(app.getHttpServer())
       .patch(`/api/v1/brands/${id}`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: 'Thương hiệu vòng đời (đã sửa)' })
+      .send({ version: 1, name: 'Thương hiệu vòng đời (đã sửa)' })
       .expect(200);
     expect(updated.body.data.name).toBe('Thương hiệu vòng đời (đã sửa)');
+    expect(updated.body.data.version).toBe(2);
 
     await request(app.getHttpServer())
       .delete(`/api/v1/brands/${id}`)
@@ -228,5 +230,97 @@ describe('Brand Module (e2e, integration)', () => {
       .get(`/api/v1/brands/${id}`)
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(404);
+  });
+
+  it('OPTIMISTIC LOCK: PATCH với version cũ bị từ chối 409', async () => {
+    const brandRes = await request(app.getHttpServer())
+      .post('/api/v1/brands')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ code: `LOCK-${Date.now()}`, name: 'Thương hiệu khóa' })
+      .expect(201);
+    const id = brandRes.body.data.id;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/brands/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1, name: 'Sửa lần 1' })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/brands/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1, name: 'Sửa lần 2 (version cũ)' })
+      .expect(409);
+  });
+
+  it('RESTORE: khôi phục thương hiệu đã xóa mềm luôn trả status về INACTIVE', async () => {
+    const brandRes = await request(app.getHttpServer())
+      .post('/api/v1/brands')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        code: `RESTORE-${Date.now()}`,
+        name: 'Thương hiệu khôi phục',
+        status: 'ACTIVE',
+      })
+      .expect(201);
+    const id = brandRes.body.data.id;
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/brands/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/brands/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    const restored = await request(app.getHttpServer())
+      .post(`/api/v1/brands/${id}/restore`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(201);
+    expect(restored.body.data.status).toBe('INACTIVE');
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/brands/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/brands/${id}/restore`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(422);
+  });
+
+  it('isActive FILTER: lọc theo status=ACTIVE qua alias isActive, không có cột isActive riêng', async () => {
+    const activeRes = await request(app.getHttpServer())
+      .post('/api/v1/brands')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        code: `ISACTIVE-${Date.now()}`,
+        name: 'Thương hiệu đang hoạt động',
+        status: 'ACTIVE',
+      })
+      .expect(201);
+    const inactiveRes = await request(app.getHttpServer())
+      .post('/api/v1/brands')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        code: `ISACTIVE-OFF-${Date.now()}`,
+        name: 'Thương hiệu ngưng hoạt động',
+        status: 'INACTIVE',
+      })
+      .expect(201);
+
+    const activeList = await request(app.getHttpServer())
+      .get('/api/v1/brands')
+      .query({ isActive: true })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    const activeIds = activeList.body.data.items.map(
+      (b: { id: string }) => b.id,
+    );
+    expect(activeIds).toContain(activeRes.body.data.id);
+    expect(activeIds).not.toContain(inactiveRes.body.data.id);
   });
 });
