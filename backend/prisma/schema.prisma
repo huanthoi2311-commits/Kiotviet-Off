@@ -814,11 +814,9 @@ model Product {
   height      Decimal?      @db.Decimal(18, 3)
   minStock    Decimal?      @db.Decimal(18, 3)
   maxStock    Decimal?      @db.Decimal(18, 3)
-  /// @deprecated thay bang `type` (SPEC-PRODUCT-001 Decision 5) - cot nay bi DROP o Migration 3
-  /// (Commit 3/Repository), giu tam o Migration 1 de code hien tai (chua refactor) van build duoc.
-  isService   Boolean       @default(false)
-  /// Phan loai san pham - thay the `isService` (Decision 5, SPEC-PRODUCT-001 §1.1/§3.2).
-  type        ProductType   @default(STANDARD)
+  /// Phan loai san pham - thay the `isService` (Decision 5, SPEC-PRODUCT-001 §1.1/§3.2). Khong
+  /// con DEFAULT tu Migration 3 - code luon phai truyen tuong minh.
+  type        ProductType
   allowSale   Boolean       @default(true)
   /// Trạng thái vòng đời (DRAFT/ACTIVE/INACTIVE/ARCHIVED — Decision 3).
   status      ProductStatus @default(ACTIVE)
@@ -945,10 +943,9 @@ model Barcode {
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
-  /// @deprecated unique toan cuc, thay bang @@unique([organizationId, code]) (Decision 7).
-  /// Constraint nay bi DROP o Migration 3 (Commit 3/Repository) - giu tam de tranh 1 khoang
-  /// thoi gian khong co unique protection nao (Decision A08).
-  code      String      @unique
+  /// Unique theo tenant qua @@unique([organizationId, code]) ben duoi, khong con unique toan
+  /// cuc (Decision 7 - constraint cu da bi drop o Migration 3).
+  code      String
   type      BarcodeType @default(CUSTOM)
   isDefault Boolean     @default(false)
 

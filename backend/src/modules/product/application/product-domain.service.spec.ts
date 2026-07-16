@@ -14,6 +14,7 @@ describe('ProductDomainService', () => {
     categoryId: 'category-1',
     brandId: null,
     unitId: 'unit-1',
+    parentProductId: null,
     sku: 'SP000001',
     slug: 'san-pham-1',
     name: 'Sản phẩm 1',
@@ -26,10 +27,11 @@ describe('ProductDomainService', () => {
     height: null,
     minStock: null,
     maxStock: null,
-    isService: false,
+    type: 'STANDARD',
     allowSale: true,
     status: 'ACTIVE',
     isActive: true,
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -54,6 +56,8 @@ describe('ProductDomainService', () => {
       hasActiveProductsInCategory: jest.fn(),
       hasActiveProductsInBrand: jest.fn(),
       hasActiveProductsInUnit: jest.fn(),
+      findChildrenByParentId: jest.fn(),
+      hasActiveVariantChildren: jest.fn(),
     };
     service = new ProductDomainService(productRepository);
   });

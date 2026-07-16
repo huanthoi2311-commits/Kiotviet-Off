@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ProductConcurrencyConflictError } from '../../domain/errors/product.errors';
 import { PrismaProductRepository } from './prisma-product.repository';
 
 function knownError(code: string, meta?: Record<string, unknown>) {
@@ -19,6 +20,8 @@ describe('PrismaProductRepository', () => {
       findFirst: jest.Mock;
       findMany: jest.Mock;
       update: jest.Mock;
+      updateMany: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
       count: jest.Mock;
     };
     productPrice: { findMany: jest.Mock };
@@ -32,6 +35,7 @@ describe('PrismaProductRepository', () => {
     categoryId: 'category-1',
     brandId: 'brand-1',
     unitId: 'unit-1',
+    parentProductId: null,
     sku: 'SP000001',
     slug: 'ao-thun-nam',
     name: 'Áo thun nam',
@@ -44,10 +48,11 @@ describe('PrismaProductRepository', () => {
     height: null,
     minStock: null,
     maxStock: null,
-    isService: false,
+    type: 'STANDARD',
     allowSale: true,
     status: 'ACTIVE',
     isActive: true,
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -65,6 +70,8 @@ describe('PrismaProductRepository', () => {
         findFirst: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
+        findUniqueOrThrow: jest.fn(),
         count: jest.fn(),
       },
       productPrice: { findMany: jest.fn() },
@@ -85,6 +92,7 @@ describe('PrismaProductRepository', () => {
       slug: 'ao-thun-nam',
       name: 'Áo thun nam',
       costPrice: 90000,
+      type: 'STANDARD' as const,
       prices: [{ type: 'RETAIL' as const, price: 150000 }],
       createdBy: 'user-1',
     };
@@ -238,51 +246,124 @@ describe('PrismaProductRepository', () => {
   });
 
   describe('update', () => {
-    it('cập nhật và dịch lỗi P2002 khi trùng dữ liệu', async () => {
-      prisma.product.update.mockRejectedValue(
-        knownError('P2002', { target: ['slug'] }),
-      );
-      await expect(
-        repository.update('product-1', { name: 'x', updatedBy: 'user-1' }),
-      ).rejects.toThrow(ConflictException);
-    });
+    it('cập nhật thành công (version khớp) - updateMany rồi findUniqueOrThrow, trả entity đã map', async () => {
+      prisma.product.updateMany.mockResolvedValue({ count: 1 });
+      prisma.product.findUniqueOrThrow.mockResolvedValue(rawProduct);
 
-    it('cập nhật thành công trả về entity đã map', async () => {
-      prisma.product.update.mockResolvedValue(rawProduct);
-      const result = await repository.update('product-1', {
+      const result = await repository.update('product-1', 1, {
         name: 'x',
         updatedBy: 'user-1',
       });
+
+      expect(prisma.product.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'product-1', version: 1 },
+          data: expect.objectContaining({
+            name: 'x',
+            version: { increment: 1 },
+          }),
+        }),
+      );
       expect(result.id).toBe('product-1');
     });
 
-    it('ném thẳng lỗi không xác định khi update thất bại vì lý do khác', async () => {
-      prisma.product.update.mockRejectedValue(new Error('db down'));
+    it('ném ProductConcurrencyConflictError khi version không khớp (0 dòng bị ảnh hưởng)', async () => {
+      prisma.product.updateMany.mockResolvedValue({ count: 0 });
+
       await expect(
-        repository.update('product-1', { name: 'x', updatedBy: 'user-1' }),
+        repository.update('product-1', 1, { name: 'x', updatedBy: 'user-1' }),
+      ).rejects.toThrow(ProductConcurrencyConflictError);
+      expect(prisma.product.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+
+    it('dịch lỗi P2002 khi trùng dữ liệu (throw ngay từ updateMany)', async () => {
+      prisma.product.updateMany.mockRejectedValue(
+        knownError('P2002', { target: ['slug'] }),
+      );
+      await expect(
+        repository.update('product-1', 1, { name: 'x', updatedBy: 'user-1' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('ném thẳng lỗi không xác định khi update thất bại vì lý do khác', async () => {
+      prisma.product.updateMany.mockRejectedValue(new Error('db down'));
+      await expect(
+        repository.update('product-1', 1, { name: 'x', updatedBy: 'user-1' }),
       ).rejects.toThrow('db down');
     });
   });
 
   describe('softDelete / restore', () => {
-    it('softDelete set deletedAt', async () => {
+    it('softDelete set deletedAt + status=ARCHIVED (Decision 4), tăng version', async () => {
       prisma.product.update.mockResolvedValue(rawProduct);
       await repository.softDelete('product-1', 'user-1');
       expect(prisma.product.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ updatedBy: 'user-1' }),
+          data: expect.objectContaining({
+            status: 'ARCHIVED',
+            updatedBy: 'user-1',
+            version: { increment: 1 },
+          }),
         }),
       );
     });
 
-    it('restore clear deletedAt', async () => {
+    it('restore clear deletedAt + status=INACTIVE (Decision A05, không phải ACTIVE), tăng version', async () => {
       prisma.product.update.mockResolvedValue(rawProduct);
       await repository.restore('product-1', 'user-1');
       expect(prisma.product.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { deletedAt: null, updatedBy: 'user-1' },
+          data: {
+            deletedAt: null,
+            status: 'INACTIVE',
+            updatedBy: 'user-1',
+            version: { increment: 1 },
+          },
         }),
       );
+    });
+  });
+
+  describe('findChildrenByParentId / hasActiveVariantChildren', () => {
+    it('findChildrenByParentId trả về danh sách Variant Child map đúng entity', async () => {
+      prisma.product.findMany.mockResolvedValue([rawProduct]);
+      const result = await repository.findChildrenByParentId(
+        'parent-1',
+        'org-1',
+      );
+      expect(prisma.product.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            parentProductId: 'parent-1',
+            organizationId: 'org-1',
+            deletedAt: null,
+          },
+        }),
+      );
+      expect(result).toHaveLength(1);
+    });
+
+    it('hasActiveVariantChildren trả về true khi còn Variant Child status=ACTIVE', async () => {
+      prisma.product.findFirst.mockResolvedValue({ id: 'product-2' });
+      await expect(
+        repository.hasActiveVariantChildren('parent-1'),
+      ).resolves.toBe(true);
+      expect(prisma.product.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            parentProductId: 'parent-1',
+            status: 'ACTIVE',
+            deletedAt: null,
+          },
+        }),
+      );
+    });
+
+    it('hasActiveVariantChildren trả về false khi không còn Variant Child ACTIVE', async () => {
+      prisma.product.findFirst.mockResolvedValue(null);
+      await expect(
+        repository.hasActiveVariantChildren('parent-1'),
+      ).resolves.toBe(false);
     });
   });
 
@@ -355,7 +436,7 @@ describe('PrismaProductRepository', () => {
       );
     });
 
-    it('existsByBarcode kiểm tra trong phạm vi Organization', async () => {
+    it('existsByBarcode kiểm tra trong phạm vi Organization (cột organizationId trực tiếp trên Barcode)', async () => {
       prisma.barcode.findFirst.mockResolvedValue({ id: 'barcode-1' });
       const result = await repository.existsByBarcode('org-1', '8938505970017');
       expect(result).toBe(true);
@@ -363,7 +444,7 @@ describe('PrismaProductRepository', () => {
         expect.objectContaining({
           where: {
             code: '8938505970017',
-            product: { organizationId: 'org-1' },
+            organizationId: 'org-1',
           },
         }),
       );

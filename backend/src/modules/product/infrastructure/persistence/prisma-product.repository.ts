@@ -8,6 +8,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
 import { ProductEntity } from '../../domain/entities/product.entity';
+import { ProductConcurrencyConflictError } from '../../domain/errors/product.errors';
 import {
   CreateProductInput,
   IProductRepository,
@@ -41,6 +42,7 @@ export class PrismaProductRepository implements IProductRepository {
           categoryId: input.categoryId,
           brandId: input.brandId ?? null,
           unitId: input.unitId,
+          parentProductId: input.parentProductId ?? null,
           sku: input.sku,
           slug: input.slug,
           name: input.name,
@@ -53,7 +55,7 @@ export class PrismaProductRepository implements IProductRepository {
           height: input.height ?? null,
           minStock: input.minStock ?? null,
           maxStock: input.maxStock ?? null,
-          isService: input.isService ?? false,
+          type: input.type,
           allowSale: input.allowSale ?? true,
           status: input.status ?? 'ACTIVE',
           isActive: input.isActive ?? true,
@@ -115,14 +117,26 @@ export class PrismaProductRepository implements IProductRepository {
     return product ? this.toEntity(product) : null;
   }
 
-  async update(id: string, input: UpdateProductInput): Promise<ProductEntity> {
+  /**
+   * Optimistic Lock (SPEC-PRODUCT-001 §7.1, Decision A02/A09) — compare-and-swap trên `version`
+   * qua `updateMany` (Prisma `update()` không cho thêm điều kiện ngoài unique field ở `where`),
+   * đúng mẫu `PrismaInventoryRepository.recordMovement()` (T004). 0 dòng bị ảnh hưởng nghĩa là
+   * `expectedVersion` không khớp version hiện tại (bị ghi đè bởi request khác) → ném
+   * `ProductConcurrencyConflictError`. Luôn tăng `version` khi thành công, không bao giờ reset.
+   */
+  async update(
+    id: string,
+    expectedVersion: number,
+    input: UpdateProductInput,
+  ): Promise<ProductEntity> {
     try {
-      const product = await this.prisma.product.update({
-        where: { id },
+      const updateResult = await this.prisma.product.updateMany({
+        where: { id, version: expectedVersion },
         data: {
           categoryId: input.categoryId,
           brandId: input.brandId,
           unitId: input.unitId,
+          parentProductId: input.parentProductId,
           name: input.name,
           slug: input.slug,
           description: input.description,
@@ -134,31 +148,55 @@ export class PrismaProductRepository implements IProductRepository {
           height: input.height,
           minStock: input.minStock,
           maxStock: input.maxStock,
-          isService: input.isService,
+          type: input.type,
           allowSale: input.allowSale,
           status: input.status,
           isActive: input.isActive,
           updatedBy: input.updatedBy,
+          version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ProductConcurrencyConflictError(id);
+      }
+
+      const product = await this.prisma.product.findUniqueOrThrow({
+        where: { id },
         include: PRODUCT_INCLUDE,
       });
       return this.toEntity(product);
     } catch (error) {
+      if (error instanceof ProductConcurrencyConflictError) {
+        throw error;
+      }
       throw this.translateWriteError(error);
     }
   }
 
+  /** Decision 4: Archive/xóa mềm luôn set status=ARCHIVED CÙNG lúc với deletedAt. */
   async softDelete(id: string, deletedBy: string): Promise<void> {
     await this.prisma.product.update({
       where: { id },
-      data: { deletedAt: new Date(), updatedBy: deletedBy },
+      data: {
+        deletedAt: new Date(),
+        status: 'ARCHIVED',
+        updatedBy: deletedBy,
+        version: { increment: 1 },
+      },
     });
   }
 
+  /** Decision A05: restore luôn trả status về INACTIVE (không phải ACTIVE) — tránh vô tình bán lại. */
   async restore(id: string, restoredBy: string): Promise<void> {
     await this.prisma.product.update({
       where: { id },
-      data: { deletedAt: null, updatedBy: restoredBy },
+      data: {
+        deletedAt: null,
+        status: 'INACTIVE',
+        updatedBy: restoredBy,
+        version: { increment: 1 },
+      },
     });
   }
 
@@ -168,7 +206,10 @@ export class PrismaProductRepository implements IProductRepository {
       deletedAt: params.includeDeleted ? undefined : null,
       categoryId: params.categoryId,
       brandId: params.brandId,
+      unitId: params.unitId,
       status: params.status,
+      type: params.type,
+      parentProductId: params.parentProductId,
       ...(params.search
         ? {
             OR: [
@@ -284,7 +325,26 @@ export class PrismaProductRepository implements IProductRepository {
     code: string,
   ): Promise<boolean> {
     const found = await this.prisma.barcode.findFirst({
-      where: { code, product: { organizationId } },
+      where: { code, organizationId },
+      select: { id: true },
+    });
+    return !!found;
+  }
+
+  async findChildrenByParentId(
+    parentProductId: string,
+    organizationId: string,
+  ): Promise<ProductEntity[]> {
+    const products = await this.prisma.product.findMany({
+      where: { parentProductId, organizationId, deletedAt: null },
+      include: PRODUCT_INCLUDE,
+    });
+    return products.map((product) => this.toEntity(product));
+  }
+
+  async hasActiveVariantChildren(parentProductId: string): Promise<boolean> {
+    const found = await this.prisma.product.findFirst({
+      where: { parentProductId, status: 'ACTIVE', deletedAt: null },
       select: { id: true },
     });
     return !!found;
@@ -354,6 +414,7 @@ export class PrismaProductRepository implements IProductRepository {
       categoryId: product.categoryId,
       brandId: product.brandId,
       unitId: product.unitId,
+      parentProductId: product.parentProductId,
       sku: product.sku,
       slug: product.slug,
       name: product.name,
@@ -366,10 +427,11 @@ export class PrismaProductRepository implements IProductRepository {
       height: product.height?.toString() ?? null,
       minStock: product.minStock?.toString() ?? null,
       maxStock: product.maxStock?.toString() ?? null,
-      isService: product.isService,
+      type: product.type,
       allowSale: product.allowSale,
       status: product.status,
       isActive: product.isActive,
+      version: product.version,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
       deletedAt: product.deletedAt,

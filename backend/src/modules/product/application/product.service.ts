@@ -69,6 +69,10 @@ export class ProductService {
       length: dto.length,
       width: dto.width,
       height: dto.height,
+      // Cau noi tam thoi - CreateProductDto chua co field "type" (SPEC-PRODUCT-001 SS9, se lam o
+      // Commit 4 cung DTO). CreateProductDto chua tung co "isService" (repository truoc day tu
+      // default false) nen gia tri tuong duong dung hanh vi hien tai la hang so STANDARD.
+      type: 'STANDARD',
       status: dto.status,
       isActive: dto.isActive,
       prices: dto.prices,
@@ -149,7 +153,11 @@ export class ProductService {
           )
         : undefined;
 
-    const updated = await this.productRepository.update(id, {
+    // Cau noi tam thoi - UpdateProductDto chua co field "version" de client gui lai gia tri da
+    // doc (SPEC-PRODUCT-001 SS4/SS9, se lam o Commit 4 cung DTO). Dung existing.version doc lai
+    // ngay truoc do KHONG phai Optimistic Lock dung nghia (khong the phat hien xung dot tu request
+    // khac) - chi la cau noi de Repository (da xong o Commit 3) compile va chay duoc tam thoi.
+    const updated = await this.productRepository.update(id, existing.version, {
       categoryId: dto.categoryId,
       brandId: dto.brandId,
       unitId: dto.unitId,

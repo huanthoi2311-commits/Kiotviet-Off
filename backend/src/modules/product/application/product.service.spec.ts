@@ -30,6 +30,7 @@ describe('ProductService', () => {
     categoryId: 'category-1',
     brandId: 'brand-1',
     unitId: 'unit-1',
+    parentProductId: null,
     sku: 'SP000001',
     slug: 'ao-thun-nam',
     name: 'Áo thun nam',
@@ -42,10 +43,11 @@ describe('ProductService', () => {
     height: null,
     minStock: null,
     maxStock: null,
-    isService: false,
+    type: 'STANDARD',
     allowSale: true,
     status: 'ACTIVE',
     isActive: true,
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -78,6 +80,8 @@ describe('ProductService', () => {
       hasActiveProductsInCategory: jest.fn(),
       hasActiveProductsInBrand: jest.fn(),
       hasActiveProductsInUnit: jest.fn(),
+      findChildrenByParentId: jest.fn(),
+      hasActiveVariantChildren: jest.fn(),
     };
     skuGenerator = { generate: jest.fn().mockResolvedValue('SP000001') };
     slugGenerator = {
@@ -224,6 +228,7 @@ describe('ProductService', () => {
       );
       expect(productRepository.update).toHaveBeenCalledWith(
         'product-1',
+        baseProduct.version,
         expect.objectContaining({
           name: 'Áo thun nam mới',
           slug: 'ao-thun-nam-moi',
@@ -247,6 +252,7 @@ describe('ProductService', () => {
       expect(slugGenerator.generateUnique).not.toHaveBeenCalled();
       expect(productRepository.update).toHaveBeenCalledWith(
         'product-1',
+        baseProduct.version,
         expect.objectContaining({ slug: undefined }),
       );
     });

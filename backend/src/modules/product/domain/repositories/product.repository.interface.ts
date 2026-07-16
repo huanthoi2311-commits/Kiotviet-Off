@@ -3,6 +3,7 @@ import {
   ProductEntity,
   ProductPriceType,
   ProductStatus,
+  ProductType,
 } from '../entities/product.entity';
 
 export interface CreateProductPriceInput {
@@ -27,6 +28,8 @@ export interface CreateProductInput {
   categoryId: string;
   brandId?: string | null;
   unitId: string;
+  /** Bắt buộc nếu `type=VARIANT_CHILD`, phải null với mọi type khác (SPEC-PRODUCT-001 §5). */
+  parentProductId?: string | null;
   sku: string;
   slug: string;
   name: string;
@@ -39,7 +42,7 @@ export interface CreateProductInput {
   height?: number | null;
   minStock?: number | null;
   maxStock?: number | null;
-  isService?: boolean;
+  type: ProductType;
   allowSale?: boolean;
   status?: ProductStatus;
   isActive?: boolean;
@@ -53,6 +56,7 @@ export interface UpdateProductInput {
   categoryId?: string;
   brandId?: string | null;
   unitId?: string;
+  parentProductId?: string | null;
   name?: string;
   slug?: string;
   description?: string | null;
@@ -64,7 +68,7 @@ export interface UpdateProductInput {
   height?: number | null;
   minStock?: number | null;
   maxStock?: number | null;
-  isService?: boolean;
+  type?: ProductType;
   allowSale?: boolean;
   status?: ProductStatus;
   isActive?: boolean;
@@ -80,7 +84,10 @@ export interface ProductSearchParams {
   search?: string;
   categoryId?: string;
   brandId?: string;
+  unitId?: string;
   status?: ProductStatus;
+  type?: ProductType;
+  parentProductId?: string;
   createdFrom?: Date;
   createdTo?: Date;
   updatedFrom?: Date;
@@ -106,7 +113,17 @@ export interface IProductRepository {
     id: string,
     organizationId: string,
   ): Promise<ProductEntity | null>;
-  update(id: string, input: UpdateProductInput): Promise<ProductEntity>;
+  /**
+   * Optimistic Lock (SPEC-PRODUCT-001 §7.1, Decision A02/A09) — compare-and-swap trên `version`.
+   * Ném `ProductConcurrencyConflictError` nếu `expectedVersion` không khớp version hiện tại
+   * trong DB (đúng mẫu `InventoryConcurrencyConflictError`, ADR-0007). Luôn tăng `version`,
+   * cập nhật `updatedAt`/`updatedBy` khi thành công.
+   */
+  update(
+    id: string,
+    expectedVersion: number,
+    input: UpdateProductInput,
+  ): Promise<ProductEntity>;
   softDelete(id: string, deletedBy: string): Promise<void>;
   restore(id: string, restoredBy: string): Promise<void>;
   search(params: ProductSearchParams): Promise<ProductSearchResult>;
@@ -120,6 +137,13 @@ export interface IProductRepository {
   hasActiveProductsInCategory(categoryId: string): Promise<boolean>;
   hasActiveProductsInBrand(brandId: string): Promise<boolean>;
   hasActiveProductsInUnit(unitId: string): Promise<boolean>;
+  /** Toàn bộ Product có `parentProductId` trỏ tới Product này (SPEC-PRODUCT-001 §7.1). */
+  findChildrenByParentId(
+    parentProductId: string,
+    organizationId: string,
+  ): Promise<ProductEntity[]>;
+  /** Dùng cho guard "không Archive Variant Parent nếu còn Variant Child status=ACTIVE" (RFC §8). */
+  hasActiveVariantChildren(parentProductId: string): Promise<boolean>;
 }
 
 export const PRODUCT_REPOSITORY = Symbol('PRODUCT_REPOSITORY');

@@ -18,7 +18,9 @@ export class ProductMapper {
       length: entity.length,
       width: entity.width,
       height: entity.height,
-      isService: entity.isService,
+      // Cau noi tam thoi - ProductResponseDto chua doi sang "type" (SPEC-PRODUCT-001 SS9, se lam
+      // o Commit 4 cung DTO). Suy nguoc tu "type" de giu dung hanh vi API hien tai khong doi.
+      isService: entity.type === 'SERVICE',
       allowSale: entity.allowSale,
       status: entity.status,
       isActive: entity.isActive,
