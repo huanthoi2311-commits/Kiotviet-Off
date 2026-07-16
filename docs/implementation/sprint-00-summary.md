@@ -1,6 +1,6 @@
 # Sprint-00 — Architecture Stabilization: Summary
 
-**Trạng thái tại thời điểm viết (2026-07-16):** T001-T004 hoàn thành và đã push lên `origin/main` (commit mới nhất `82fd4b4`). T005 (Domain Events) chưa bắt đầu — chờ `SPEC-EVENT-001`.
+**Trạng thái: ĐÃ ĐÓNG (2026-07-16).** T001-T004.95 hoàn thành, gắn tag `v0.1.0-foundation`. Sprint-01 (Product Domain) bắt đầu bằng `RFC-0001` (user soạn) → `SPEC-PRODUCT-001` → Implementation → Review → Release, theo quy trình mới trong `docs/project-governance/`.
 
 ## 1. Mục tiêu Sprint-00
 
@@ -15,8 +15,12 @@ Sau Prompt 035 (Checkout Engine), user dừng toàn bộ phát triển tính nă
 | T003 | Branch Module | `SPEC-BRANCH-001` | ✅ | `d69b82a` |
 | T003.5 | Inventory Architecture Specification & Review | — (chỉ phân tích, 7 tài liệu) | ✅ | `fb8628d` |
 | T004 | Inventory Refactor | `SPEC-INV-001` + Revision 1 | ✅ | `fb8628d` |
-| T005 | Domain Events | `SPEC-EVENT-001` (chưa soạn) | ⬜ Chưa bắt đầu — chờ T004.9 + SPEC | — |
-| T006 | Release Gates (Gate-00) | — | ⬜ Chưa bắt đầu | — |
+| T004.9 | Event Architecture Review | — (chuẩn bị, chưa phải SPEC) | ✅ | `d424c75`* |
+| T004.95 | Architecture Decision Records | `SPEC-T004.95` | ✅ | `c001f31` |
+
+*`d424c75` bị soft-reset và thay bằng nội dung cuối cùng nằm trong `c001f31` — xem `docs/release/gate-status.md` để biết chi tiết lịch sử.
+
+**Sprint-00 ĐÓNG tại đây — tag `v0.1.0-foundation`.** T005 (Domain Events) và các T00x tiếp theo chuyển sang đánh số Sprint-01 (xem §7), không còn thuộc Sprint-00.
 
 Chi tiết Gate từng hạng mục: `docs/release/gate-status.md`.
 
@@ -49,17 +53,24 @@ Xuyên suốt Sprint-00, mọi lần phát hiện xung đột giữa SPEC/ARCHIT
 | Circular Dependency | 0 |
 | Integration Test (e2e) | 🟡 PENDING (No Docker Environment trong sandbox này) |
 
-## 5. Việc CHƯA làm / còn mở
+## 5. Việc CHƯA làm / còn mở (mang sang Sprint-01, không còn là "nợ" của Sprint-00)
 
-- **T005 (Domain Events)** — chưa code. Theo khuyến nghị của user, chèn thêm bước phân tích **T004.9 — Event Architecture Review** (`docs/architecture/event-architecture-review.md`, xem tài liệu riêng) trước khi soạn `SPEC-EVENT-001`. Không code cho tới khi SPEC đó được duyệt.
-- **T006 (Release Gates / Gate-00)** — chưa bắt đầu, tổng kết toàn Sprint-00.
-- **Các open question chưa quyết định** (không thuộc phạm vi T004, nêu lại để không bị quên): `InventoryReservation`/`Lot`/`Serial`/`Batch` chưa thiết kế (domain-model.md §4); nguồn Setting cho negative-stock check vẫn giữ bảng `Setting` cũ, chưa cắt sang `OrganizationSettings.allowNegativeInventory`; Stock Count chưa quyết định có cần Pessimistic Lock khi đang đếm hay không (concurrency.md Case 5).
-- **Integration Test thật** — cần môi trường có Docker/Postgres/Redis để chạy `npm run test:e2e`, xác nhận Gate B (`docs/release-gates.md`) và Gate T004-Integration (`docs/release/gate-status.md`) đồng thời.
+- **Các open question chưa quyết định** (nêu lại để không bị quên): `InventoryReservation`/`Lot`/`Serial`/`Batch` chưa thiết kế (domain-model.md §4); nguồn Setting cho negative-stock check vẫn giữ bảng `Setting` cũ, chưa cắt sang `OrganizationSettings.allowNegativeInventory`; Stock Count chưa quyết định có cần Pessimistic Lock khi đang đếm hay không (concurrency.md Case 5).
+- **Integration Test thật** — cần môi trường có Docker/Postgres/Redis để chạy `npm run test:e2e`, xác nhận Gate B (`docs/release-gates.md`) và mọi Gate Integration Test còn PENDING trong `docs/release/gate-status.md`.
 
 ## 6. Tài liệu tham chiếu
 
 - Audit gốc: `docs/architecture/dependency-graph.md`
 - 7 tài liệu thiết kế Inventory (T003.5): `docs/architecture/inventory/*.md`
+- Event Architecture Review (T004.9): `docs/architecture/event-architecture-review.md`
+- 12 ADR (T004.95): `docs/architecture/adr/`
 - Báo cáo T004 đầy đủ (Implementation/Refactor/Migration/Test/Architecture Verification): `docs/implementation/sprint-00-t004-report.md`
+- Báo cáo T004.95: `docs/implementation/t00495-report.md`
 - Gate Status theo dõi liên tục: `docs/release/gate-status.md`
 - Gate A-D toàn sản phẩm (khác phạm vi, xem ghi chú trong chính file): `docs/release-gates.md`
+
+## 7. Sprint-01 — bắt đầu
+
+**Quy trình mới, áp dụng từ Sprint-01**: RFC → SPEC → Implementation → Review → Release, hỗ trợ bởi `docs/project-governance/` (PROJECT_RULES/ARCHITECTURE_RULES/CODING_RULES/TEST_RULES/REVIEW_RULES/RELEASE_RULES/AI_WORKFLOW).
+
+Sprint-01 bắt đầu bằng **`RFC-0001` (Product Domain)** — user soạn, Claude Code KHÔNG tự viết RFC/SPEC (đúng nguyên tắc Specification First xuyên suốt dự án). Sau `RFC-0001` mới tới `SPEC-PRODUCT-001` rồi triển khai Product Module. Roadmap đầy đủ (T005-T014 + Gate-01) do user cung cấp, chưa có tài liệu chi tiết hóa — chỉ tạo khi có RFC/SPEC tương ứng.

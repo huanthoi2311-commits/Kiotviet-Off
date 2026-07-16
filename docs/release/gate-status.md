@@ -1,6 +1,8 @@
 # Sprint-00 — Gate Status Tracker
 
-**Phạm vi:** theo dõi trạng thái PASS/FAIL/PENDING của từng Gate cho từng hạng mục **Sprint-00: Architecture Stabilization** (T001-T006), theo đúng Acceptance Criteria mà mỗi SPEC/ARCHITECT DECISION đặt ra. Cập nhật mỗi khi một hạng mục hoàn thành hoặc trạng thái Gate đổi.
+**Trạng thái Sprint: ĐÃ ĐÓNG (2026-07-16) — tag `v0.1.0-foundation`.** T001-T004.95 hoàn thành. T005 trở đi chuyển sang đánh số Sprint-01, xem `docs/implementation/sprint-00-summary.md` §7 và `docs/project-governance/`.
+
+**Phạm vi:** theo dõi trạng thái PASS/FAIL/PENDING của từng Gate cho từng hạng mục **Sprint-00: Architecture Stabilization** (T001-T004.95), theo đúng Acceptance Criteria mà mỗi SPEC/ARCHITECT DECISION đặt ra. Giữ nguyên làm hồ sơ lịch sử sau khi Sprint đóng — không cập nhật thêm cho công việc Sprint-01 (Sprint-01 dùng Gate-01 riêng, theo `docs/project-governance/RELEASE_RULES.md`).
 
 **Khác với `docs/release-gates.md`:** file đó theo dõi **Gate A/B/C/D** — mức độ trưởng thành của toàn sản phẩm (Build cơ bản → Docker Integration → Performance → Production), áp dụng xuyên suốt dự án từ Prompt 015A. File này hẹp hơn và chi tiết hơn — theo dõi Gate ở **cấp từng hạng mục T00x trong riêng Sprint-00**, đúng các tiêu chí acceptance cụ thể mà SPEC của hạng mục đó đặt ra (vd Decision 13 của `SPEC-INV-001` cho T004). Hai file bổ sung cho nhau, không thay thế nhau.
 
@@ -22,9 +24,9 @@
 | T003.5 | Inventory Architecture Specification & Review | ✅ Hoàn thành — 7 tài liệu `docs/architecture/inventory/*.md`, committed cùng T004 (`fb8628d`) |
 | T004 | Inventory Refactor (SPEC-INV-001 + Revision 1 + T004.1/T004.5) | ✅ **APPROVED & COMMITTED** — commit `fb8628d`, 10/11 Gate PASS (Integration Test PENDING do thiếu Docker) |
 | T004.9 | Event Architecture Review (chuẩn bị T005, chưa phải SPEC) | ✅ Hoàn thành — `docs/architecture/event-architecture-review.md`, 2 quyết định đã chốt (Event cụ thể + Outbox Pattern) |
-| T004.95 | Architecture Decision Records (ADR, `SPEC-T004.95`) | 🟡 Tài liệu xong, **chờ Architecture Review** — `docs/architecture/adr/` (12 ADR + index), theo Commit Policy của `SPEC-T004.95`: chưa commit |
-| T005 | Domain Events | ⬜ Chưa bắt đầu — chờ user soạn `SPEC-EVENT-001` |
-| T006 | Release Gates (Gate-00 tổng kết Sprint-00) | ⬜ Chưa bắt đầu |
+| T004.95 | Architecture Decision Records (ADR, `SPEC-T004.95`) | ✅ **APPROVED & COMMITTED** — commit `c001f31`, `docs/architecture/adr/` (12 ADR + index) |
+
+**Sprint-00 đóng tại T004.95 — không còn T005/T006 trong Sprint-00** (quyết định của user: T005 trở đi thuộc Sprint-01, đánh số/quy trình riêng — xem `docs/project-governance/`).
 
 ---
 
@@ -52,7 +54,7 @@
 
 `docs/architecture/adr/` — **12 ADR** theo đúng chuẩn `SPEC-T004.95` (Status/Context/Decision/Consequences/Alternatives/Rejected/References): System Architecture, Clean Architecture, Multi-Tenant, RBAC, Single Writer, InventoryDomainService, Optimistic Lock, Transaction Boundary, Domain Events, Repository Boundary, Outbox Pattern, Testing Strategy. Index đầy đủ: `docs/architecture/adr/README.md`. Báo cáo: `docs/implementation/t00495-report.md`.
 
-**Commit Policy (`SPEC-T004.95` §6): KHÔNG commit — chờ Architecture Review.** Toàn bộ 12 file + README + report hiện là uncommitted, đúng theo yêu cầu.
+**ARCHITECT APPROVAL nhận được — đã commit `c001f31` và push.** Commit Policy (`SPEC-T004.95` §6, "KHÔNG commit — chờ Architecture Review") đã được thỏa mãn: Architecture Review hoàn tất, user cho phép commit+push trong cùng quyết định đóng Sprint-00.
 
 > Lịch sử: bộ 8 ADR đầu tiên (tên/format khác, viết trước khi có `SPEC-T004.95`) đã bị soft-reset và thay thế hoàn toàn bằng bộ 12 file này — không tồn tại trong lịch sử git (chưa từng push), không cần disclose thêm ở đây ngoài việc ghi nhận đã redo theo đúng SPEC.
 
@@ -69,3 +71,4 @@
 | 2026-07-16 | ARCHITECT APPROVAL — T004 committed as `fb8628d` |
 | 2026-07-16 | User yêu cầu chèn T004.95 (ADR) trước T005, quyết định dùng nhiều Event cụ thể + bắt buộc Outbox Pattern — T004.9 cập nhật lại theo 2 quyết định này, T004.95 (8 ADR, tên/format tự chọn) hoàn thành lần 1 |
 | 2026-07-16 | User ban hành `SPEC-T004.95` chính thức — cấu trúc 12 ADR, tên file, format Status/Context/Decision/Consequences/Alternatives/Rejected/References khác với bản tự làm lần 1. Soft-reset commit local (chưa push) chứa 8 ADR cũ, viết lại đúng 12 ADR theo SPEC + `t00495-report.md`. Commit Policy: không commit, chờ Architecture Review |
+| 2026-07-16 | ARCHITECT APPROVAL — T004.95 committed as `c001f31`. User quyết định: đóng Sprint-00, gắn tag `v0.1.0-foundation`; Sprint-01 bắt đầu bằng `RFC-0001` (Product Domain, user soạn) → `SPEC-PRODUCT-001` → Implementation → Review → Release; thiết lập `docs/project-governance/` để giảm số lần cần hỏi quyết định lặp lại trong Sprint-01 |
