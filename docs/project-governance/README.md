@@ -14,7 +14,9 @@ Bộ quy tắc vận hành dự án, thiết lập từ khi đóng Sprint-00 (ta
 
 ## Liên quan
 
+- `/PROJECT_STATUS.md` (gốc repo) — nguồn trạng thái chính (Sprint/Task hiện tại, Baseline, việc tiếp theo), đọc TRƯỚC `AI_WORKFLOW.md` khi bắt đầu phiên làm việc mới (Decision T006-R04).
 - `docs/architecture/adr/` — Architecture Decision Records, nguồn sự thật chi tiết cho `ARCHITECTURE_RULES.md`.
+- `docs/architecture/technical-debt.md` — Operational Pending Register (PENDING do giới hạn hạ tầng, không phải Bug/Debt thật — Decision T006-R05).
 - `docs/release/gate-status.md` — theo dõi Gate cấp từng hạng mục Sprint.
 - `docs/release-gates.md` — Gate A/B/C/D cấp toàn sản phẩm.
-- `/CLAUDE.md` (gốc repo) — trỏ tới `AI_WORKFLOW.md` để mọi phiên làm việc AI mới tự động nạp quy trình này.
+- `/CLAUDE.md` (gốc repo) — trỏ tới `PROJECT_STATUS.md` + `AI_WORKFLOW.md` để mọi phiên làm việc AI mới tự động nạp trạng thái + quy trình này.

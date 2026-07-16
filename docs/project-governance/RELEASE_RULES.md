@@ -21,6 +21,7 @@ Quy tắc commit, tag, push, CHANGELOG.
 - Định dạng `vMAJOR.MINOR.PATCH[-milestone]` (xem `PROJECT_RULES.md` §4).
 - Dùng annotated tag (`git tag -a`, có message) — không dùng lightweight tag cho mốc release chính thức.
 - Tag đánh dấu ĐÚNG commit mà CHANGELOG.md đã phản ánh nội dung tương ứng — không tag rồi mới cập nhật CHANGELOG sau.
+- **Versioning Policy (Decision T006-R07):** giữ `v0.x.y` cho toàn bộ giai đoạn Foundation và phát triển các domain (Master Data, CRM, Inventory, POS, ERP Core theo roadmap). Chỉ chuyển sang `v1.0.0` khi hoàn thành đầy đủ các domain trên — **không phát hành `v1.0.0` sớm**.
 
 ## 4. CHANGELOG.md
 
@@ -41,3 +42,11 @@ Khi 1 Sprint đóng (tất cả T00x của Sprint đó hoàn thành, Architectur
 
 - GitHub Actions: `backend-ci.yml` (lint, typecheck, test, prisma validate, build), `frontend-ci.yml` (lint, typecheck, build).
 - `commit-and-tag-version` + `.versionrc.json` — công cụ semver bump tự động sẵn có, có thể dùng thay thao tác tag thủ công nếu phù hợp quy trình Sprint sau này (chưa bắt buộc, Sprint-00 vẫn tag thủ công).
+
+## 7. Regression Baseline (Decision T006-R06, áp dụng từ T006 trở đi)
+
+Mỗi Sprint task (T00x) mới, trước khi được phép đóng, phải xác nhận **toàn bộ các Task đã DONE trước đó vẫn PASS** — chạy `npx jest` (hoặc tương đương) trên **toàn bộ** test suite, không chỉ phạm vi module của Task đang làm. Danh sách Baseline mở rộng dần theo từng Task DONE (xem `PROJECT_STATUS.md` để biết Baseline hiện tại). Mục đích: phát hiện sớm regression giữa các domain, không chỉ dựa vào việc module mới tự test module mới.
+
+## 8. Operational Pending / Technical Debt Register
+
+Mọi mục PENDING do giới hạn hạ tầng (không có Docker/Postgres/Redis trong sandbox phát triển) được theo dõi tập trung ở `docs/architecture/technical-debt.md` (Decision T006-R05) — không mở Bug, không mở Hotfix, không tính là Technical Debt thiết kế. Mỗi mục ghi rõ Nguyên nhân/Điều kiện hoàn thành/Mức ưu tiên/Sprint dự kiến xử lý.

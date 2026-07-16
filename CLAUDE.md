@@ -2,7 +2,7 @@
 
 Dự án đã đóng Sprint-00 (tag `v0.1.0-foundation`) và vận hành theo quy trình chính thức **RFC → SPEC → Implementation → Review → Release** kể từ Sprint-01.
 
-**Trước khi làm bất kỳ task nào, đọc `docs/project-governance/AI_WORKFLOW.md` trước tiên.** File đó mô tả quy trình 6 bước bắt buộc (đọc RFC → đọc SPEC → kiểm tra ADR → kiểm tra quy tắc → xác nhận đủ điều kiện → mới code) và khi nào phải dừng lại hỏi thay vì tự thiết kế.
+**Trước khi làm bất kỳ task nào: đọc `PROJECT_STATUS.md` (đang ở Sprint/Task nào, việc gì vừa xong, việc gì tiếp theo) rồi đọc `docs/project-governance/AI_WORKFLOW.md`.** `AI_WORKFLOW.md` mô tả quy trình 6 bước bắt buộc (đọc RFC → đọc SPEC → kiểm tra ADR → kiểm tra quy tắc → xác nhận đủ điều kiện → mới code) và khi nào phải dừng lại hỏi thay vì tự thiết kế.
 
 Toàn bộ quy tắc chi tiết: `docs/project-governance/README.md` (index tới PROJECT/ARCHITECTURE/CODING/TEST/REVIEW/RELEASE_RULES).
 
