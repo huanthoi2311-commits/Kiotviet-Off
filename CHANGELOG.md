@@ -7,6 +7,45 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/lang/vi/) (`MAJOR.
 
 ## [Unreleased]
 
+**Sprint-01 — T006: Category Implementation** (`SPEC-CATEGORY-001`), theo đúng `RFC-0002` →
+`docs/architecture/category-dependency-audit.md` → `ARCHITECTURE REVIEW – RFC-0002` (Q1-Q12) →
+`SPEC-CATEGORY-001` → `ARCHITECTURE REVIEW – SPEC-CATEGORY-001` (S01-S08) →
+`Category Implementation Plan` → `ARCHITECTURE REVIEW – Category Implementation Plan` (IP01-IP07).
+Chi tiết đầy đủ: `docs/implementation/t006-category-implementation-report.md`.
+
+### Added
+- `Category.status` (`CategoryStatus`: `DRAFT`/`ACTIVE`/`INACTIVE`/`ARCHIVED`) — độc lập với
+  `isActive` (cờ bật/tắt nhanh, không đổi ý nghĩa), cùng mẫu `Product` (T005).
+- `Category.version` (Optimistic Lock, `DEFAULT 1`).
+- **`@@unique([organizationId, slug])`** cho `Category` — đóng lỗ hổng race condition trước đây
+  chỉ dựa vào `CategorySlugifySlugGenerator` (app-level, không có ràng buộc DB).
+- `GET /categories` — filter/phân trang mới: `search`/`status`/`parentId`/`isActive`/`page`/
+  `limit`/`sortBy`/`sortOrder` (tên tham số thống nhất toàn dự án Master Data — Decision IP01).
+- `findAncestorChainIncludingArchived()` (Repository, nội bộ, không expose API) — phục vụ guard
+  Restore theo chuỗi tổ tiên.
+- Bộ test mới cho Circular Detection nhiều cấp, Archive/Restore đệ quy, Optimistic Lock,
+  Pagination/Search, Multi Tenant Isolation (`category`) và Variant-Category consistency
+  (`product`) — chi tiết ở báo cáo implementation.
+
+### Changed
+- **`DELETE /categories/:id`** nay chặn Archive nếu còn danh mục con **ở bất kỳ cấp nào** đang
+  `ACTIVE` (đệ quy toàn bộ cây con, không chỉ con trực tiếp — Decision Q6/S05), ngoài điều kiện
+  "còn Product active" đã có từ trước. Set cả `status=ARCHIVED` lẫn `deletedAt`.
+- **`POST /categories/:id/restore`** nay chặn nếu **bất kỳ tổ tiên nào** (không chỉ cha trực
+  tiếp) đang `ARCHIVED` (Decision Q7) — không tự động Restore tổ tiên, phải Restore từ trên
+  xuống. Luôn trả `status` về `INACTIVE`.
+- **`PATCH /categories/:id`** nay bắt buộc gửi `version` (Optimistic Lock) — sai version trả
+  `409`. Không cho set `status=ARCHIVED`/`ACTIVE` trực tiếp qua route này (phải qua
+  `DELETE`/`restore`, có guard đệ quy — Decision S01).
+- **Variant Child (Product) bắt buộc cùng `categoryId` với Variant Parent** (RFC-0002 §7, Decision
+  Q8/S03) — validate bổ sung ở `product.service.ts` (`assertValidVariantRelationship()`), lỗi mới
+  `PRODUCT_014`. Đây là thay đổi duy nhất chạm module `product` (đã đóng ở T005).
+
+### Known Limitations
+- Integration Test, Rollback Test (3 migration mới), Manual API Smoke Test, Query Performance
+  benchmark (>1000 category, Decision S06) — 🟡 PENDING: không có Docker/Postgres/Redis trong môi
+  trường phát triển hiện tại. Xem `docs/implementation/t006-category-implementation-report.md`.
+
 ## [0.2.0-product-foundation] - 2026-07-16
 
 **Sprint-01 — T005: Product Refactor** (`SPEC-PRODUCT-001`), theo đúng
