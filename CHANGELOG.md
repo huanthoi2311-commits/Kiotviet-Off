@@ -7,6 +7,8 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/lang/vi/) (`MAJOR.
 
 ## [Unreleased]
 
+## [0.5.0-unit-foundation] - 2026-07-16
+
 **Sprint-01 — T008: Unit Domain** (`SPEC-UNIT-001`), theo đúng `RFC-0004` →
 `docs/architecture/unit-dependency-audit.md` → `ARCHITECTURE REVIEW – RFC-0004 Unit Domain`
 (RQ1-RQ10) → `SPEC-UNIT-001` → `ARCHITECTURE REVIEW – SPEC-UNIT-001` (SU01-SU10) →
@@ -195,7 +197,8 @@ Decision T005-R01..R05). **Technical Complete = PASS, Operational Complete = PEN
 - Refresh token lưu dưới dạng HMAC-SHA256 hash trong DB, không lưu plaintext.
 - Refresh token reuse detection: phát hiện token đã bị thu hồi nhưng vẫn được dùng lại → thu hồi toàn bộ session của user.
 
-[Unreleased]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.4.0-brand-foundation...HEAD
+[Unreleased]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.5.0-unit-foundation...HEAD
+[0.5.0-unit-foundation]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.4.0-brand-foundation...v0.5.0-unit-foundation
 [0.4.0-brand-foundation]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.3.0-category-foundation...v0.4.0-brand-foundation
 [0.3.0-category-foundation]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.2.0-product-foundation...v0.3.0-category-foundation
 [0.2.0-product-foundation]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.1.0-foundation...v0.2.0-product-foundation
