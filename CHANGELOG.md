@@ -7,6 +7,48 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/lang/vi/) (`MAJOR.
 
 ## [Unreleased]
 
+**Sprint-01 (đang tiến hành) — T005: Product Refactor** (`SPEC-PRODUCT-001`), theo đúng
+`RFC-0001 Revision 1` + `ARCHITECTURE REVIEW – SPEC-PRODUCT-001` (A01-A10) +
+`ARCHITECTURE REVIEW – T005.1` (A11-A18) + `ARCHITECT DECISION – T005 Implementation
+Clarification` (C01-C08).
+
+### Added
+- `ProductType` enum (`STANDARD`/`SERVICE`/`VARIANT_PARENT`/`VARIANT_CHILD`) thay thế
+  `Product.isService`. `Product.parentProductId` (self-reference) cho Variant Child — Variant
+  Child là 1 Product bình thường, không có model `Variant` riêng.
+- `Product.version` (Optimistic Lock, `DEFAULT 1`) — chuẩn mới bắt buộc cho mọi Aggregate Root
+  từ Sprint-01.
+- `Barcode.organizationId` (denormalize từ `Product`) + unique constraint theo tenant
+  `(organizationId, code)` thay thế unique toàn cục.
+- `ProductDomainService` (`backend/src/modules/product/application/product-domain.service.ts`)
+  — cửa ngõ đọc duy nhất của `Product` cho module khác (4 method: `findById`,
+  `hasActiveProductsInCategory/Brand/Unit`), theo mẫu `InventoryDomainService` (T004) nhưng giải
+  quyết vấn đề khác (Repository Boundary/export hygiene — ADR-0010, không phải Single Writer).
+- `product-repository-boundary.architecture.spec.ts` — bộ test kiến trúc tự động xác minh
+  `PRODUCT_REPOSITORY` không còn export ngoài `product` module.
+- `PRODUCT_REFACTOR_ENABLED` — feature flag nội bộ (dev-only, đọc từ env, mặc định `false`), gate
+  3 business rule mới: Optimistic Lock enforcement, Product Type change guard, Archive-blocks-
+  active-variant guard. Có thể xóa ở cuối Sprint-01.
+
+### Changed
+- **`PATCH /products/:id`** nay bắt buộc gửi `version` (Optimistic Lock) — sai version trả `409`.
+- **`DELETE /products/:id`** nay set cả `status=ARCHIVED` lẫn `deletedAt` (trước chỉ `deletedAt`);
+  từ chối nếu còn Variant Child `status=ACTIVE`.
+- **`POST /products/:id/restore`** luôn trả `status` về `INACTIVE` (không tự động `ACTIVE`).
+- `ProductStatus`: thêm `DRAFT`, đổi tên `DISCONTINUED` → `ARCHIVED` (rename value, giữ dữ liệu
+  cũ, cùng mẫu `OrganizationStatus` ở T002).
+- 5 module (`category`, `brand`, `unit`, `barcode`, `cart`) đổi từ inject
+  `PRODUCT_REPOSITORY`/`IProductRepository` trực tiếp sang inject `ProductDomainService`.
+
+### Migration
+- 3 migration độc lập (`20260716020000`/`20260716030000`/`20260716040000`), mỗi migration kèm
+  `rollback.sql` riêng — rollback đã viết, **chưa chạy thử thật** (không có Postgres trong môi
+  trường phát triển hiện tại, xem Known Limitations).
+
+### Known Limitations
+- Integration Test, Rollback Test, Manual API Smoke Test — 🟡 PENDING: không có Docker/Postgres/
+  Redis trong môi trường phát triển hiện tại. Xem `docs/implementation/t005-product-refactor-report.md`.
+
 ## [0.1.0-foundation] - 2026-07-16
 
 **Sprint-00: Architecture Stabilization** — đóng Sprint sau T001-T004.95. Toàn bộ tính năng POS/Order/Payment/Voucher/Promotion mới bị tạm dừng trong Sprint này để ổn định kiến trúc nền tảng trước khi mở rộng (Sprint-01 trở đi).
