@@ -3,18 +3,10 @@
 **Đây là nguồn trạng thái chính của dự án** (Decision T006-R04) — đọc file này để biết đang ở đâu, việc gì vừa xong, việc gì tiếp theo, trước khi bắt đầu bất kỳ task mới nào sau khi hết session. Cập nhật file này mỗi khi đóng 1 Sprint task (T00x) hoặc phát hành version mới.
 
 **Version hiện tại:** `v0.5.0-unit-foundation`
-**Sprint hiện tại:** Sprint-01 (đang tiến hành, ~40% — Decision UR08)
-**Task tiếp theo:** ⚠️ **Chưa xác định — có mâu thuẫn cần Architect xác nhận lại**, xem "Ghi chú roadmap" ngay dưới đây. Không tự bắt đầu Audit/RFC mới cho tới khi rõ ràng (Decision UR08).
+**Sprint hiện tại:** Sprint-01 (đang tiến hành)
+**Task tiếp theo:** T009 — Barcode Domain, chờ `RFC-0005` từ Architect. **Không tự bắt đầu Audit/RFC/SPEC/Plan cho T009 khi chưa có RFC-0005** (Decision RC05).
 
-### ⚠️ Ghi chú roadmap (cần Architect xác nhận)
-
-`ARCHITECTURE REVIEW – T008 Unit Implementation` (Decision UR08) nêu module kế tiếp là **T009 — Customer Domain**, "WAITING RFC-0005". Điều này khác với roadmap cố định đã thiết lập nhiều lần trước đó:
-- `ARCHITECT DECISION – CLOSE T006 & START SPRINT T007` (Decision T007-03): *"Brand → Unit → Barcode → Attribute → Variant, không được bỏ qua thứ tự."*
-- `ARCHITECT DECISION – CLOSE T007 & START RFC-0004`: giữ nguyên đúng thứ tự này.
-- Bản thân `docs/release/t008-release-note.md` (mục "Next Sprint", viết ngay trước Decision UR08) vẫn ghi T009 = Barcode.
-- `Customer` còn không thuộc nhóm Master Data — theo Versioning Policy (mục dưới), Customer thuộc nhóm **CRM**, một giai đoạn roadmap khác, tách biệt khỏi Master Data (Product/Category/Brand/Unit/Barcode/Attribute/Variant).
-
-Chưa rõ đây là quyết định đổi ưu tiên có chủ đích (bỏ qua Barcode/Attribute/Variant, chuyển thẳng sang CRM) hay nhầm lẫn giữa 2 module kế tiếp trong message. **Claude Code không tự chọn 1 trong 2 phương án** — chờ Architect xác nhận rõ trước khi bắt đầu Dependency Audit cho T009, dù là Barcode hay Customer.
+Roadmap cố định Sprint-01 (Decision RC01, xác nhận lại — không đổi so với Decision T007-03): Product → Category → Brand → Unit → **Barcode** → Attribute → Variant → Gate-01. `Customer` không thuộc Sprint-01 — thuộc Sprint CRM, triển khai sau khi hoàn thành toàn bộ Master Data (Decision RC03).
 
 ---
 
@@ -30,7 +22,10 @@ Tag `v0.1.0-foundation`. Xem `docs/implementation/sprint-00-summary.md`, `docs/r
 | T006 | Category Implementation | `SPEC-CATEGORY-001` | ✅ **DONE** (Technical Complete, Operational Complete PENDING) | `v0.3.0-category-foundation` |
 | T007 | Brand Domain | `SPEC-BRAND-001` | ✅ **DONE** (Technical Complete, Operational Complete PENDING) | `v0.4.0-brand-foundation` |
 | T008 | Unit Domain | `SPEC-UNIT-001` | ✅ **DONE** (Technical Complete, Operational Complete PENDING) | `v0.5.0-unit-foundation` |
-| T009 | Barcode Domain **hoặc** Customer Domain (⚠️ chưa rõ, xem ghi chú roadmap ở trên) | — | ⬜ Chờ RFC + xác nhận module đúng từ Architect | — |
+| T009 | Barcode Domain | — | ⬜ WAITING `RFC-0005` | — |
+| T010 | Attribute Domain | — | ⬜ Chưa bắt đầu | — |
+| T011 | Variant Domain | — | ⬜ Chưa bắt đầu | — |
+| Gate-01 | Master Data hoàn tất | — | ⬜ Chưa bắt đầu | — |
 
 **Quy trình chuẩn đang áp dụng** (từ T006 trở đi, chạy trọn vẹn):
 `Dependency Audit → RFC → Architecture Review → SPEC → Implementation Plan → Architecture Review → Code (theo đúng thứ tự bước, không gộp) → Architecture Review → Release`.
