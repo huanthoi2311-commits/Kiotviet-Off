@@ -3,7 +3,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import type { ProductEntity } from '../../product/domain/entities/product.entity';
-import type { IProductRepository } from '../../product/domain/repositories/product.repository.interface';
+import type { ProductDomainService } from '../../product/application/product-domain.service';
 import { CartEntity } from '../domain/entities/cart.entity';
 import type { ICartRepository } from '../domain/repositories/cart.repository.interface';
 import { ActorContext, CartService } from './cart.service';
@@ -11,7 +11,7 @@ import { ActorContext, CartService } from './cart.service';
 describe('CartService', () => {
   let service: CartService;
   let cartRepository: jest.Mocked<ICartRepository>;
-  let productRepository: jest.Mocked<Pick<IProductRepository, 'findById'>>;
+  let productDomainService: jest.Mocked<Pick<ProductDomainService, 'findById'>>;
 
   const actor: ActorContext = { userId: 'user-1', organizationId: 'org-1' };
 
@@ -53,12 +53,12 @@ describe('CartService', () => {
       save: jest.fn(),
       delete: jest.fn(),
     };
-    productRepository = {
+    productDomainService = {
       findById: jest.fn(),
     };
     service = new CartService(
       cartRepository,
-      productRepository as unknown as IProductRepository,
+      productDomainService as unknown as ProductDomainService,
     );
   });
 
@@ -104,7 +104,7 @@ describe('CartService', () => {
 
   describe('addItem', () => {
     it('ném NotFoundException khi sản phẩm không tồn tại', async () => {
-      productRepository.findById.mockResolvedValue(null);
+      productDomainService.findById.mockResolvedValue(null);
       await expect(
         service.addItem({ productId: 'prod-x', quantity: 1 }, actor),
       ).rejects.toThrow(NotFoundException);
@@ -112,7 +112,7 @@ describe('CartService', () => {
     });
 
     it('ném UnprocessableEntityException khi sản phẩm không được phép bán', async () => {
-      productRepository.findById.mockResolvedValue({
+      productDomainService.findById.mockResolvedValue({
         ...product,
         allowSale: false,
       });
@@ -122,7 +122,7 @@ describe('CartService', () => {
     });
 
     it('ném UnprocessableEntityException khi sản phẩm chưa có giá RETAIL', async () => {
-      productRepository.findById.mockResolvedValue({
+      productDomainService.findById.mockResolvedValue({
         ...product,
         prices: [{ id: 'price-2', type: 'WHOLESALE', price: '90000.00' }],
       });
@@ -132,7 +132,7 @@ describe('CartService', () => {
     });
 
     it('thêm dòng mới vào giỏ rỗng, tính đúng price/tax/total theo Product', async () => {
-      productRepository.findById.mockResolvedValue(product);
+      productDomainService.findById.mockResolvedValue(product);
       cartRepository.findByUserId.mockResolvedValue(null);
 
       const result = await service.addItem(
@@ -152,7 +152,7 @@ describe('CartService', () => {
     });
 
     it('cộng dồn quantity khi sản phẩm đã có sẵn trong giỏ (re-snapshot theo giá hiện tại)', async () => {
-      productRepository.findById.mockResolvedValue(product);
+      productDomainService.findById.mockResolvedValue(product);
       cartRepository.findByUserId.mockResolvedValue({
         organizationId: 'org-1',
         userId: 'user-1',
@@ -231,7 +231,7 @@ describe('CartService', () => {
 
     it('ném NotFoundException khi Product đã bị xóa sau khi add vào giỏ', async () => {
       cartRepository.findByUserId.mockResolvedValue(cartWithItem);
-      productRepository.findById.mockResolvedValue(null);
+      productDomainService.findById.mockResolvedValue(null);
       await expect(
         service.updateItem({ productId: 'prod-1', quantity: 5 }, actor),
       ).rejects.toThrow(NotFoundException);
@@ -239,7 +239,7 @@ describe('CartService', () => {
 
     it('giữ nguyên price, cập nhật quantity/tax/total tuyệt đối', async () => {
       cartRepository.findByUserId.mockResolvedValue(cartWithItem);
-      productRepository.findById.mockResolvedValue(product);
+      productDomainService.findById.mockResolvedValue(product);
 
       const result = await service.updateItem(
         { productId: 'prod-1', quantity: 5 },

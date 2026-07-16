@@ -3,7 +3,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
-import { IProductRepository } from '../../product/domain/repositories/product.repository.interface';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { BrandEntity } from '../domain/entities/brand.entity';
 import { IBrandRepository } from '../domain/repositories/brand.repository.interface';
 import { ActorContext, BrandService } from './brand.service';
@@ -11,8 +11,8 @@ import { ActorContext, BrandService } from './brand.service';
 describe('BrandService', () => {
   let service: BrandService;
   let brandRepository: jest.Mocked<IBrandRepository>;
-  let productRepository: jest.Mocked<
-    Pick<IProductRepository, 'hasActiveProductsInBrand'>
+  let productDomainService: jest.Mocked<
+    Pick<ProductDomainService, 'hasActiveProductsInBrand'>
   >;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
 
@@ -43,14 +43,14 @@ describe('BrandService', () => {
       search: jest.fn(),
       existsByCode: jest.fn(),
     };
-    productRepository = {
+    productDomainService = {
       hasActiveProductsInBrand: jest.fn().mockResolvedValue(false),
     };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     service = new BrandService(
       brandRepository,
-      productRepository as unknown as IProductRepository,
+      productDomainService as unknown as ProductDomainService,
       auditLogService as unknown as AuditLogService,
     );
   });
@@ -133,7 +133,7 @@ describe('BrandService', () => {
   describe('remove', () => {
     it('chặn xóa khi còn sản phẩm sử dụng thương hiệu', async () => {
       brandRepository.findById.mockResolvedValue(makeBrand());
-      productRepository.hasActiveProductsInBrand.mockResolvedValue(true);
+      productDomainService.hasActiveProductsInBrand.mockResolvedValue(true);
       await expect(service.remove('brand-1', actor)).rejects.toThrow(
         UnprocessableEntityException,
       );

@@ -7,8 +7,7 @@ import {
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
-import { PRODUCT_REPOSITORY } from '../../product/domain/repositories/product.repository.interface';
-import type { IProductRepository } from '../../product/domain/repositories/product.repository.interface';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { BrandEntity } from '../domain/entities/brand.entity';
 import { BRAND_REPOSITORY } from '../domain/repositories/brand.repository.interface';
 import type { IBrandRepository } from '../domain/repositories/brand.repository.interface';
@@ -33,8 +32,7 @@ export class BrandService {
   constructor(
     @Inject(BRAND_REPOSITORY)
     private readonly brandRepository: IBrandRepository,
-    @Inject(PRODUCT_REPOSITORY)
-    private readonly productRepository: IProductRepository,
+    private readonly productDomainService: ProductDomainService,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -127,7 +125,7 @@ export class BrandService {
     if (!existing) throw this.notFound();
 
     const hasProducts =
-      await this.productRepository.hasActiveProductsInBrand(id);
+      await this.productDomainService.hasActiveProductsInBrand(id);
     if (hasProducts) {
       throw new UnprocessableEntityException(
         withCode(

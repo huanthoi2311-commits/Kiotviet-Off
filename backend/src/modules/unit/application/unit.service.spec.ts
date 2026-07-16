@@ -3,7 +3,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
-import { IProductRepository } from '../../product/domain/repositories/product.repository.interface';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { UnitEntity } from '../domain/entities/unit.entity';
 import { IUnitRepository } from '../domain/repositories/unit.repository.interface';
 import { ActorContext, UnitService } from './unit.service';
@@ -11,8 +11,8 @@ import { ActorContext, UnitService } from './unit.service';
 describe('UnitService', () => {
   let service: UnitService;
   let unitRepository: jest.Mocked<IUnitRepository>;
-  let productRepository: jest.Mocked<
-    Pick<IProductRepository, 'hasActiveProductsInUnit'>
+  let productDomainService: jest.Mocked<
+    Pick<ProductDomainService, 'hasActiveProductsInUnit'>
   >;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
 
@@ -39,14 +39,14 @@ describe('UnitService', () => {
       search: jest.fn(),
       existsByCode: jest.fn(),
     };
-    productRepository = {
+    productDomainService = {
       hasActiveProductsInUnit: jest.fn().mockResolvedValue(false),
     };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     service = new UnitService(
       unitRepository,
-      productRepository as unknown as IProductRepository,
+      productDomainService as unknown as ProductDomainService,
       auditLogService as unknown as AuditLogService,
     );
   });
@@ -129,7 +129,7 @@ describe('UnitService', () => {
   describe('remove', () => {
     it('chặn xóa khi còn sản phẩm sử dụng đơn vị tính', async () => {
       unitRepository.findById.mockResolvedValue(makeUnit());
-      productRepository.hasActiveProductsInUnit.mockResolvedValue(true);
+      productDomainService.hasActiveProductsInUnit.mockResolvedValue(true);
       await expect(service.remove('unit-1', actor)).rejects.toThrow(
         UnprocessableEntityException,
       );

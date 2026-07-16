@@ -7,8 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
-import { PRODUCT_REPOSITORY } from '../../product/domain/repositories/product.repository.interface';
-import type { IProductRepository } from '../../product/domain/repositories/product.repository.interface';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import {
   buildCartItem,
   CartEntity,
@@ -33,8 +32,7 @@ export interface ActorContext {
 export class CartService {
   constructor(
     @Inject(CART_REPOSITORY) private readonly cartRepository: ICartRepository,
-    @Inject(PRODUCT_REPOSITORY)
-    private readonly productRepository: IProductRepository,
+    private readonly productDomainService: ProductDomainService,
   ) {}
 
   async getCart(actor: ActorContext): Promise<CartResponseDto> {
@@ -46,7 +44,7 @@ export class CartService {
     dto: AddCartItemDto,
     actor: ActorContext,
   ): Promise<CartResponseDto> {
-    const product = await this.productRepository.findById(
+    const product = await this.productDomainService.findById(
       dto.productId,
       actor.organizationId,
     );
@@ -125,7 +123,7 @@ export class CartService {
       );
     }
 
-    const product = await this.productRepository.findById(
+    const product = await this.productDomainService.findById(
       dto.productId,
       actor.organizationId,
     );

@@ -2,8 +2,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
-import { PRODUCT_REPOSITORY } from '../../product/domain/repositories/product.repository.interface';
-import type { IProductRepository } from '../../product/domain/repositories/product.repository.interface';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { BarcodeEntity } from '../domain/entities/barcode.entity';
 import { BARCODE_REPOSITORY } from '../domain/repositories/barcode.repository.interface';
 import type { IBarcodeRepository } from '../domain/repositories/barcode.repository.interface';
@@ -24,8 +23,7 @@ export class BarcodeService {
   constructor(
     @Inject(BARCODE_REPOSITORY)
     private readonly barcodeRepository: IBarcodeRepository,
-    @Inject(PRODUCT_REPOSITORY)
-    private readonly productRepository: IProductRepository,
+    private readonly productDomainService: ProductDomainService,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -159,7 +157,7 @@ export class BarcodeService {
     productId: string,
     organizationId: string,
   ): Promise<void> {
-    const product = await this.productRepository.findById(
+    const product = await this.productDomainService.findById(
       productId,
       organizationId,
     );

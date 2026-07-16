@@ -7,8 +7,7 @@ import {
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
-import { PRODUCT_REPOSITORY } from '../../product/domain/repositories/product.repository.interface';
-import type { IProductRepository } from '../../product/domain/repositories/product.repository.interface';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { UnitEntity } from '../domain/entities/unit.entity';
 import { UNIT_REPOSITORY } from '../domain/repositories/unit.repository.interface';
 import type { IUnitRepository } from '../domain/repositories/unit.repository.interface';
@@ -32,8 +31,7 @@ export interface ActorContext {
 export class UnitService {
   constructor(
     @Inject(UNIT_REPOSITORY) private readonly unitRepository: IUnitRepository,
-    @Inject(PRODUCT_REPOSITORY)
-    private readonly productRepository: IProductRepository,
+    private readonly productDomainService: ProductDomainService,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -125,7 +123,7 @@ export class UnitService {
     if (!existing) throw this.notFound();
 
     const hasProducts =
-      await this.productRepository.hasActiveProductsInUnit(id);
+      await this.productDomainService.hasActiveProductsInUnit(id);
     if (hasProducts) {
       throw new UnprocessableEntityException(
         withCode(

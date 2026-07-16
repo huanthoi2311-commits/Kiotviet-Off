@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
-import { IProductRepository } from '../../product/domain/repositories/product.repository.interface';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { BarcodeEntity } from '../domain/entities/barcode.entity';
 import { IBarcodeRepository } from '../domain/repositories/barcode.repository.interface';
 import { ActorContext, BarcodeService } from './barcode.service';
@@ -8,7 +8,7 @@ import { ActorContext, BarcodeService } from './barcode.service';
 describe('BarcodeService', () => {
   let service: BarcodeService;
   let barcodeRepository: jest.Mocked<IBarcodeRepository>;
-  let productRepository: jest.Mocked<Pick<IProductRepository, 'findById'>>;
+  let productDomainService: jest.Mocked<Pick<ProductDomainService, 'findById'>>;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
 
   const actor: ActorContext = { userId: 'user-1', organizationId: 'org-1' };
@@ -38,21 +38,21 @@ describe('BarcodeService', () => {
       setDefault: jest.fn(),
       existsByCode: jest.fn(),
     };
-    productRepository = {
+    productDomainService = {
       findById: jest.fn().mockResolvedValue({ id: 'product-1' }),
     };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     service = new BarcodeService(
       barcodeRepository,
-      productRepository as unknown as IProductRepository,
+      productDomainService as unknown as ProductDomainService,
       auditLogService as unknown as AuditLogService,
     );
   });
 
   describe('listByProduct', () => {
     it('ném NotFoundException khi sản phẩm không tồn tại trong tổ chức', async () => {
-      productRepository.findById.mockResolvedValue(null);
+      productDomainService.findById.mockResolvedValue(null);
       await expect(service.listByProduct('product-1', 'org-1')).rejects.toThrow(
         NotFoundException,
       );
@@ -69,7 +69,7 @@ describe('BarcodeService', () => {
 
   describe('create', () => {
     it('ném NotFoundException khi sản phẩm không tồn tại trong tổ chức', async () => {
-      productRepository.findById.mockResolvedValue(null);
+      productDomainService.findById.mockResolvedValue(null);
       await expect(
         service.create('product-1', { code: 'X', type: 'CUSTOM' }, actor),
       ).rejects.toThrow(NotFoundException);

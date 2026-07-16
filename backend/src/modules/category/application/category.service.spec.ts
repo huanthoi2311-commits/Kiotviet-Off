@@ -3,7 +3,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
-import { IProductRepository } from '../../product/domain/repositories/product.repository.interface';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { CategoryEntity } from '../domain/entities/category.entity';
 import { ICategoryRepository } from '../domain/repositories/category.repository.interface';
 import { ICategorySlugGenerator } from '../domain/services/category-slug-generator.interface';
@@ -13,8 +13,8 @@ describe('CategoryService', () => {
   let service: CategoryService;
   let categoryRepository: jest.Mocked<ICategoryRepository>;
   let slugGenerator: jest.Mocked<ICategorySlugGenerator>;
-  let productRepository: jest.Mocked<
-    Pick<IProductRepository, 'hasActiveProductsInCategory'>
+  let productDomainService: jest.Mocked<
+    Pick<ProductDomainService, 'hasActiveProductsInCategory'>
   >;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
 
@@ -54,7 +54,7 @@ describe('CategoryService', () => {
     slugGenerator = {
       generateUnique: jest.fn().mockResolvedValue('danh-muc-moi'),
     };
-    productRepository = {
+    productDomainService = {
       hasActiveProductsInCategory: jest.fn().mockResolvedValue(false),
     };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
@@ -62,7 +62,7 @@ describe('CategoryService', () => {
     service = new CategoryService(
       categoryRepository,
       slugGenerator,
-      productRepository as unknown as IProductRepository,
+      productDomainService as unknown as ProductDomainService,
       auditLogService as unknown as AuditLogService,
     );
   });
@@ -234,7 +234,7 @@ describe('CategoryService', () => {
   describe('remove', () => {
     it('chặn xóa khi còn sản phẩm sử dụng danh mục', async () => {
       categoryRepository.findById.mockResolvedValue(makeCategory());
-      productRepository.hasActiveProductsInCategory.mockResolvedValue(true);
+      productDomainService.hasActiveProductsInCategory.mockResolvedValue(true);
 
       await expect(service.remove('cat-1', actor)).rejects.toThrow(
         UnprocessableEntityException,
@@ -244,7 +244,7 @@ describe('CategoryService', () => {
 
     it('xóa mềm thành công khi không còn sản phẩm', async () => {
       categoryRepository.findById.mockResolvedValue(makeCategory());
-      productRepository.hasActiveProductsInCategory.mockResolvedValue(false);
+      productDomainService.hasActiveProductsInCategory.mockResolvedValue(false);
 
       await service.remove('cat-1', actor);
 

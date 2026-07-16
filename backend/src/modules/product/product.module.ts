@@ -20,9 +20,9 @@ import { ProductController } from './presentation/product.controller';
     { provide: SKU_GENERATOR, useClass: SequenceSkuGenerator },
     { provide: SLUG_GENERATOR, useClass: SlugifySlugGenerator },
   ],
-  // PRODUCT_REPOSITORY van con export tam thoi - se go bo o Commit 6 (SPEC-PRODUCT-001 SS7.2,
-  // ADR-0010), sau khi ca 5 module phu thuoc da chuyen sang inject ProductDomainService (Decision
-  // C02: khong go som de tranh vo DI runtime cua 5 module chua kip cap nhat trong cac commit giua).
-  exports: [ProductDomainService, PRODUCT_REPOSITORY],
+  // PRODUCT_REPOSITORY khong con export (SPEC-PRODUCT-001 SS7.2, ADR-0010) - ca 5 module phu
+  // thuoc (category/brand/unit/barcode/cart) da chuyen sang inject ProductDomainService o cung
+  // Commit nay. Repository tro thanh provider noi bo, chi dung trong pham vi module product.
+  exports: [ProductDomainService],
 })
 export class ProductModule {}
