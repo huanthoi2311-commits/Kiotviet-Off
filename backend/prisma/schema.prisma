@@ -69,9 +69,17 @@ enum CustomerType {
 }
 
 enum ProductStatus {
+  DRAFT
   ACTIVE
   INACTIVE
-  DISCONTINUED
+  ARCHIVED
+}
+
+enum ProductType {
+  STANDARD
+  SERVICE
+  VARIANT_PARENT
+  VARIANT_CHILD
 }
 
 enum PriceType {
@@ -214,38 +222,38 @@ enum SessionClientType {
 /// Root Aggregate (SPEC-ORG-001). Không module nào được ghi trực tiếp vào OrganizationSettings/
 /// OrganizationSubscription — chỉ qua module `organization`.
 model Organization {
-  id          String  @id @default(uuid()) @db.Uuid
+  id           String             @id @default(uuid()) @db.Uuid
   /// Sinh tự động (ORG000001), không cho sửa (SPEC-ORG-001 Rule 7).
-  code        String  @unique
-  displayName String
-  legalName   String?
+  code         String             @unique
+  displayName  String
+  legalName    String?
   /// Không cho sửa sau khi tạo (SPEC-ORG-001 Rule 6).
-  slug        String  @unique
-  taxCode     String? @unique
-  email       String? @unique
-  phone       String?
-  website     String?
-  logoUrl     String?
-  address     String?
-  province    String?
-  district    String?
-  ward        String?
-  countryCode String  @default("VN")
+  slug         String             @unique
+  taxCode      String?            @unique
+  email        String?            @unique
+  phone        String?
+  website      String?
+  logoUrl      String?
+  address      String?
+  province     String?
+  district     String?
+  ward         String?
+  countryCode  String             @default("VN")
   /// Timezone chuẩn IANA (vd: Asia/Ho_Chi_Minh) — validate ở application layer.
-  timezone    String  @default("Asia/Ho_Chi_Minh")
+  timezone     String             @default("Asia/Ho_Chi_Minh")
   /// ISO 4217 (vd: VND) — validate ở application layer.
-  currencyCode String @default("VND")
-  languageCode String @default("vi")
+  currencyCode String             @default("VND")
+  languageCode String             @default("vi")
   status       OrganizationStatus @default(ACTIVE)
   /// Nullable ở schema vì User.organizationId bắt buộc NOT NULL — transaction tạo Organization
   /// phải tạo Organization trước (ownerUserId tạm null), tạo Owner User, rồi UPDATE lại field
   /// này (SPEC-ORG-001 Decision 3). Ở tầng nghiệp vụ, sau khi tạo xong KHÔNG bao giờ còn null.
-  ownerUserId String? @unique @db.Uuid
-  owner        User?  @relation("OrganizationOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  ownerUserId  String?            @unique @db.Uuid
+  owner        User?              @relation("OrganizationOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
   /// @deprecated Dùng OrganizationSubscription.plan làm Single Source of Truth (SPEC-ORG-001
   /// Decision 1). Giữ cột này tạm thời để tương thích ngược, sẽ gỡ bỏ ở migration sau — KHÔNG
   /// đọc/ghi field này ở logic mới.
-  plan     OrganizationPlan   @default(FREE)
+  plan         OrganizationPlan   @default(FREE)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -265,6 +273,7 @@ model Organization {
   units                Unit[]
   taxes                Tax[]
   products             Product[]
+  barcodes             Barcode[]
   suppliers            Supplier[]
   purchaseOrders       PurchaseOrder[]
   purchaseReturns      PurchaseReturn[]
@@ -305,16 +314,16 @@ model OrganizationSettings {
   organizationId String       @unique @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  allowNegativeInventory Boolean @default(false)
-  allowBackDate          Boolean @default(false)
-  decimalQuantity        Int     @default(0)
-  decimalPrice           Int     @default(0)
-  defaultWarehouseId     String? @db.Uuid
+  allowNegativeInventory Boolean    @default(false)
+  allowBackDate          Boolean    @default(false)
+  decimalQuantity        Int        @default(0)
+  decimalPrice           Int        @default(0)
+  defaultWarehouseId     String?    @db.Uuid
   defaultWarehouse       Warehouse? @relation(fields: [defaultWarehouseId], references: [id], onDelete: SetNull)
-  defaultBranchId        String? @db.Uuid
-  defaultBranch          Branch? @relation("OrganizationDefaultBranch", fields: [defaultBranchId], references: [id], onDelete: SetNull)
-  defaultLanguage        String  @default("vi")
-  defaultCurrency        String  @default("VND")
+  defaultBranchId        String?    @db.Uuid
+  defaultBranch          Branch?    @relation("OrganizationDefaultBranch", fields: [defaultBranchId], references: [id], onDelete: SetNull)
+  defaultLanguage        String     @default("vi")
+  defaultCurrency        String     @default("VND")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -350,15 +359,15 @@ model OrganizationSubscription {
 /// POST /branches/:id/set-default, không phải field literal trong spec nhưng khớp đúng
 /// nghĩa "Chỉ một Branch mặc định cho mỗi Organization" — giữ nguyên tên field có sẵn).
 model Branch {
-  id             String       @id @default(uuid()) @db.Uuid
-  organizationId String       @db.Uuid
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  managerUserId  String?      @db.Uuid
-  manager        User?        @relation("BranchManager", fields: [managerUserId], references: [id], onDelete: SetNull)
+  id                 String       @id @default(uuid()) @db.Uuid
+  organizationId     String       @db.Uuid
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  managerUserId      String?      @db.Uuid
+  manager            User?        @relation("BranchManager", fields: [managerUserId], references: [id], onDelete: SetNull)
   /// Nullable — Branch có thể chưa có Warehouse mặc định ngay lúc tạo (Warehouse phải tạo sau,
   /// vì Warehouse.branchId bắt buộc NOT NULL, cùng lý do bootstrap như Organization.ownerUserId).
-  defaultWarehouseId String? @db.Uuid
-  defaultWarehouse   Warehouse? @relation("BranchDefaultWarehouse", fields: [defaultWarehouseId], references: [id], onDelete: SetNull)
+  defaultWarehouseId String?      @db.Uuid
+  defaultWarehouse   Warehouse?   @relation("BranchDefaultWarehouse", fields: [defaultWarehouseId], references: [id], onDelete: SetNull)
 
   /// Sinh tự động (BR000001).
   code          String
@@ -370,12 +379,12 @@ model Branch {
   ward          String?
   phone         String?
   /// Unique trong Organization (SPEC-BRANCH-001 §4).
-  invoicePrefix  String?
-  receiptPrefix  String?
-  timezone       String  @default("Asia/Ho_Chi_Minh")
-  currencyCode   String  @default("VND")
-  isMain         Boolean      @default(false)
-  status         BranchStatus @default(ACTIVE)
+  invoicePrefix String?
+  receiptPrefix String?
+  timezone      String       @default("Asia/Ho_Chi_Minh")
+  currencyCode  String       @default("VND")
+  isMain        Boolean      @default(false)
+  status        BranchStatus @default(ACTIVE)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -441,17 +450,17 @@ model Warehouse {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  purchaseItems        PurchaseItem[]
-  purchaseReturnItems  PurchaseReturnItem[]
-  orders               Order[]
-  inventories          Inventory[]
-  inventoryMovements   InventoryMovement[]
-  transfersFrom        Transfer[]            @relation("TransferFromWarehouse")
-  transfersTo          Transfer[]            @relation("TransferToWarehouse")
-  stockCounts          StockCount[]
-  inventoryAdjustments InventoryAdjustment[]
+  purchaseItems                 PurchaseItem[]
+  purchaseReturnItems           PurchaseReturnItem[]
+  orders                        Order[]
+  inventories                   Inventory[]
+  inventoryMovements            InventoryMovement[]
+  transfersFrom                 Transfer[]             @relation("TransferFromWarehouse")
+  transfersTo                   Transfer[]             @relation("TransferToWarehouse")
+  stockCounts                   StockCount[]
+  inventoryAdjustments          InventoryAdjustment[]
   organizationSettingsDefaultOf OrganizationSettings[]
-  branchDefaultOf               Branch[]                @relation("BranchDefaultWarehouse")
+  branchDefaultOf               Branch[]               @relation("BranchDefaultWarehouse")
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -786,6 +795,12 @@ model Product {
   unitId         String       @db.Uuid
   unit           Unit         @relation(fields: [unitId], references: [id], onDelete: Restrict)
 
+  /// Self-reference cho Variant Child -> Variant Parent (Decision 9, SPEC-PRODUCT-001 §3.3).
+  /// Variant Child la 1 Product binh thuong (type=VARIANT_CHILD), khong tao model Variant rieng.
+  parentProductId String?   @db.Uuid
+  parent          Product?  @relation("ProductVariants", fields: [parentProductId], references: [id], onDelete: Restrict)
+  variants        Product[] @relation("ProductVariants")
+
   sku         String
   slug        String
   name        String
@@ -799,12 +814,18 @@ model Product {
   height      Decimal?      @db.Decimal(18, 3)
   minStock    Decimal?      @db.Decimal(18, 3)
   maxStock    Decimal?      @db.Decimal(18, 3)
+  /// @deprecated thay bang `type` (SPEC-PRODUCT-001 Decision 5) - cot nay bi DROP o Migration 3
+  /// (Commit 3/Repository), giu tam o Migration 1 de code hien tai (chua refactor) van build duoc.
   isService   Boolean       @default(false)
+  /// Phan loai san pham - thay the `isService` (Decision 5, SPEC-PRODUCT-001 §1.1/§3.2).
+  type        ProductType   @default(STANDARD)
   allowSale   Boolean       @default(true)
-  /// Trạng thái vòng đời (ACTIVE/INACTIVE/DISCONTINUED).
+  /// Trạng thái vòng đời (DRAFT/ACTIVE/INACTIVE/ARCHIVED — Decision 3).
   status      ProductStatus @default(ACTIVE)
   /// Bật/tắt nhanh không đổi vòng đời — VD: tạm ẩn khỏi POS mà không đổi status.
   isActive    Boolean       @default(true)
+  /// Optimistic Lock (Decision A02) - tang o moi UPDATE, khong bao gio reset (Decision A09).
+  version     Int           @default(1)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -834,6 +855,7 @@ model Product {
   @@index([categoryId])
   @@index([brandId])
   @@index([name])
+  @@index([parentProductId])
   @@map("products")
 }
 
@@ -913,12 +935,19 @@ enum BarcodeType {
 }
 
 model Barcode {
-  id        String  @id @default(uuid()) @db.Uuid
-  productId String  @db.Uuid
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  unitId    String? @db.Uuid
-  unit      Unit?   @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  id             String       @id @default(uuid()) @db.Uuid
+  productId      String       @db.Uuid
+  product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  unitId         String?      @db.Uuid
+  unit           Unit?        @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  /// Denormalize tu Product.organizationId (SPEC-PRODUCT-001 §3.4) - can truc tiep tren Barcode
+  /// de tao duoc unique constraint theo tenant, khong phai suy ra gian tiep qua productId.
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
+  /// @deprecated unique toan cuc, thay bang @@unique([organizationId, code]) (Decision 7).
+  /// Constraint nay bi DROP o Migration 3 (Commit 3/Repository) - giu tam de tranh 1 khoang
+  /// thoi gian khong co unique protection nao (Decision A08).
   code      String      @unique
   type      BarcodeType @default(CUSTOM)
   isDefault Boolean     @default(false)
@@ -929,7 +958,9 @@ model Barcode {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  @@unique([organizationId, code])
   @@index([productId])
+  @@index([organizationId])
   @@map("barcodes")
 }
 

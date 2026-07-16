@@ -50,6 +50,7 @@ export class BarcodeService {
 
     const created = await this.barcodeRepository.create({
       productId,
+      organizationId: actor.organizationId,
       unitId: dto.unitId ?? null,
       code: dto.code,
       type: dto.type,

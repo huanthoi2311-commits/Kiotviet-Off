@@ -33,11 +33,7 @@ const BARCODE_TYPES: BarcodeType[] = [
   'QR',
   'CUSTOM',
 ];
-const PRODUCT_STATUSES: ProductStatus[] = [
-  'ACTIVE',
-  'INACTIVE',
-  'DISCONTINUED',
-];
+const PRODUCT_STATUSES: ProductStatus[] = ['ACTIVE', 'INACTIVE', 'ARCHIVED'];
 
 export class CreateProductPriceDto {
   @ApiProperty({ enum: PRODUCT_PRICE_TYPES, example: 'RETAIL' })

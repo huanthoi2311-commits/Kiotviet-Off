@@ -1,4 +1,4 @@
-export type ProductStatus = 'ACTIVE' | 'INACTIVE' | 'DISCONTINUED';
+export type ProductStatus = 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
 export type ProductPriceType = 'RETAIL' | 'WHOLESALE' | 'VIP' | 'DEALER';
 export type BarcodeType = 'EAN13' | 'EAN8' | 'CODE128' | 'QR' | 'CUSTOM';
 

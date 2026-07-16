@@ -12,11 +12,7 @@ import {
 } from 'class-validator';
 import type { ProductStatus } from '../../domain/entities/product.entity';
 
-const PRODUCT_STATUSES: ProductStatus[] = [
-  'ACTIVE',
-  'INACTIVE',
-  'DISCONTINUED',
-];
+const PRODUCT_STATUSES: ProductStatus[] = ['ACTIVE', 'INACTIVE', 'ARCHIVED'];
 
 export class UpdateProductDto {
   @ApiProperty({ required: false })

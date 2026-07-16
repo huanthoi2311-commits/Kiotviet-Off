@@ -55,6 +55,7 @@ describe('PrismaBarcodeRepository', () => {
   describe('create', () => {
     const input = {
       productId: 'product-1',
+      organizationId: 'org-1',
       code: '8938505970381',
       type: 'EAN13' as const,
       createdBy: 'user-1',

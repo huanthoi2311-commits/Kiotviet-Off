@@ -75,6 +75,7 @@ export class PrismaProductRepository implements IProductRepository {
             ? {
                 createMany: {
                   data: input.barcodes.map((barcode, index) => ({
+                    organizationId: input.organizationId,
                     code: barcode.code,
                     type: barcode.type,
                     isDefault: barcode.isDefault ?? index === 0,

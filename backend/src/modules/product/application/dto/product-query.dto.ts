@@ -17,11 +17,7 @@ import type {
   SortOrder,
 } from '../../domain/repositories/product.repository.interface';
 
-const PRODUCT_STATUSES: ProductStatus[] = [
-  'ACTIVE',
-  'INACTIVE',
-  'DISCONTINUED',
-];
+const PRODUCT_STATUSES: ProductStatus[] = ['ACTIVE', 'INACTIVE', 'ARCHIVED'];
 const SORT_FIELDS: ProductSortField[] = [
   'name',
   'sku',

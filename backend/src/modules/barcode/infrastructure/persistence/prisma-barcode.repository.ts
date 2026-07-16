@@ -31,6 +31,7 @@ export class PrismaBarcodeRepository implements IBarcodeRepository {
           const barcode = await tx.barcode.create({
             data: {
               productId: input.productId,
+              organizationId: input.organizationId,
               unitId: input.unitId ?? null,
               code: input.code,
               type: input.type,
@@ -46,6 +47,7 @@ export class PrismaBarcodeRepository implements IBarcodeRepository {
       const barcode = await this.prisma.barcode.create({
         data: {
           productId: input.productId,
+          organizationId: input.organizationId,
           unitId: input.unitId ?? null,
           code: input.code,
           type: input.type,

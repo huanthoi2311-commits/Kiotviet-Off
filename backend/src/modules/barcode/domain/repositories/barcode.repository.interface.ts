@@ -2,6 +2,7 @@ import { BarcodeEntity, BarcodeType } from '../entities/barcode.entity';
 
 export interface CreateBarcodeInput {
   productId: string;
+  organizationId: string;
   unitId?: string | null;
   code: string;
   type: BarcodeType;
