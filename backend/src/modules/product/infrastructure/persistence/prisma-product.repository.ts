@@ -350,6 +350,46 @@ export class PrismaProductRepository implements IProductRepository {
     return !!found;
   }
 
+  /**
+   * Định nghĩa "đã phát sinh giao dịch" (SPEC-PRODUCT-001 §5, Decision A06) - kiểm tra song song
+   * cả 7 bảng dòng giao dịch qua Prisma Client dùng chung (không import Repository/DomainService
+   * của module khác - chỉ đọc trực tiếp bảng đã có sẵn trong cùng schema, không vi phạm Repository
+   * Boundary ADR-0010 vốn chỉ cấm inject Repository CLASS của module khác).
+   */
+  async hasTransactionHistory(productId: string): Promise<boolean> {
+    const results = await Promise.all([
+      this.prisma.orderItem.findFirst({
+        where: { productId },
+        select: { id: true },
+      }),
+      this.prisma.invoiceItem.findFirst({
+        where: { productId },
+        select: { id: true },
+      }),
+      this.prisma.purchaseItem.findFirst({
+        where: { productId },
+        select: { id: true },
+      }),
+      this.prisma.purchaseReturnItem.findFirst({
+        where: { productId },
+        select: { id: true },
+      }),
+      this.prisma.transferItem.findFirst({
+        where: { productId },
+        select: { id: true },
+      }),
+      this.prisma.inventoryAdjustmentItem.findFirst({
+        where: { productId },
+        select: { id: true },
+      }),
+      this.prisma.stockCountItem.findFirst({
+        where: { productId },
+        select: { id: true },
+      }),
+    ]);
+    return results.some((found) => !!found);
+  }
+
   async hasActiveProductsInCategory(categoryId: string): Promise<boolean> {
     const found = await this.prisma.product.findFirst({
       where: { categoryId, deletedAt: null },

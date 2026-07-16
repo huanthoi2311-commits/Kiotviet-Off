@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -10,11 +11,27 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import type { ProductStatus } from '../../domain/entities/product.entity';
+import type {
+  ProductStatus,
+  ProductType,
+} from '../../domain/entities/product.entity';
 
 const PRODUCT_STATUSES: ProductStatus[] = ['ACTIVE', 'INACTIVE', 'ARCHIVED'];
+const PRODUCT_TYPES: ProductType[] = [
+  'STANDARD',
+  'SERVICE',
+  'VARIANT_PARENT',
+  'VARIANT_CHILD',
+];
 
 export class UpdateProductDto {
+  @ApiProperty({
+    description:
+      'Optimistic Lock (SPEC-PRODUCT-001 §7.1) — gửi lại đúng version đã đọc trước đó; sai version bị từ chối (409)',
+  })
+  @IsInt()
+  version: number;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsUUID()
@@ -29,6 +46,21 @@ export class UpdateProductDto {
   @IsOptional()
   @IsUUID()
   unitId?: string;
+
+  @ApiProperty({
+    required: false,
+    enum: PRODUCT_TYPES,
+    description:
+      'Không cho đổi nếu Product đã phát sinh giao dịch (SPEC-PRODUCT-001 §5, Decision A06)',
+  })
+  @IsOptional()
+  @IsEnum(PRODUCT_TYPES)
+  type?: ProductType;
+
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional()
+  @IsUUID()
+  parentProductId?: string | null;
 
   @ApiProperty({ required: false, minLength: 3, maxLength: 255 })
   @IsOptional()

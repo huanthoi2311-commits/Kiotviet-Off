@@ -5,6 +5,7 @@ import { CreateProductDto } from './create-product.dto';
 const validBase = {
   categoryId: 'b3a1c9e4-6f2a-4e11-9b3a-1e6c2f4a9d21',
   unitId: 'c9d8e7f6-1234-4e11-9b3a-1e6c2f4a9d21',
+  type: 'STANDARD',
   name: 'Áo thun nam',
   costPrice: 90000,
   prices: [{ type: 'RETAIL', price: 150000 }],
@@ -60,6 +61,19 @@ describe('CreateProductDto validation', () => {
       prices: [{ type: 'INVALID_TYPE', price: 100 }],
     });
     expect(errors.some((e) => e.property === 'prices')).toBe(true);
+  });
+
+  it('từ chối type không hợp lệ', async () => {
+    const errors = await validateDto({ ...validBase, type: 'INVALID_TYPE' });
+    expect(errors.some((e) => e.property === 'type')).toBe(true);
+  });
+
+  it('từ chối parentProductId không phải UUID', async () => {
+    const errors = await validateDto({
+      ...validBase,
+      parentProductId: 'not-a-uuid',
+    });
+    expect(errors.some((e) => e.property === 'parentProductId')).toBe(true);
   });
 
   it('từ chối barcode type không hợp lệ', async () => {

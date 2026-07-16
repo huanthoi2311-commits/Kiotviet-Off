@@ -18,6 +18,7 @@ import type {
   BarcodeType,
   ProductPriceType,
   ProductStatus,
+  ProductType,
 } from '../../domain/entities/product.entity';
 
 const PRODUCT_PRICE_TYPES: ProductPriceType[] = [
@@ -34,6 +35,12 @@ const BARCODE_TYPES: BarcodeType[] = [
   'CUSTOM',
 ];
 const PRODUCT_STATUSES: ProductStatus[] = ['ACTIVE', 'INACTIVE', 'ARCHIVED'];
+const PRODUCT_TYPES: ProductType[] = [
+  'STANDARD',
+  'SERVICE',
+  'VARIANT_PARENT',
+  'VARIANT_CHILD',
+];
 
 export class CreateProductPriceDto {
   @ApiProperty({ enum: PRODUCT_PRICE_TYPES, example: 'RETAIL' })
@@ -93,6 +100,20 @@ export class CreateProductDto {
   @ApiProperty({ example: 'c9d8e7f6-1234-4e11-9b3a-1e6c2f4a9d21' })
   @IsUUID()
   unitId: string;
+
+  @ApiProperty({ enum: PRODUCT_TYPES, example: 'STANDARD' })
+  @IsEnum(PRODUCT_TYPES)
+  type: ProductType;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    description:
+      'Bắt buộc nếu type=VARIANT_CHILD (Product tại đây phải có type=VARIANT_PARENT), phải để trống với type khác',
+  })
+  @IsOptional()
+  @IsUUID()
+  parentProductId?: string;
 
   @ApiProperty({ example: 'Áo thun nam cổ tròn', minLength: 3, maxLength: 255 })
   @IsString()

@@ -144,6 +144,14 @@ export interface IProductRepository {
   ): Promise<ProductEntity[]>;
   /** Dùng cho guard "không Archive Variant Parent nếu còn Variant Child status=ACTIVE" (RFC §8). */
   hasActiveVariantChildren(parentProductId: string): Promise<boolean>;
+  /**
+   * Định nghĩa "đã phát sinh giao dịch" (SPEC-PRODUCT-001 §5, Decision A06) — tồn tại ≥1 bản ghi
+   * ở 1 trong 7 bảng dòng giao dịch (OrderItem/InvoiceItem/PurchaseItem/PurchaseReturnItem/
+   * TransferItem/InventoryAdjustmentItem/StockCountItem), KHÔNG gồm InventoryMovement/Inventory.
+   * Dùng để chặn đổi `type` (PATCH). Không có trong SPEC §7.1 gốc — bổ sung khi triển khai vì đây
+   * là điều kiện bắt buộc để hiện thực hoá quy tắc đã duyệt ở §5, không phải business rule mới.
+   */
+  hasTransactionHistory(productId: string): Promise<boolean>;
 }
 
 export const PRODUCT_REPOSITORY = Symbol('PRODUCT_REPOSITORY');

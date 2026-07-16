@@ -26,6 +26,13 @@ describe('PrismaProductRepository', () => {
     };
     productPrice: { findMany: jest.Mock };
     barcode: { findFirst: jest.Mock };
+    orderItem: { findFirst: jest.Mock };
+    invoiceItem: { findFirst: jest.Mock };
+    purchaseItem: { findFirst: jest.Mock };
+    purchaseReturnItem: { findFirst: jest.Mock };
+    transferItem: { findFirst: jest.Mock };
+    inventoryAdjustmentItem: { findFirst: jest.Mock };
+    stockCountItem: { findFirst: jest.Mock };
     $transaction: jest.Mock;
   };
 
@@ -76,6 +83,13 @@ describe('PrismaProductRepository', () => {
       },
       productPrice: { findMany: jest.fn() },
       barcode: { findFirst: jest.fn() },
+      orderItem: { findFirst: jest.fn() },
+      invoiceItem: { findFirst: jest.fn() },
+      purchaseItem: { findFirst: jest.fn() },
+      purchaseReturnItem: { findFirst: jest.fn() },
+      transferItem: { findFirst: jest.fn() },
+      inventoryAdjustmentItem: { findFirst: jest.fn() },
+      stockCountItem: { findFirst: jest.fn() },
       $transaction: jest.fn(),
     };
     repository = new PrismaProductRepository(
@@ -364,6 +378,68 @@ describe('PrismaProductRepository', () => {
       await expect(
         repository.hasActiveVariantChildren('parent-1'),
       ).resolves.toBe(false);
+    });
+  });
+
+  describe('hasTransactionHistory', () => {
+    const setAllTransactionTables = (found: { id: string } | null) => {
+      prisma.orderItem.findFirst.mockResolvedValue(found);
+      prisma.invoiceItem.findFirst.mockResolvedValue(found);
+      prisma.purchaseItem.findFirst.mockResolvedValue(found);
+      prisma.purchaseReturnItem.findFirst.mockResolvedValue(found);
+      prisma.transferItem.findFirst.mockResolvedValue(found);
+      prisma.inventoryAdjustmentItem.findFirst.mockResolvedValue(found);
+      prisma.stockCountItem.findFirst.mockResolvedValue(found);
+    };
+
+    it('trả về false khi không có bản ghi ở cả 7 bảng', async () => {
+      setAllTransactionTables(null);
+      await expect(repository.hasTransactionHistory('product-1')).resolves.toBe(
+        false,
+      );
+    });
+
+    it('trả về true khi có bản ghi ở OrderItem', async () => {
+      setAllTransactionTables(null);
+      prisma.orderItem.findFirst.mockResolvedValue({ id: 'order-item-1' });
+      await expect(repository.hasTransactionHistory('product-1')).resolves.toBe(
+        true,
+      );
+    });
+
+    it('trả về true khi có bản ghi ở StockCountItem (bảng cuối trong danh sách)', async () => {
+      setAllTransactionTables(null);
+      prisma.stockCountItem.findFirst.mockResolvedValue({ id: 'sc-item-1' });
+      await expect(repository.hasTransactionHistory('product-1')).resolves.toBe(
+        true,
+      );
+    });
+
+    it('kiểm tra cả 7 bảng đều lọc theo đúng productId', async () => {
+      setAllTransactionTables(null);
+      await repository.hasTransactionHistory('product-1');
+
+      expect(prisma.orderItem.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { productId: 'product-1' } }),
+      );
+      expect(prisma.invoiceItem.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { productId: 'product-1' } }),
+      );
+      expect(prisma.purchaseItem.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { productId: 'product-1' } }),
+      );
+      expect(prisma.purchaseReturnItem.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { productId: 'product-1' } }),
+      );
+      expect(prisma.transferItem.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { productId: 'product-1' } }),
+      );
+      expect(prisma.inventoryAdjustmentItem.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { productId: 'product-1' } }),
+      );
+      expect(prisma.stockCountItem.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { productId: 'product-1' } }),
+      );
     });
   });
 

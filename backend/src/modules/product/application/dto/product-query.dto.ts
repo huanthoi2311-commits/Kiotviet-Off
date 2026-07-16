@@ -11,13 +11,22 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import type { ProductStatus } from '../../domain/entities/product.entity';
+import type {
+  ProductStatus,
+  ProductType,
+} from '../../domain/entities/product.entity';
 import type {
   ProductSortField,
   SortOrder,
 } from '../../domain/repositories/product.repository.interface';
 
 const PRODUCT_STATUSES: ProductStatus[] = ['ACTIVE', 'INACTIVE', 'ARCHIVED'];
+const PRODUCT_TYPES: ProductType[] = [
+  'STANDARD',
+  'SERVICE',
+  'VARIANT_PARENT',
+  'VARIANT_CHILD',
+];
 const SORT_FIELDS: ProductSortField[] = [
   'name',
   'sku',
@@ -46,10 +55,25 @@ export class ProductQueryDto {
   @IsUUID()
   brandId?: string;
 
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsUUID()
+  unitId?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsUUID()
+  parentProductId?: string;
+
   @ApiProperty({ required: false, enum: PRODUCT_STATUSES })
   @IsOptional()
   @IsEnum(PRODUCT_STATUSES)
   status?: ProductStatus;
+
+  @ApiProperty({ required: false, enum: PRODUCT_TYPES })
+  @IsOptional()
+  @IsEnum(PRODUCT_TYPES)
+  type?: ProductType;
 
   @ApiProperty({ required: false, example: '2026-01-01' })
   @IsOptional()

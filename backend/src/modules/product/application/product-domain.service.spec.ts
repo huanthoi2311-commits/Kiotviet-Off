@@ -58,6 +58,7 @@ describe('ProductDomainService', () => {
       hasActiveProductsInUnit: jest.fn(),
       findChildrenByParentId: jest.fn(),
       hasActiveVariantChildren: jest.fn(),
+      hasTransactionHistory: jest.fn(),
     };
     service = new ProductDomainService(productRepository);
   });

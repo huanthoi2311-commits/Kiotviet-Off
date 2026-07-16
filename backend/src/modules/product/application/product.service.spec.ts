@@ -1,13 +1,16 @@
 import {
+  ConflictException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { ProductEntity } from '../domain/entities/product.entity';
+import { ProductConcurrencyConflictError } from '../domain/errors/product.errors';
 import { IProductRepository } from '../domain/repositories/product.repository.interface';
 import { ISkuGenerator } from '../domain/services/sku-generator.interface';
 import { ISlugGenerator } from '../domain/services/slug-generator.interface';
 import { CreateProductDto } from './dto/create-product.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 import { ActorContext, ProductService } from './product.service';
 
 describe('ProductService', () => {
@@ -60,12 +63,24 @@ describe('ProductService', () => {
     categoryId: 'category-1',
     brandId: 'brand-1',
     unitId: 'unit-1',
+    type: 'STANDARD',
     name: 'Áo thun nam',
     costPrice: 90000,
     prices: [{ type: 'RETAIL', price: 150000 }],
   };
 
+  const updateDto = (
+    overrides: Partial<UpdateProductDto> = {},
+  ): UpdateProductDto => ({
+    version: baseProduct.version,
+    ...overrides,
+  });
+
+  const originalFlag = process.env.PRODUCT_REFACTOR_ENABLED;
+
   beforeEach(() => {
+    delete process.env.PRODUCT_REFACTOR_ENABLED;
+
     productRepository = {
       create: jest.fn(),
       findById: jest.fn(),
@@ -82,6 +97,7 @@ describe('ProductService', () => {
       hasActiveProductsInUnit: jest.fn(),
       findChildrenByParentId: jest.fn(),
       hasActiveVariantChildren: jest.fn(),
+      hasTransactionHistory: jest.fn(),
     };
     skuGenerator = { generate: jest.fn().mockResolvedValue('SP000001') };
     slugGenerator = {
@@ -95,6 +111,14 @@ describe('ProductService', () => {
       slugGenerator,
       auditLogService as unknown as AuditLogService,
     );
+  });
+
+  afterAll(() => {
+    if (originalFlag === undefined) {
+      delete process.env.PRODUCT_REFACTOR_ENABLED;
+    } else {
+      process.env.PRODUCT_REFACTOR_ENABLED = originalFlag;
+    }
   });
 
   describe('create', () => {
@@ -113,6 +137,7 @@ describe('ProductService', () => {
           sku: 'SP000001',
           slug: 'ao-thun-nam',
           organizationId: 'org-1',
+          type: 'STANDARD',
         }),
       );
       expect(result.sku).toBe('SP000001');
@@ -134,6 +159,68 @@ describe('ProductService', () => {
         UnprocessableEntityException,
       );
       expect(productRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('ném UnprocessableEntityException khi type=VARIANT_CHILD thiếu parentProductId', async () => {
+      const dto: CreateProductDto = { ...createDto, type: 'VARIANT_CHILD' };
+
+      await expect(service.create(dto, actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(productRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('ném UnprocessableEntityException khi parentProductId không trỏ tới VARIANT_PARENT', async () => {
+      const dto: CreateProductDto = {
+        ...createDto,
+        type: 'VARIANT_CHILD',
+        parentProductId: 'parent-1',
+      };
+      productRepository.findById.mockResolvedValue({
+        ...baseProduct,
+        id: 'parent-1',
+        type: 'STANDARD',
+      });
+
+      await expect(service.create(dto, actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(productRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('ném UnprocessableEntityException khi parentProductId đặt cho type khác VARIANT_CHILD', async () => {
+      const dto: CreateProductDto = {
+        ...createDto,
+        type: 'STANDARD',
+        parentProductId: 'parent-1',
+      };
+
+      await expect(service.create(dto, actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(productRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('tạo thành công Variant Child khi parentProductId trỏ đúng VARIANT_PARENT', async () => {
+      const dto: CreateProductDto = {
+        ...createDto,
+        type: 'VARIANT_CHILD',
+        parentProductId: 'parent-1',
+      };
+      productRepository.findById.mockResolvedValue({
+        ...baseProduct,
+        id: 'parent-1',
+        type: 'VARIANT_PARENT',
+      });
+      productRepository.create.mockResolvedValue({
+        ...baseProduct,
+        type: 'VARIANT_CHILD',
+        parentProductId: 'parent-1',
+      });
+
+      const result = await service.create(dto, actor);
+
+      expect(result.parentProductId).toBe('parent-1');
     });
   });
 
@@ -203,6 +290,28 @@ describe('ProductService', () => {
         }),
       );
     });
+
+    it('truyền type/unitId/parentProductId vào search params (Decision A07)', async () => {
+      productRepository.search.mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        limit: 20,
+      });
+
+      await service.search(
+        { type: 'SERVICE', unitId: 'unit-1', parentProductId: 'parent-1' },
+        'org-1',
+      );
+
+      expect(productRepository.search).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'SERVICE',
+          unitId: 'unit-1',
+          parentProductId: 'parent-1',
+        }),
+      );
+    });
   });
 
   describe('update', () => {
@@ -217,7 +326,7 @@ describe('ProductService', () => {
 
       const result = await service.update(
         'product-1',
-        { name: 'Áo thun nam mới' },
+        updateDto({ name: 'Áo thun nam mới' }),
         actor,
       );
 
@@ -247,7 +356,7 @@ describe('ProductService', () => {
       productRepository.findById.mockResolvedValue(baseProduct);
       productRepository.update.mockResolvedValue(baseProduct);
 
-      await service.update('product-1', { costPrice: 95000 }, actor);
+      await service.update('product-1', updateDto({ costPrice: 95000 }), actor);
 
       expect(slugGenerator.generateUnique).not.toHaveBeenCalled();
       expect(productRepository.update).toHaveBeenCalledWith(
@@ -260,8 +369,98 @@ describe('ProductService', () => {
     it('ném NotFoundException khi sản phẩm không tồn tại', async () => {
       productRepository.findById.mockResolvedValue(null);
       await expect(
-        service.update('missing', { name: 'x' }, actor),
+        service.update('missing', updateDto({ name: 'x' }), actor),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('Feature Flag TẮT (mặc định): đổi type dù đã có giao dịch vẫn được phép, không gọi hasTransactionHistory', async () => {
+      productRepository.findById.mockResolvedValue(baseProduct);
+      productRepository.update.mockResolvedValue({
+        ...baseProduct,
+        type: 'SERVICE',
+      });
+
+      await service.update('product-1', updateDto({ type: 'SERVICE' }), actor);
+
+      expect(productRepository.hasTransactionHistory).not.toHaveBeenCalled();
+      expect(productRepository.update).toHaveBeenCalled();
+    });
+
+    it('Feature Flag BẬT: ném UnprocessableEntityException khi đổi type nhưng đã phát sinh giao dịch (Decision A06)', async () => {
+      process.env.PRODUCT_REFACTOR_ENABLED = 'true';
+      productRepository.findById.mockResolvedValue(baseProduct);
+      productRepository.hasTransactionHistory.mockResolvedValue(true);
+
+      await expect(
+        service.update('product-1', updateDto({ type: 'SERVICE' }), actor),
+      ).rejects.toThrow(UnprocessableEntityException);
+      expect(productRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('Feature Flag BẬT: cho phép đổi type khi chưa phát sinh giao dịch', async () => {
+      process.env.PRODUCT_REFACTOR_ENABLED = 'true';
+      productRepository.findById.mockResolvedValue(baseProduct);
+      productRepository.hasTransactionHistory.mockResolvedValue(false);
+      productRepository.update.mockResolvedValue({
+        ...baseProduct,
+        type: 'SERVICE',
+      });
+
+      await service.update('product-1', updateDto({ type: 'SERVICE' }), actor);
+
+      expect(productRepository.update).toHaveBeenCalled();
+    });
+
+    it('Feature Flag TẮT: dùng version đọc lại (existing.version) thay vì dto.version khi gọi Repository', async () => {
+      productRepository.findById.mockResolvedValue(baseProduct);
+      productRepository.update.mockResolvedValue(baseProduct);
+
+      await service.update('product-1', updateDto({ version: 999 }), actor);
+
+      expect(productRepository.update).toHaveBeenCalledWith(
+        'product-1',
+        baseProduct.version,
+        expect.anything(),
+      );
+    });
+
+    it('Feature Flag BẬT: dùng đúng dto.version (Optimistic Lock thật) khi gọi Repository', async () => {
+      process.env.PRODUCT_REFACTOR_ENABLED = 'true';
+      productRepository.findById.mockResolvedValue(baseProduct);
+      productRepository.update.mockResolvedValue(baseProduct);
+
+      await service.update('product-1', updateDto({ version: 5 }), actor);
+
+      expect(productRepository.update).toHaveBeenCalledWith(
+        'product-1',
+        5,
+        expect.anything(),
+      );
+    });
+
+    it('dịch ProductConcurrencyConflictError sang ConflictException (Optimistic Lock)', async () => {
+      process.env.PRODUCT_REFACTOR_ENABLED = 'true';
+      productRepository.findById.mockResolvedValue(baseProduct);
+      productRepository.update.mockRejectedValue(
+        new ProductConcurrencyConflictError('product-1'),
+      );
+
+      await expect(
+        service.update('product-1', updateDto({ name: 'x' }), actor),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('ném UnprocessableEntityException khi đổi parentProductId không hợp lệ (không phải VARIANT_CHILD)', async () => {
+      productRepository.findById.mockResolvedValue(baseProduct);
+
+      await expect(
+        service.update(
+          'product-1',
+          updateDto({ parentProductId: 'parent-1' }),
+          actor,
+        ),
+      ).rejects.toThrow(UnprocessableEntityException);
+      expect(productRepository.update).not.toHaveBeenCalled();
     });
   });
 
@@ -285,6 +484,35 @@ describe('ProductService', () => {
       await expect(service.remove('missing', actor)).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    it('Feature Flag TẮT (mặc định): Archive dù còn Variant Active vẫn được phép, không gọi hasActiveVariantChildren', async () => {
+      productRepository.findById.mockResolvedValue(baseProduct);
+
+      await service.remove('product-1', actor);
+
+      expect(productRepository.hasActiveVariantChildren).not.toHaveBeenCalled();
+    });
+
+    it('Feature Flag BẬT: ném UnprocessableEntityException khi còn Variant Child ACTIVE (RFC §8)', async () => {
+      process.env.PRODUCT_REFACTOR_ENABLED = 'true';
+      productRepository.findById.mockResolvedValue(baseProduct);
+      productRepository.hasActiveVariantChildren.mockResolvedValue(true);
+
+      await expect(service.remove('product-1', actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(productRepository.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('Feature Flag BẬT: cho Archive khi không còn Variant Child ACTIVE', async () => {
+      process.env.PRODUCT_REFACTOR_ENABLED = 'true';
+      productRepository.findById.mockResolvedValue(baseProduct);
+      productRepository.hasActiveVariantChildren.mockResolvedValue(false);
+
+      await service.remove('product-1', actor);
+
+      expect(productRepository.softDelete).toHaveBeenCalled();
     });
   });
 
