@@ -37,8 +37,8 @@ export interface ICategoryRepository {
   /**
    * Optimistic Lock (SPEC-CATEGORY-001 §7.1, Decision Q9) — compare-and-swap trên `version`.
    * Ném `CategoryConcurrencyConflictError` nếu `expectedVersion` không khớp version hiện tại
-   * trong DB (đúng mẫu `IProductRepository.update()`, ADR-0007). Luôn tăng `version` khi thành
-   * công.
+   * trong DB (đúng mẫu Product module's repository update() ở T005, ADR-0007). Luôn tăng
+   * `version` khi thành công.
    */
   update(
     id: string,

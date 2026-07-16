@@ -49,10 +49,10 @@ describe('CategoryService', () => {
       update: jest.fn(),
       softDelete: jest.fn(),
       restore: jest.fn(),
-      listAll: jest.fn(),
+      listAll: jest.fn().mockResolvedValue([]),
       existsByCode: jest.fn(),
       existsBySlug: jest.fn(),
-      findAncestorChainIncludingArchived: jest.fn(),
+      findAncestorChainIncludingArchived: jest.fn().mockResolvedValue([]),
     };
     slugGenerator = {
       generateUnique: jest.fn().mockResolvedValue('danh-muc-moi'),

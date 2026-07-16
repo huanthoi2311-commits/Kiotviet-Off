@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
@@ -12,6 +13,7 @@ import {
   CategoryEntity,
   CategoryTreeNode,
 } from '../domain/entities/category.entity';
+import { CategoryConcurrencyConflictError } from '../domain/errors/category.errors';
 import { CATEGORY_REPOSITORY } from '../domain/repositories/category.repository.interface';
 import type { ICategoryRepository } from '../domain/repositories/category.repository.interface';
 import { CATEGORY_SLUG_GENERATOR } from '../domain/services/category-slug-generator.interface';
@@ -79,6 +81,7 @@ export class CategoryService {
       userAgent: actor.userAgent,
     });
 
+    this.onCategoryCreated(created);
     return CategoryMapper.toResponseDto(created);
   }
 
@@ -141,17 +144,27 @@ export class CategoryService {
     // Cau noi tam thoi - UpdateCategoryDto chua co field "version" (se them o Step 7 Controller +
     // DTO, dung thu tu da duoc uy quyen). Dung existing.version doc lai ngay truoc do KHONG phai
     // Optimistic Lock dung nghia - se thay bang dto.version that ngay sau khi Step 7 hoan tat.
-    const updated = await this.categoryRepository.update(id, existing.version, {
-      parentId: dto.parentId,
-      code: dto.code,
-      slug,
-      name: dto.name,
-      description: dto.description,
-      imageUrl: dto.imageUrl,
-      sortOrder: dto.sortOrder,
-      isActive: dto.isActive,
-      updatedBy: actor.userId,
-    });
+    let updated: CategoryEntity;
+    try {
+      updated = await this.categoryRepository.update(id, existing.version, {
+        parentId: dto.parentId,
+        code: dto.code,
+        slug,
+        name: dto.name,
+        description: dto.description,
+        imageUrl: dto.imageUrl,
+        sortOrder: dto.sortOrder,
+        isActive: dto.isActive,
+        updatedBy: actor.userId,
+      });
+    } catch (error) {
+      if (error instanceof CategoryConcurrencyConflictError) {
+        throw new ConflictException(
+          withCode(ErrorCode.CATEGORY_VERSION_CONFLICT, error.message),
+        );
+      }
+      throw error;
+    }
 
     await this.auditLogService.log({
       organizationId: actor.organizationId,
@@ -165,6 +178,7 @@ export class CategoryService {
       userAgent: actor.userAgent,
     });
 
+    this.onCategoryUpdated(updated);
     return CategoryMapper.toResponseDto(updated);
   }
 
@@ -186,6 +200,11 @@ export class CategoryService {
       );
     }
 
+    const allCategories = await this.categoryRepository.listAll(
+      actor.organizationId,
+    );
+    this.assertNoActiveDescendant(id, allCategories);
+
     await this.categoryRepository.softDelete(id, actor.userId);
 
     await this.auditLogService.log({
@@ -198,6 +217,8 @@ export class CategoryService {
       ip: actor.ip,
       userAgent: actor.userAgent,
     });
+
+    this.onCategoryArchived(id);
   }
 
   async restore(id: string, actor: ActorContext): Promise<CategoryResponseDto> {
@@ -211,6 +232,21 @@ export class CategoryService {
         withCode(
           ErrorCode.CATEGORY_NOT_DELETED,
           'Danh mục chưa bị xóa, không thể khôi phục',
+        ),
+      );
+    }
+
+    const ancestors =
+      await this.categoryRepository.findAncestorChainIncludingArchived(
+        id,
+        actor.organizationId,
+      );
+    const archivedAncestor = ancestors.find((a) => a.status === 'ARCHIVED');
+    if (archivedAncestor) {
+      throw new UnprocessableEntityException(
+        withCode(
+          ErrorCode.CATEGORY_ANCESTOR_ARCHIVED,
+          'Không thể khôi phục vì danh mục cha đang bị lưu trữ, vui lòng khôi phục danh mục cha trước',
         ),
       );
     }
@@ -233,6 +269,7 @@ export class CategoryService {
       userAgent: actor.userAgent,
     });
 
+    this.onCategoryRestored(restored);
     return CategoryMapper.toResponseDto(restored);
   }
 
@@ -279,6 +316,49 @@ export class CategoryService {
     }
   }
 
+  /**
+   * Archive Rule đệ quy (SPEC-CATEGORY-001 §5, Decision Q6/S05) — kiểm tra TOÀN BỘ cây con
+   * (không chỉ con trực tiếp), không N+1 query (Decision IP06 — 1 lần `listAll()` đã có sẵn ở
+   * `remove()`, duyệt trong bộ nhớ). Bảo vệ vòng lặp bất thường (Decision IP03).
+   */
+  private assertNoActiveDescendant(
+    categoryId: string,
+    allCategories: CategoryEntity[],
+  ): void {
+    const childrenByParent = new Map<string, CategoryEntity[]>();
+    for (const c of allCategories) {
+      if (!c.parentId) continue;
+      const list = childrenByParent.get(c.parentId) ?? [];
+      list.push(c);
+      childrenByParent.set(c.parentId, list);
+    }
+
+    const stack = [...(childrenByParent.get(categoryId) ?? [])];
+    const visited = new Set<string>([categoryId]);
+
+    while (stack.length) {
+      const node = stack.pop()!;
+      if (visited.has(node.id)) {
+        throw new UnprocessableEntityException(
+          withCode(
+            ErrorCode.CATEGORY_CIRCULAR_REFERENCE,
+            'Phát hiện vòng lặp bất thường trong dữ liệu danh mục',
+          ),
+        );
+      }
+      visited.add(node.id);
+      if (node.status === 'ACTIVE') {
+        throw new UnprocessableEntityException(
+          withCode(
+            ErrorCode.CATEGORY_HAS_ACTIVE_DESCENDANT,
+            'Không thể lưu trữ danh mục vì còn danh mục con đang hoạt động',
+          ),
+        );
+      }
+      stack.push(...(childrenByParent.get(node.id) ?? []));
+    }
+  }
+
   private buildTree(categories: CategoryEntity[]): CategoryTreeNode[] {
     const nodeById = new Map<string, CategoryTreeNode>(
       categories.map((c) => [c.id, { ...c, children: [] }]),
@@ -310,6 +390,29 @@ export class CategoryService {
       name: category.name,
       parentId: category.parentId,
       isActive: category.isActive,
+      status: category.status,
+      version: category.version,
     };
+  }
+
+  /**
+   * Điểm mở rộng Domain Event (RFC-0002 §14, SPEC-CATEGORY-001 §10, Decision Q11) - cố ý để
+   * trống, KHÔNG publish (đúng mẫu `ProductService.onProductCreated()` v.v., T005). Chỉ định
+   * nghĩa tên + thời điểm gọi, chờ Sprint Event triển khai Outbox thật (ADR-0009/ADR-0011).
+   */
+  private onCategoryCreated(category: CategoryEntity): void {
+    void category;
+  }
+
+  private onCategoryUpdated(category: CategoryEntity): void {
+    void category;
+  }
+
+  private onCategoryArchived(categoryId: string): void {
+    void categoryId;
+  }
+
+  private onCategoryRestored(category: CategoryEntity): void {
+    void category;
   }
 }
