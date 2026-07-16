@@ -8,6 +8,8 @@ export class UnitMapper {
       code: entity.code,
       name: entity.name,
       symbol: entity.symbol,
+      status: entity.status,
+      version: entity.version,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };

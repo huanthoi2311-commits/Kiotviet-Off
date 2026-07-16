@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
@@ -9,6 +10,7 @@ import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
 import { ProductDomainService } from '../../product/application/product-domain.service';
 import { UnitEntity } from '../domain/entities/unit.entity';
+import { UnitConcurrencyConflictError } from '../domain/errors/unit.errors';
 import { UNIT_REPOSITORY } from '../domain/repositories/unit.repository.interface';
 import type { IUnitRepository } from '../domain/repositories/unit.repository.interface';
 import { UnitQueryDto } from './dto/unit-query.dto';
@@ -56,6 +58,7 @@ export class UnitService {
       userAgent: actor.userAgent,
     });
 
+    this.onUnitCreated(created);
     return UnitMapper.toResponseDto(created);
   }
 
@@ -72,12 +75,12 @@ export class UnitService {
     const result = await this.unitRepository.search({
       organizationId,
       search: query.search,
+      status: query.status,
+      isActive: query.isActive,
       page: query.page ?? 1,
       limit: query.limit ?? 20,
-      // Cầu nối tạm thời (sẽ thay ở Application commit sau khi UnitQueryDto thêm
-      // isActive/sortBy/sortOrder thật) — default cứng, đúng hành vi hardcode hiện có.
-      sortBy: 'name',
-      sortOrder: 'asc',
+      sortBy: query.sortBy ?? 'name',
+      sortOrder: query.sortOrder ?? 'asc',
     });
 
     return {
@@ -99,15 +102,28 @@ export class UnitService {
     );
     if (!existing) throw this.notFound();
 
-    // Cầu nối tạm thời (sẽ thay ở Application commit sau khi UpdateUnitDto thêm field `version`
-    // thật — đúng thứ tự đã ủy quyền, Repository trước DTO, tiền lệ T006/T007): dùng
-    // existing.version thay vì dto.version thật.
-    const updated = await this.unitRepository.update(
-      id,
-      actor.organizationId,
-      existing.version,
-      { ...dto, updatedBy: actor.userId },
-    );
+    let updated: UnitEntity;
+    try {
+      updated = await this.unitRepository.update(
+        id,
+        actor.organizationId,
+        dto.version,
+        {
+          code: dto.code,
+          name: dto.name,
+          symbol: dto.symbol,
+          status: dto.status,
+          updatedBy: actor.userId,
+        },
+      );
+    } catch (error) {
+      if (error instanceof UnitConcurrencyConflictError) {
+        throw new ConflictException(
+          withCode(ErrorCode.UNIT_VERSION_CONFLICT, error.message),
+        );
+      }
+      throw error;
+    }
 
     await this.auditLogService.log({
       organizationId: actor.organizationId,
@@ -121,6 +137,7 @@ export class UnitService {
       userAgent: actor.userAgent,
     });
 
+    this.onUnitUpdated(updated);
     return UnitMapper.toResponseDto(updated);
   }
 
@@ -142,6 +159,10 @@ export class UnitService {
       );
     }
 
+    // Delete Guard cho Barcode (Decision RQ5/UP07) sẽ được thêm ở bước "Barcode Adjustment"
+    // (đúng thứ tự đã ủy quyền: Repository → Application → Controller → Product Adjustment →
+    // Barcode Adjustment) — BarcodeDomainService chưa tồn tại tại commit này.
+
     await this.unitRepository.softDelete(
       id,
       actor.organizationId,
@@ -158,6 +179,46 @@ export class UnitService {
       ip: actor.ip,
       userAgent: actor.userAgent,
     });
+
+    this.onUnitArchived(id);
+  }
+
+  /** SPEC-UNIT-001 §9 (Decision RQ3) — luôn trả status về INACTIVE, không tự động ACTIVE. */
+  async restore(id: string, actor: ActorContext): Promise<UnitResponseDto> {
+    const existing = await this.unitRepository.findByIdIncludingDeleted(
+      id,
+      actor.organizationId,
+    );
+    if (!existing) throw this.notFound();
+    if (!existing.deletedAt) {
+      throw new UnprocessableEntityException(
+        withCode(
+          ErrorCode.UNIT_NOT_DELETED,
+          'Đơn vị tính chưa bị xóa, không thể khôi phục',
+        ),
+      );
+    }
+
+    await this.unitRepository.restore(id, actor.organizationId, actor.userId);
+    const restored = await this.unitRepository.findById(
+      id,
+      actor.organizationId,
+    );
+    if (!restored) throw this.notFound();
+
+    await this.auditLogService.log({
+      organizationId: actor.organizationId,
+      userId: actor.userId,
+      action: 'unit.restore',
+      entityType: 'Unit',
+      entityId: id,
+      newValue: this.toAuditSnapshot(restored),
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+    });
+
+    this.onUnitRestored(restored);
+    return UnitMapper.toResponseDto(restored);
   }
 
   private notFound(): NotFoundException {
@@ -168,5 +229,26 @@ export class UnitService {
 
   private toAuditSnapshot(unit: UnitEntity): Record<string, unknown> {
     return { code: unit.code, name: unit.name, symbol: unit.symbol };
+  }
+
+  /**
+   * Điểm mở rộng Domain Event (SPEC-UNIT-001 §12, Decision RQ4) — cố ý để trống, KHÔNG publish
+   * (đúng mẫu `CategoryService`/`BrandService`). Chỉ định nghĩa tên + thời điểm gọi, chờ Sprint
+   * Event triển khai Outbox thật (ADR-0009/ADR-0011).
+   */
+  private onUnitCreated(unit: UnitEntity): void {
+    void unit;
+  }
+
+  private onUnitUpdated(unit: UnitEntity): void {
+    void unit;
+  }
+
+  private onUnitArchived(unitId: string): void {
+    void unitId;
+  }
+
+  private onUnitRestored(unit: UnitEntity): void {
+    void unit;
   }
 }

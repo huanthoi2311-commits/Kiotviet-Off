@@ -1,10 +1,12 @@
 import {
+  ConflictException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { ProductDomainService } from '../../product/application/product-domain.service';
 import { UnitEntity } from '../domain/entities/unit.entity';
+import { UnitConcurrencyConflictError } from '../domain/errors/unit.errors';
 import { IUnitRepository } from '../domain/repositories/unit.repository.interface';
 import { ActorContext, UnitService } from './unit.service';
 
@@ -109,14 +111,20 @@ describe('UnitService', () => {
     it('cập nhật thành công, ghi audit log old/new', async () => {
       unitRepository.findById.mockResolvedValue(makeUnit());
       unitRepository.update.mockResolvedValue(
-        makeUnit({ name: 'Cái (đã sửa)' }),
+        makeUnit({ name: 'Cái (đã sửa)', version: 2 }),
       );
       const result = await service.update(
         'unit-1',
-        { name: 'Cái (đã sửa)' },
+        { version: 1, name: 'Cái (đã sửa)' },
         actor,
       );
       expect(result.name).toBe('Cái (đã sửa)');
+      expect(unitRepository.update).toHaveBeenCalledWith(
+        'unit-1',
+        'org-1',
+        1,
+        expect.objectContaining({ name: 'Cái (đã sửa)' }),
+      );
       expect(auditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'unit.update' }),
       );
@@ -125,8 +133,56 @@ describe('UnitService', () => {
     it('ném NotFoundException khi không tồn tại', async () => {
       unitRepository.findById.mockResolvedValue(null);
       await expect(
-        service.update('missing', { name: 'x' }, actor),
+        service.update('missing', { version: 1, name: 'x' }, actor),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('dịch UnitConcurrencyConflictError sang ConflictException 409', async () => {
+      unitRepository.findById.mockResolvedValue(makeUnit());
+      unitRepository.update.mockRejectedValue(
+        new UnitConcurrencyConflictError('unit-1'),
+      );
+      await expect(
+        service.update('unit-1', { version: 1, name: 'x' }, actor),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('restore', () => {
+    it('ném NotFoundException khi không tồn tại (kể cả đã xóa)', async () => {
+      unitRepository.findByIdIncludingDeleted.mockResolvedValue(null);
+      await expect(service.restore('missing', actor)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('ném lỗi nghiệp vụ khi unit chưa bị xóa mềm', async () => {
+      unitRepository.findByIdIncludingDeleted.mockResolvedValue(
+        makeUnit({ deletedAt: null }),
+      );
+      await expect(service.restore('unit-1', actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(unitRepository.restore).not.toHaveBeenCalled();
+    });
+
+    it('khôi phục thành công, status luôn về INACTIVE, ghi audit log', async () => {
+      unitRepository.findByIdIncludingDeleted.mockResolvedValue(
+        makeUnit({ deletedAt: new Date('2026-01-02'), status: 'ARCHIVED' }),
+      );
+      unitRepository.findById.mockResolvedValue(
+        makeUnit({ status: 'INACTIVE', deletedAt: null }),
+      );
+      const result = await service.restore('unit-1', actor);
+      expect(result.status).toBe('INACTIVE');
+      expect(unitRepository.restore).toHaveBeenCalledWith(
+        'unit-1',
+        'org-1',
+        'user-1',
+      );
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'unit.restore' }),
+      );
     });
   });
 

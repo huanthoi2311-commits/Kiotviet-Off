@@ -5,6 +5,8 @@ export class UnitResponseDto {
   @ApiProperty() code: string;
   @ApiProperty() name: string;
   @ApiProperty() symbol: string;
+  @ApiProperty() status: string;
+  @ApiProperty() version: number;
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
 }
