@@ -201,7 +201,7 @@ describe('ProductService', () => {
       expect(productRepository.create).not.toHaveBeenCalled();
     });
 
-    it('tạo thành công Variant Child khi parentProductId trỏ đúng VARIANT_PARENT', async () => {
+    it('tạo thành công Variant Child khi parentProductId trỏ đúng VARIANT_PARENT (cùng categoryId)', async () => {
       const dto: CreateProductDto = {
         ...createDto,
         type: 'VARIANT_CHILD',
@@ -211,6 +211,7 @@ describe('ProductService', () => {
         ...baseProduct,
         id: 'parent-1',
         type: 'VARIANT_PARENT',
+        categoryId: 'category-1',
       });
       productRepository.create.mockResolvedValue({
         ...baseProduct,
@@ -221,6 +222,26 @@ describe('ProductService', () => {
       const result = await service.create(dto, actor);
 
       expect(result.parentProductId).toBe('parent-1');
+    });
+
+    it('Variant khác Category (Decision Q8/S03, SPEC-CATEGORY-001 §5): ném UnprocessableEntityException khi Variant Child khác categoryId với Variant Parent', async () => {
+      const dto: CreateProductDto = {
+        ...createDto,
+        categoryId: 'category-1',
+        type: 'VARIANT_CHILD',
+        parentProductId: 'parent-1',
+      };
+      productRepository.findById.mockResolvedValue({
+        ...baseProduct,
+        id: 'parent-1',
+        type: 'VARIANT_PARENT',
+        categoryId: 'category-2',
+      });
+
+      await expect(service.create(dto, actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(productRepository.create).not.toHaveBeenCalled();
     });
   });
 
@@ -461,6 +482,62 @@ describe('ProductService', () => {
         ),
       ).rejects.toThrow(UnprocessableEntityException);
       expect(productRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('Variant khác Category (Decision Q8/S03): ném UnprocessableEntityException khi đổi type=VARIANT_CHILD với categoryId khác Variant Parent', async () => {
+      productRepository.findById.mockImplementation((id) =>
+        Promise.resolve(
+          id === 'product-1'
+            ? { ...baseProduct, id: 'product-1', categoryId: 'category-1' }
+            : id === 'parent-1'
+              ? {
+                  ...baseProduct,
+                  id: 'parent-1',
+                  type: 'VARIANT_PARENT',
+                  categoryId: 'category-2',
+                }
+              : null,
+        ),
+      );
+
+      await expect(
+        service.update(
+          'product-1',
+          updateDto({ type: 'VARIANT_CHILD', parentProductId: 'parent-1' }),
+          actor,
+        ),
+      ).rejects.toThrow(UnprocessableEntityException);
+      expect(productRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('Variant khác Category: cho phép đổi type=VARIANT_CHILD khi cùng categoryId với Variant Parent', async () => {
+      productRepository.findById.mockImplementation((id) =>
+        Promise.resolve(
+          id === 'product-1'
+            ? { ...baseProduct, id: 'product-1', categoryId: 'category-1' }
+            : id === 'parent-1'
+              ? {
+                  ...baseProduct,
+                  id: 'parent-1',
+                  type: 'VARIANT_PARENT',
+                  categoryId: 'category-1',
+                }
+              : null,
+        ),
+      );
+      productRepository.update.mockResolvedValue({
+        ...baseProduct,
+        type: 'VARIANT_CHILD',
+        parentProductId: 'parent-1',
+      });
+
+      const result = await service.update(
+        'product-1',
+        updateDto({ type: 'VARIANT_CHILD', parentProductId: 'parent-1' }),
+        actor,
+      );
+
+      expect(result.parentProductId).toBe('parent-1');
     });
   });
 

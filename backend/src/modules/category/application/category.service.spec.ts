@@ -1,10 +1,12 @@
 import {
+  ConflictException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { ProductDomainService } from '../../product/application/product-domain.service';
 import { CategoryEntity } from '../domain/entities/category.entity';
+import { CategoryConcurrencyConflictError } from '../domain/errors/category.errors';
 import { ICategoryRepository } from '../domain/repositories/category.repository.interface';
 import { ICategorySlugGenerator } from '../domain/services/category-slug-generator.interface';
 import { ActorContext, CategoryService } from './category.service';
@@ -167,6 +169,54 @@ describe('CategoryService', () => {
         }),
       );
     });
+
+    it('Pagination: truyền đúng page/limit tùy chỉnh (không dùng mặc định)', async () => {
+      categoryRepository.search.mockResolvedValue({
+        items: [],
+        total: 45,
+        page: 3,
+        limit: 10,
+      });
+
+      const result = await service.list({ page: 3, limit: 10 }, 'org-1');
+
+      expect(categoryRepository.search).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 3, limit: 10 }),
+      );
+      expect(result.page).toBe(3);
+      expect(result.limit).toBe(10);
+      expect(result.total).toBe(45);
+    });
+
+    it('Pagination: truyền đúng sortBy/sortOrder tùy chỉnh', async () => {
+      categoryRepository.search.mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        limit: 20,
+      });
+
+      await service.list({ sortBy: 'name', sortOrder: 'desc' }, 'org-1');
+
+      expect(categoryRepository.search).toHaveBeenCalledWith(
+        expect.objectContaining({ sortBy: 'name', sortOrder: 'desc' }),
+      );
+    });
+
+    it('Multi Tenant Isolation: luôn dùng organizationId từ actor, không lấy từ query', async () => {
+      categoryRepository.search.mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        limit: 20,
+      });
+
+      await service.list({}, 'org-khac');
+
+      expect(categoryRepository.search).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationId: 'org-khac' }),
+      );
+    });
   });
 
   describe('findOne', () => {
@@ -174,6 +224,17 @@ describe('CategoryService', () => {
       categoryRepository.findById.mockResolvedValue(null);
       await expect(service.findOne('missing', 'org-1')).rejects.toThrow(
         NotFoundException,
+      );
+    });
+
+    it('Multi Tenant Isolation: truyền đúng organizationId của actor xuống Repository, không bị hardcode', async () => {
+      categoryRepository.findById.mockResolvedValue(
+        makeCategory({ organizationId: 'org-khac' }),
+      );
+      await service.findOne('cat-1', 'org-khac');
+      expect(categoryRepository.findById).toHaveBeenCalledWith(
+        'cat-1',
+        'org-khac',
       );
     });
   });
@@ -282,6 +343,47 @@ describe('CategoryService', () => {
         service.update('missing', { version: 1, name: 'x' }, actor),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it('Optimistic Lock: dịch CategoryConcurrencyConflictError sang ConflictException (409)', async () => {
+      categoryRepository.findById.mockResolvedValue(makeCategory());
+      categoryRepository.update.mockRejectedValue(
+        new CategoryConcurrencyConflictError('cat-1'),
+      );
+
+      await expect(
+        service.update('cat-1', { version: 1, name: 'x' }, actor),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('Optimistic Lock: truyền đúng dto.version (không phải existing.version) làm expectedVersion', async () => {
+      categoryRepository.findById.mockResolvedValue(
+        makeCategory({ version: 5 }),
+      );
+      categoryRepository.update.mockResolvedValue(makeCategory({ version: 6 }));
+
+      await service.update('cat-1', { version: 5, name: 'x' }, actor);
+
+      expect(categoryRepository.update).toHaveBeenCalledWith(
+        'cat-1',
+        5,
+        expect.anything(),
+      );
+    });
+
+    it('Parent Archived: ném lỗi 422 khi gán parentId trỏ tới danh mục đã bị xóa mềm/lưu trữ', async () => {
+      categoryRepository.findById.mockImplementation((id) =>
+        Promise.resolve(id === 'cat-1' ? makeCategory() : null),
+      );
+
+      await expect(
+        service.update(
+          'cat-1',
+          { version: 1, parentId: 'archived-parent' },
+          actor,
+        ),
+      ).rejects.toThrow(UnprocessableEntityException);
+      expect(categoryRepository.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('remove', () => {
@@ -306,6 +408,81 @@ describe('CategoryService', () => {
         'user-1',
       );
     });
+
+    it('Archive nhiều cấp: chặn Archive khi con TRỰC TIẾP đang ACTIVE', async () => {
+      const root = makeCategory({ id: 'root', parentId: null });
+      const child = makeCategory({
+        id: 'child',
+        parentId: 'root',
+        status: 'ACTIVE',
+      });
+      categoryRepository.findById.mockResolvedValue(root);
+      categoryRepository.listAll.mockResolvedValue([root, child]);
+
+      await expect(service.remove('root', actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(categoryRepository.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('Archive nhiều cấp: chặn Archive khi CHÁU (cấp 2, không phải con trực tiếp) đang ACTIVE', async () => {
+      const root = makeCategory({ id: 'root', parentId: null });
+      const child = makeCategory({
+        id: 'child',
+        parentId: 'root',
+        status: 'INACTIVE',
+      });
+      const grandchild = makeCategory({
+        id: 'grandchild',
+        parentId: 'child',
+        status: 'ACTIVE',
+      });
+      categoryRepository.findById.mockResolvedValue(root);
+      categoryRepository.listAll.mockResolvedValue([root, child, grandchild]);
+
+      await expect(service.remove('root', actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(categoryRepository.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('Archive nhiều cấp: cho phép Archive khi TOÀN BỘ cây con đều không ACTIVE', async () => {
+      const root = makeCategory({ id: 'root', parentId: null });
+      const child = makeCategory({
+        id: 'child',
+        parentId: 'root',
+        status: 'INACTIVE',
+      });
+      const grandchild = makeCategory({
+        id: 'grandchild',
+        parentId: 'child',
+        status: 'ARCHIVED',
+      });
+      categoryRepository.findById.mockResolvedValue(root);
+      categoryRepository.listAll.mockResolvedValue([root, child, grandchild]);
+
+      await service.remove('root', actor);
+
+      expect(categoryRepository.softDelete).toHaveBeenCalledWith(
+        'root',
+        'user-1',
+      );
+    });
+
+    it('Circular Detection (defensive, Decision IP03): dừng và ném lỗi nghiệp vụ thay vì lặp vô hạn khi dữ liệu cây con có vòng lặp bất thường', async () => {
+      // Du lieu bat thuong gia dinh: a->b->c->a (khong the xay ra qua flow ghi binh thuong vi
+      // assertNoCircularReference da chan, nhung day la bao ve phong thu cho du lieu hong).
+      const a = makeCategory({ id: 'a', parentId: 'c' });
+      const b = makeCategory({ id: 'b', parentId: 'a' });
+      const c = makeCategory({ id: 'c', parentId: 'b' });
+      categoryRepository.findById.mockResolvedValue(a);
+      categoryRepository.listAll.mockResolvedValue([a, b, c]);
+
+      await expect(service.remove('a', actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(categoryRepository.softDelete).not.toHaveBeenCalled();
+    });
   });
 
   describe('restore', () => {
@@ -326,6 +503,73 @@ describe('CategoryService', () => {
 
       const result = await service.restore('cat-1', actor);
       expect(result.deletedAt).toBeNull();
+    });
+
+    it('Restore nhiều cấp: chặn Restore khi cha TRỰC TIẾP đang ARCHIVED', async () => {
+      categoryRepository.findByIdIncludingDeleted.mockResolvedValue(
+        makeCategory({ id: 'child', deletedAt: new Date() }),
+      );
+      categoryRepository.findAncestorChainIncludingArchived.mockResolvedValue([
+        makeCategory({ id: 'parent', status: 'ARCHIVED' }),
+      ]);
+
+      await expect(service.restore('child', actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(categoryRepository.restore).not.toHaveBeenCalled();
+    });
+
+    it('Restore nhiều cấp: chặn Restore khi TỔ TIÊN cấp 2 (ông, không phải cha trực tiếp) đang ARCHIVED', async () => {
+      categoryRepository.findByIdIncludingDeleted.mockResolvedValue(
+        makeCategory({ id: 'grandchild', deletedAt: new Date() }),
+      );
+      // findAncestorChainIncludingArchived trả về đúng thứ tự cha -> ông (Step 5).
+      categoryRepository.findAncestorChainIncludingArchived.mockResolvedValue([
+        makeCategory({ id: 'child', status: 'INACTIVE' }),
+        makeCategory({ id: 'root', status: 'ARCHIVED' }),
+      ]);
+
+      await expect(service.restore('grandchild', actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(categoryRepository.restore).not.toHaveBeenCalled();
+    });
+
+    it('Restore nhiều cấp: cho phép Restore khi TOÀN BỘ chuỗi tổ tiên không có ai ARCHIVED', async () => {
+      categoryRepository.findByIdIncludingDeleted.mockResolvedValue(
+        makeCategory({ id: 'grandchild', deletedAt: new Date() }),
+      );
+      categoryRepository.findAncestorChainIncludingArchived.mockResolvedValue([
+        makeCategory({ id: 'child', status: 'INACTIVE' }),
+        makeCategory({ id: 'root', status: 'ACTIVE' }),
+      ]);
+      categoryRepository.findById.mockResolvedValue(
+        makeCategory({ id: 'grandchild' }),
+      );
+
+      await service.restore('grandchild', actor);
+
+      expect(categoryRepository.restore).toHaveBeenCalledWith(
+        'grandchild',
+        'user-1',
+      );
+    });
+
+    it('Restore nhiều cấp: cho phép Restore khi không có tổ tiên nào (danh mục gốc)', async () => {
+      categoryRepository.findByIdIncludingDeleted.mockResolvedValue(
+        makeCategory({ deletedAt: new Date() }),
+      );
+      categoryRepository.findAncestorChainIncludingArchived.mockResolvedValue(
+        [],
+      );
+      categoryRepository.findById.mockResolvedValue(makeCategory());
+
+      await service.restore('cat-1', actor);
+
+      expect(categoryRepository.restore).toHaveBeenCalledWith(
+        'cat-1',
+        'user-1',
+      );
     });
   });
 });
