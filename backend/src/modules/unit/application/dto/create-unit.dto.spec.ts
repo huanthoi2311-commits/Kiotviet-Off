@@ -40,4 +40,26 @@ describe('CreateUnitDto validation', () => {
     });
     expect(errors.some((e) => e.property === 'symbol')).toBe(true);
   });
+
+  it('chấp nhận status ACTIVE/INACTIVE', async () => {
+    for (const status of ['ACTIVE', 'INACTIVE']) {
+      const errors = await validateDto({
+        code: 'CAI',
+        name: 'Cái',
+        symbol: 'cái',
+        status,
+      });
+      expect(errors).toHaveLength(0);
+    }
+  });
+
+  it('từ chối status ARCHIVED khi tạo mới (Decision RQ1)', async () => {
+    const errors = await validateDto({
+      code: 'CAI',
+      name: 'Cái',
+      symbol: 'cái',
+      status: 'ARCHIVED',
+    });
+    expect(errors.some((e) => e.property === 'status')).toBe(true);
+  });
 });

@@ -55,7 +55,14 @@ describe('Unit Module (e2e, integration)', () => {
     const productPermissions = await prisma.permission.findMany({
       where: { code: { startsWith: 'product:' } },
     });
-    const allPermissions = [...unitPermissions, ...productPermissions];
+    const barcodePermissions = await prisma.permission.findMany({
+      where: { code: { startsWith: 'barcode:' } },
+    });
+    const allPermissions = [
+      ...unitPermissions,
+      ...productPermissions,
+      ...barcodePermissions,
+    ];
     await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
     await prisma.rolePermission.createMany({
       data: allPermissions.map((p) => ({
@@ -202,13 +209,16 @@ describe('Unit Module (e2e, integration)', () => {
       })
       .expect(201);
     const id = unitRes.body.data.id;
+    expect(unitRes.body.data.version).toBe(1);
+    expect(unitRes.body.data.status).toBe('ACTIVE');
 
     const updated = await request(app.getHttpServer())
       .patch(`/api/v1/units/${id}`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: 'Đơn vị vòng đời (đã sửa)' })
+      .send({ version: 1, name: 'Đơn vị vòng đời (đã sửa)' })
       .expect(200);
     expect(updated.body.data.name).toBe('Đơn vị vòng đời (đã sửa)');
+    expect(updated.body.data.version).toBe(2);
 
     await request(app.getHttpServer())
       .delete(`/api/v1/units/${id}`)
@@ -219,5 +229,150 @@ describe('Unit Module (e2e, integration)', () => {
       .get(`/api/v1/units/${id}`)
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(404);
+  });
+
+  it('OPTIMISTIC LOCK: PATCH với version cũ bị từ chối 409', async () => {
+    const unitRes = await request(app.getHttpServer())
+      .post('/api/v1/units')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ code: `LOCK-${Date.now()}`, name: 'Đơn vị khóa', symbol: 'dv' })
+      .expect(201);
+    const id = unitRes.body.data.id;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/units/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1, name: 'Sửa lần 1' })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/units/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1, name: 'Sửa lần 2 (version cũ)' })
+      .expect(409);
+  });
+
+  it('RESTORE: khôi phục đơn vị tính đã xóa mềm luôn trả status về INACTIVE', async () => {
+    const unitRes = await request(app.getHttpServer())
+      .post('/api/v1/units')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        code: `RESTORE-${Date.now()}`,
+        name: 'Đơn vị khôi phục',
+        symbol: 'dv',
+        status: 'ACTIVE',
+      })
+      .expect(201);
+    const id = unitRes.body.data.id;
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/units/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(204);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/units/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(404);
+
+    const restored = await request(app.getHttpServer())
+      .post(`/api/v1/units/${id}/restore`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(201);
+    expect(restored.body.data.status).toBe('INACTIVE');
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/units/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/units/${id}/restore`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(422);
+  });
+
+  it('isActive FILTER: lọc theo status=ACTIVE qua alias isActive, không có cột isActive riêng', async () => {
+    const activeRes = await request(app.getHttpServer())
+      .post('/api/v1/units')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        code: `ISACTIVE-${Date.now()}`,
+        name: 'Đơn vị đang hoạt động',
+        symbol: 'dv',
+        status: 'ACTIVE',
+      })
+      .expect(201);
+    const inactiveRes = await request(app.getHttpServer())
+      .post('/api/v1/units')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        code: `ISACTIVE-OFF-${Date.now()}`,
+        name: 'Đơn vị ngưng hoạt động',
+        symbol: 'dv',
+        status: 'INACTIVE',
+      })
+      .expect(201);
+
+    const activeList = await request(app.getHttpServer())
+      .get('/api/v1/units')
+      .query({ isActive: true })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    const activeIds = activeList.body.data.items.map(
+      (u: { id: string }) => u.id,
+    );
+    expect(activeIds).toContain(activeRes.body.data.id);
+    expect(activeIds).not.toContain(inactiveRes.body.data.id);
+  });
+
+  it('BLOCK-DELETE BARCODE: từ chối xóa đơn vị tính đang có mã vạch sử dụng (Decision RQ5)', async () => {
+    const primaryUnitRes = await request(app.getHttpServer())
+      .post('/api/v1/units')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        code: `BARCODE-PRIMARY-${Date.now()}`,
+        name: 'Đơn vị chính của sản phẩm',
+        symbol: 'cái',
+      })
+      .expect(201);
+
+    const barcodeUnitRes = await request(app.getHttpServer())
+      .post('/api/v1/units')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        code: `BARCODE-UNIT-${Date.now()}`,
+        name: 'Đơn vị dùng cho mã vạch (thùng)',
+        symbol: 'thùng',
+      })
+      .expect(201);
+
+    const productRes = await request(app.getHttpServer())
+      .post('/api/v1/products')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        categoryId,
+        unitId: primaryUnitRes.body.data.id,
+        name: 'Sản phẩm có barcode theo thùng',
+        costPrice: 10000,
+        prices: [{ type: 'RETAIL', price: 20000 }],
+      })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/products/${productRes.body.data.id}/barcodes`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        code: `${Date.now()}`,
+        type: 'CUSTOM',
+        unitId: barcodeUnitRes.body.data.id,
+      })
+      .expect(201);
+
+    // barcodeUnitRes không phải unitId chính của Product nào — chỉ chặn qua Barcode Guard.
+    await request(app.getHttpServer())
+      .delete(`/api/v1/units/${barcodeUnitRes.body.data.id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(422);
   });
 });
