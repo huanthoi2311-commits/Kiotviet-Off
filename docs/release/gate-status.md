@@ -19,9 +19,11 @@
 | T001 | Architecture Audit (Prompt A01) | ✅ Hoàn thành — `docs/architecture/dependency-graph.md`, commit `fb4c21f` |
 | T002 | Organization Module (SPEC-ORG-001) | ✅ Hoàn thành — commit `d69b82a` |
 | T003 | Branch Module (SPEC-BRANCH-001) | ✅ Hoàn thành — commit `d69b82a` |
-| T003.5 | Inventory Architecture Specification & Review | ✅ Hoàn thành — 7 tài liệu `docs/architecture/inventory/*.md`, chưa commit riêng (gộp cùng T004) |
+| T003.5 | Inventory Architecture Specification & Review | ✅ Hoàn thành — 7 tài liệu `docs/architecture/inventory/*.md`, committed cùng T004 (`fb8628d`) |
 | T004 | Inventory Refactor (SPEC-INV-001 + Revision 1 + T004.1/T004.5) | ✅ **APPROVED & COMMITTED** — commit `fb8628d`, 10/11 Gate PASS (Integration Test PENDING do thiếu Docker) |
-| T005 | Domain Events | ⬜ Chưa bắt đầu |
+| T004.9 | Event Architecture Review (chuẩn bị T005, chưa phải SPEC) | ✅ Hoàn thành — `docs/architecture/event-architecture-review.md`, 2 quyết định đã chốt (Event cụ thể + Outbox Pattern) |
+| T004.95 | Architecture Decision Records (ADR, `SPEC-T004.95`) | 🟡 Tài liệu xong, **chờ Architecture Review** — `docs/architecture/adr/` (12 ADR + index), theo Commit Policy của `SPEC-T004.95`: chưa commit |
+| T005 | Domain Events | ⬜ Chưa bắt đầu — chờ user soạn `SPEC-EVENT-001` |
 | T006 | Release Gates (Gate-00 tổng kết Sprint-00) | ⬜ Chưa bắt đầu |
 
 ---
@@ -46,6 +48,18 @@
 
 **ARCHITECT APPROVAL nhận được — đã commit.** Commit `fb8628d` ("refactor(inventory): centralize inventory writes through InventoryDomainService"), 57 file thay đổi. Integration Test vẫn giữ nguyên trạng thái PENDING sau commit — sẽ chuyển PASS/FAIL khi có môi trường Docker chạy `npm run test:e2e` thật, không tự động coi là PASS chỉ vì đã commit.
 
+## T004.95 — Architecture Decision Records (`SPEC-T004.95`)
+
+`docs/architecture/adr/` — **12 ADR** theo đúng chuẩn `SPEC-T004.95` (Status/Context/Decision/Consequences/Alternatives/Rejected/References): System Architecture, Clean Architecture, Multi-Tenant, RBAC, Single Writer, InventoryDomainService, Optimistic Lock, Transaction Boundary, Domain Events, Repository Boundary, Outbox Pattern, Testing Strategy. Index đầy đủ: `docs/architecture/adr/README.md`. Báo cáo: `docs/implementation/t00495-report.md`.
+
+**Commit Policy (`SPEC-T004.95` §6): KHÔNG commit — chờ Architecture Review.** Toàn bộ 12 file + README + report hiện là uncommitted, đúng theo yêu cầu.
+
+> Lịch sử: bộ 8 ADR đầu tiên (tên/format khác, viết trước khi có `SPEC-T004.95`) đã bị soft-reset và thay thế hoàn toàn bằng bộ 12 file này — không tồn tại trong lịch sử git (chưa từng push), không cần disclose thêm ở đây ngoài việc ghi nhận đã redo theo đúng SPEC.
+
+## T004.9 — Event Architecture Review
+
+`docs/architecture/event-architecture-review.md` — chuẩn bị cho `SPEC-EVENT-001`, KHÔNG phải bản thân SPEC, KHÔNG code. 2 quyết định đã chốt trong lúc review: (1) dùng nhiều Domain Event cụ thể theo tên nghiệp vụ (`InventoryIncreased`, `TransferApproved`, ...), không dùng 1 event tổng quát; (2) bắt buộc Outbox Pattern cho mọi event MỚI từ T005/Sprint-01, thay thế hoàn toàn "publish trực tiếp sau commit" (nguyên tắc gốc nay là ADR-0009, cơ chế Outbox là ADR-0011).
+
 ## Nhật ký thay đổi trạng thái
 
 | Ngày | Sự kiện |
@@ -53,3 +67,5 @@
 | 2026-07-16 | T004 code hoàn thành lần 1 — Unit Test 1213/1213, Coverage giảm nhẹ 0.06-0.07pp ở 2/4 chỉ số, Integration Test ghi "⚠️ không chạy được" (chưa phân biệt PENDING/FAIL) — user KHÔNG cho phép commit, ban hành ARCHITECT DECISION T004 yêu cầu T004.1 + T004.5 |
 | 2026-07-16 | T004.1 hoàn thành — thêm `single-writer.architecture.spec.ts` (đồng thời phục vụ T004.5), Coverage vượt baseline cả 4/4 chỉ số, Integration Test đổi thành PENDING rõ ràng, file này được tạo |
 | 2026-07-16 | ARCHITECT APPROVAL — T004 committed as `fb8628d` |
+| 2026-07-16 | User yêu cầu chèn T004.95 (ADR) trước T005, quyết định dùng nhiều Event cụ thể + bắt buộc Outbox Pattern — T004.9 cập nhật lại theo 2 quyết định này, T004.95 (8 ADR, tên/format tự chọn) hoàn thành lần 1 |
+| 2026-07-16 | User ban hành `SPEC-T004.95` chính thức — cấu trúc 12 ADR, tên file, format Status/Context/Decision/Consequences/Alternatives/Rejected/References khác với bản tự làm lần 1. Soft-reset commit local (chưa push) chứa 8 ADR cũ, viết lại đúng 12 ADR theo SPEC + `t00495-report.md`. Commit Policy: không commit, chờ Architecture Review |
