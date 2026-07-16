@@ -7,7 +7,10 @@ import { UnitController } from './unit.controller';
 describe('UnitController', () => {
   let controller: UnitController;
   let unitService: jest.Mocked<
-    Pick<UnitService, 'create' | 'search' | 'findOne' | 'update' | 'remove'>
+    Pick<
+      UnitService,
+      'create' | 'search' | 'findOne' | 'update' | 'remove' | 'restore'
+    >
   >;
   const reflector = new Reflector();
 
@@ -30,6 +33,7 @@ describe('UnitController', () => {
       findOne: jest.fn(),
       update: jest.fn(),
       remove: jest.fn(),
+      restore: jest.fn(),
     };
     controller = new UnitController(unitService as unknown as UnitService);
   });
@@ -41,6 +45,7 @@ describe('UnitController', () => {
       ['findOne', 'unit:view'],
       ['update', 'unit:update'],
       ['remove', 'unit:delete'],
+      ['restore', 'unit:restore'],
     ])('method %s yêu cầu permission %s', (method, expectedPermission) => {
       const permissions = reflector.get<string[]>(
         PERMISSIONS_KEY,
@@ -106,5 +111,18 @@ describe('UnitController', () => {
       'unit-1',
       expect.any(Object),
     );
+  });
+
+  it('restore ủy quyền cho service.restore kèm actor context', async () => {
+    unitService.restore.mockResolvedValue({
+      id: 'unit-1',
+      status: 'INACTIVE',
+    } as never);
+    const result = await controller.restore('unit-1', user as never, req);
+    expect(unitService.restore).toHaveBeenCalledWith(
+      'unit-1',
+      expect.any(Object),
+    );
+    expect(result).toEqual({ id: 'unit-1', status: 'INACTIVE' });
   });
 });

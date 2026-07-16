@@ -108,6 +108,22 @@ export class UnitController {
     await this.unitService.remove(id, this.toActor(user, req));
   }
 
+  @Post(':id/restore')
+  @RequirePermissions('unit:restore')
+  @ApiOperation({
+    summary:
+      'Khôi phục đơn vị tính đã xóa mềm — status luôn trả về INACTIVE, không tự động ACTIVE',
+  })
+  @ApiResponse({ status: 201, type: UnitResponseDto })
+  @ApiWriteErrors()
+  restore(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: JwtAccessPayload,
+    @Req() req: Request,
+  ): Promise<UnitResponseDto> {
+    return this.unitService.restore(id, this.toActor(user, req));
+  }
+
   private toActor(user: JwtAccessPayload, req: Request): ActorContext {
     return {
       userId: user.sub,
