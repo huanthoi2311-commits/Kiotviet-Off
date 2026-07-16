@@ -168,6 +168,8 @@ export class PrismaCategoryRepository implements ICategoryRepository {
       imageUrl: category.imageUrl,
       sortOrder: category.sortOrder,
       isActive: category.isActive,
+      status: category.status,
+      version: category.version,
       createdAt: category.createdAt,
       updatedAt: category.updatedAt,
       deletedAt: category.deletedAt,
