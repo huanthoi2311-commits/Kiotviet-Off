@@ -28,6 +28,7 @@ describe('BrandService', () => {
     website: null,
     country: null,
     status: 'ACTIVE',
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -38,8 +39,10 @@ describe('BrandService', () => {
     brandRepository = {
       create: jest.fn(),
       findById: jest.fn(),
+      findByIdIncludingDeleted: jest.fn(),
       update: jest.fn(),
       softDelete: jest.fn(),
+      restore: jest.fn(),
       search: jest.fn(),
       existsByCode: jest.fn(),
     };

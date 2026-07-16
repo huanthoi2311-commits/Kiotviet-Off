@@ -76,6 +76,10 @@ export class BrandService {
       status: query.status,
       page: query.page ?? 1,
       limit: query.limit ?? 20,
+      // Cầu nối tạm thời (sẽ thay ở Commit 3 sau khi BrandQueryDto thêm isActive/sortBy/sortOrder
+      // thật) — default cứng, đúng hành vi hardcode hiện có trước SPEC-BRAND-001.
+      sortBy: 'name',
+      sortOrder: 'asc',
     });
 
     return {
@@ -97,7 +101,10 @@ export class BrandService {
     );
     if (!existing) throw this.notFound();
 
-    const updated = await this.brandRepository.update(id, {
+    // Cầu nối tạm thời (sẽ thay ở Commit 3 sau khi UpdateBrandDto thêm field `version` thật —
+    // đúng thứ tự đã ủy quyền, Repository trước DTO, tiền lệ T006 commit de08921):
+    // dùng existing.version thay vì dto.version thật.
+    const updated = await this.brandRepository.update(id, existing.version, {
       ...dto,
       updatedBy: actor.userId,
     });

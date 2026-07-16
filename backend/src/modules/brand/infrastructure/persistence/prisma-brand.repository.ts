@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
 import { BrandEntity } from '../../domain/entities/brand.entity';
+import { BrandConcurrencyConflictError } from '../../domain/errors/brand.errors';
 import {
   BrandSearchParams,
   BrandSearchResult,
@@ -50,10 +51,30 @@ export class PrismaBrandRepository implements IBrandRepository {
     return brand ? this.toEntity(brand) : null;
   }
 
-  async update(id: string, input: UpdateBrandInput): Promise<BrandEntity> {
+  async findByIdIncludingDeleted(
+    id: string,
+    organizationId: string,
+  ): Promise<BrandEntity | null> {
+    const brand = await this.prisma.brand.findFirst({
+      where: { id, organizationId },
+    });
+    return brand ? this.toEntity(brand) : null;
+  }
+
+  /**
+   * Optimistic Lock (SPEC-BRAND-001 §7.1, Decision B02.7) — compare-and-swap qua `updateMany`
+   * (Prisma `update()` không cho thêm điều kiện ngoài unique field ở `where`), đúng mẫu
+   * `PrismaCategoryRepository.update()` (T006). 0 dòng bị ảnh hưởng → `expectedVersion` không
+   * khớp → `BrandConcurrencyConflictError`.
+   */
+  async update(
+    id: string,
+    expectedVersion: number,
+    input: UpdateBrandInput,
+  ): Promise<BrandEntity> {
     try {
-      const brand = await this.prisma.brand.update({
-        where: { id },
+      const updateResult = await this.prisma.brand.updateMany({
+        where: { id, version: expectedVersion },
         data: {
           code: input.code,
           name: input.name,
@@ -63,10 +84,22 @@ export class PrismaBrandRepository implements IBrandRepository {
           country: input.country,
           status: input.status,
           updatedBy: input.updatedBy,
+          version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new BrandConcurrencyConflictError(id);
+      }
+
+      const brand = await this.prisma.brand.findUniqueOrThrow({
+        where: { id },
       });
       return this.toEntity(brand);
     } catch (error) {
+      if (error instanceof BrandConcurrencyConflictError) {
+        throw error;
+      }
       throw this.translateWriteError(error);
     }
   }
@@ -74,15 +107,40 @@ export class PrismaBrandRepository implements IBrandRepository {
   async softDelete(id: string, deletedBy: string): Promise<void> {
     await this.prisma.brand.update({
       where: { id },
-      data: { deletedAt: new Date(), updatedBy: deletedBy },
+      data: {
+        deletedAt: new Date(),
+        updatedBy: deletedBy,
+        version: { increment: 1 },
+      },
+    });
+  }
+
+  /** SPEC-BRAND-001 §8/Decision RQ2: restore luôn trả status về INACTIVE, không tự động ACTIVE. */
+  async restore(id: string, restoredBy: string): Promise<void> {
+    await this.prisma.brand.update({
+      where: { id },
+      data: {
+        deletedAt: null,
+        status: 'INACTIVE',
+        updatedBy: restoredBy,
+        version: { increment: 1 },
+      },
     });
   }
 
   async search(params: BrandSearchParams): Promise<BrandSearchResult> {
+    const statusConditions: Prisma.BrandWhereInput[] = [];
+    if (params.status) statusConditions.push({ status: params.status });
+    if (params.isActive !== undefined) {
+      statusConditions.push({
+        status: params.isActive ? 'ACTIVE' : { not: 'ACTIVE' },
+      });
+    }
+
     const where: Prisma.BrandWhereInput = {
       organizationId: params.organizationId,
       deletedAt: null,
-      status: params.status,
+      ...(statusConditions.length > 0 ? { AND: statusConditions } : {}),
       ...(params.search
         ? {
             OR: [
@@ -97,7 +155,7 @@ export class PrismaBrandRepository implements IBrandRepository {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.brand.findMany({
         where,
-        orderBy: { name: 'asc' },
+        orderBy: { [params.sortBy]: params.sortOrder },
         skip,
         take: params.limit,
       }),
@@ -157,6 +215,7 @@ export class PrismaBrandRepository implements IBrandRepository {
       website: brand.website,
       country: brand.country,
       status: brand.status,
+      version: brand.version,
       createdAt: brand.createdAt,
       updatedAt: brand.updatedAt,
       deletedAt: brand.deletedAt,

@@ -10,6 +10,7 @@ export interface BrandEntity {
   website: string | null;
   country: string | null;
   status: BrandStatus;
+  version: number;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;

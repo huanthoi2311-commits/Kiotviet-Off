@@ -19,6 +19,8 @@ describe('PrismaBrandRepository', () => {
       findFirst: jest.Mock;
       findMany: jest.Mock;
       update: jest.Mock;
+      updateMany: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
       count: jest.Mock;
     };
     $transaction: jest.Mock;
@@ -34,6 +36,7 @@ describe('PrismaBrandRepository', () => {
     website: null,
     country: null,
     status: 'ACTIVE',
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -46,6 +49,8 @@ describe('PrismaBrandRepository', () => {
         findFirst: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
+        findUniqueOrThrow: jest.fn(),
         count: jest.fn(),
       },
       $transaction: jest.fn(),
@@ -97,59 +102,158 @@ describe('PrismaBrandRepository', () => {
   });
 
   describe('update', () => {
-    it('cập nhật thành công', async () => {
-      prisma.brand.update.mockResolvedValue({ ...rawBrand, name: 'Nike Inc.' });
-      const result = await repository.update('brand-1', {
+    it('cập nhật thành công khi version khớp', async () => {
+      prisma.brand.updateMany.mockResolvedValue({ count: 1 });
+      prisma.brand.findUniqueOrThrow.mockResolvedValue({
+        ...rawBrand,
+        name: 'Nike Inc.',
+        version: 2,
+      });
+      const result = await repository.update('brand-1', 1, {
         name: 'Nike Inc.',
         updatedBy: 'user-1',
       });
       expect(result.name).toBe('Nike Inc.');
+      expect(prisma.brand.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'brand-1', version: 1 },
+        }),
+      );
+    });
+
+    it('ném BrandConcurrencyConflictError khi version không khớp', async () => {
+      prisma.brand.updateMany.mockResolvedValue({ count: 0 });
+      await expect(
+        repository.update('brand-1', 1, { name: 'x', updatedBy: 'user-1' }),
+      ).rejects.toThrow('vừa bị thay đổi bởi giao dịch khác');
     });
 
     it('dịch lỗi P2002 khi trùng code', async () => {
-      prisma.brand.update.mockRejectedValue(
+      prisma.brand.updateMany.mockRejectedValue(
         knownError('P2002', { target: ['code'] }),
       );
       await expect(
-        repository.update('brand-1', { name: 'x', updatedBy: 'user-1' }),
+        repository.update('brand-1', 1, { name: 'x', updatedBy: 'user-1' }),
       ).rejects.toThrow(ConflictException);
     });
   });
 
   describe('softDelete', () => {
-    it('set deletedAt và updatedBy', async () => {
+    it('set deletedAt, updatedBy và tăng version', async () => {
       prisma.brand.update.mockResolvedValue(rawBrand);
       await repository.softDelete('brand-1', 'user-1');
       expect(prisma.brand.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'brand-1' },
-          data: expect.objectContaining({ updatedBy: 'user-1' }),
+          data: expect.objectContaining({
+            updatedBy: 'user-1',
+            version: { increment: 1 },
+          }),
         }),
       );
     });
   });
 
+  describe('findByIdIncludingDeleted', () => {
+    it('trả về null khi không tìm thấy', async () => {
+      prisma.brand.findFirst.mockResolvedValue(null);
+      await expect(
+        repository.findByIdIncludingDeleted('missing', 'org-1'),
+      ).resolves.toBeNull();
+    });
+
+    it('trả về entity kể cả đã bị xóa mềm (không lọc deletedAt)', async () => {
+      prisma.brand.findFirst.mockResolvedValue({
+        ...rawBrand,
+        deletedAt: new Date('2026-01-02'),
+      });
+      const result = await repository.findByIdIncludingDeleted(
+        'brand-1',
+        'org-1',
+      );
+      expect(result?.deletedAt).not.toBeNull();
+      expect(prisma.brand.findFirst).toHaveBeenCalledWith({
+        where: { id: 'brand-1', organizationId: 'org-1' },
+      });
+    });
+  });
+
+  describe('restore', () => {
+    it('set deletedAt=null, status=INACTIVE và tăng version', async () => {
+      prisma.brand.update.mockResolvedValue(rawBrand);
+      await repository.restore('brand-1', 'user-1');
+      expect(prisma.brand.update).toHaveBeenCalledWith({
+        where: { id: 'brand-1' },
+        data: {
+          deletedAt: null,
+          status: 'INACTIVE',
+          updatedBy: 'user-1',
+          version: { increment: 1 },
+        },
+      });
+    });
+  });
+
   describe('search', () => {
+    const baseParams = {
+      organizationId: 'org-1',
+      page: 1,
+      limit: 20,
+      sortBy: 'name' as const,
+      sortOrder: 'asc' as const,
+    };
+
     it('trả về danh sách phân trang', async () => {
       prisma.$transaction.mockResolvedValue([[rawBrand], 1]);
-      const result = await repository.search({
-        organizationId: 'org-1',
-        page: 1,
-        limit: 20,
-      });
+      const result = await repository.search(baseParams);
       expect(result.total).toBe(1);
       expect(result.items).toHaveLength(1);
     });
 
     it('thêm điều kiện OR khi có search text', async () => {
       prisma.$transaction.mockResolvedValue([[], 0]);
-      await repository.search({
-        organizationId: 'org-1',
-        search: 'nike',
-        page: 1,
-        limit: 20,
-      });
+      await repository.search({ ...baseParams, search: 'nike' });
       expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('isActive=true lọc theo status=ACTIVE (không có cột isActive)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({ ...baseParams, isActive: true });
+      expect(prisma.brand.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: [{ status: 'ACTIVE' }],
+          }),
+        }),
+      );
+    });
+
+    it('status và isActive gửi đồng thời áp dụng AND cả 2 điều kiện', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({
+        ...baseParams,
+        status: 'ACTIVE',
+        isActive: false,
+      });
+      expect(prisma.brand.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: [{ status: 'ACTIVE' }, { status: { not: 'ACTIVE' } }],
+          }),
+        }),
+      );
+    });
+
+    it('orderBy theo sortBy/sortOrder được truyền', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({
+        ...baseParams,
+        sortBy: 'code',
+        sortOrder: 'desc',
+      });
+      expect(prisma.brand.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { code: 'desc' } }),
+      );
     });
   });
 
