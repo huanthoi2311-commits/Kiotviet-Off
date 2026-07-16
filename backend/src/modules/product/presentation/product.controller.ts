@@ -63,7 +63,8 @@ export class ProductController {
   @Get()
   @RequirePermissions('product:view')
   @ApiOperation({
-    summary: 'Danh sách sản phẩm — tìm kiếm, lọc, phân trang, sắp xếp',
+    summary:
+      'Danh sách sản phẩm — tìm kiếm, lọc (type/status/categoryId/brandId/unitId/parentProductId/keyword), phân trang, sắp xếp',
   })
   @ApiResponse({ status: 200, type: PaginatedProductResponseDto })
   @ApiCommonErrors()
@@ -88,7 +89,10 @@ export class ProductController {
 
   @Patch(':id')
   @RequirePermissions('product:update')
-  @ApiOperation({ summary: 'Cập nhật sản phẩm' })
+  @ApiOperation({
+    summary:
+      'Cập nhật sản phẩm — bắt buộc gửi "version" hiện tại (Optimistic Lock, SPEC-PRODUCT-001 §7.1); sai version bị từ chối 409',
+  })
   @ApiResponse({ status: 200, type: ProductResponseDto })
   @ApiWriteErrors()
   update(
@@ -103,7 +107,10 @@ export class ProductController {
   @Delete(':id')
   @RequirePermissions('product:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Xóa mềm sản phẩm (có thể khôi phục sau)' })
+  @ApiOperation({
+    summary:
+      'Lưu trữ sản phẩm (status → ARCHIVED, xóa mềm, có thể khôi phục sau) — từ chối nếu còn Variant Child đang hoạt động',
+  })
   @ApiWriteErrors()
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
@@ -115,7 +122,10 @@ export class ProductController {
 
   @Post(':id/restore')
   @RequirePermissions('product:restore')
-  @ApiOperation({ summary: 'Khôi phục sản phẩm đã xóa mềm' })
+  @ApiOperation({
+    summary:
+      'Khôi phục sản phẩm đã xóa mềm — status luôn trả về INACTIVE (không tự động ACTIVE), gọi PATCH riêng để kích hoạt lại',
+  })
   @ApiResponse({ status: 200, type: ProductResponseDto })
   @ApiWriteErrors()
   restore(
