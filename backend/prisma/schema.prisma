@@ -763,6 +763,9 @@ model Unit {
   name   String
   symbol String
 
+  /// Optimistic Lock (SPEC-UNIT-001 Decision RQ2) - tang o moi UPDATE, khong bao gio reset.
+  version Int @default(1)
+
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
   createdAt DateTime  @default(now())
