@@ -406,9 +406,10 @@ export class PrismaProductRepository implements IProductRepository {
     return !!found;
   }
 
+  /** SPEC-UNIT-001 §8 (Decision SU01) — chỉ tính Product status=ACTIVE, không tính INACTIVE/ARCHIVED. */
   async hasActiveProductsInUnit(unitId: string): Promise<boolean> {
     const found = await this.prisma.product.findFirst({
-      where: { unitId, deletedAt: null },
+      where: { unitId, deletedAt: null, status: 'ACTIVE' },
       select: { id: true },
     });
     return !!found;

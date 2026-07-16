@@ -540,10 +540,22 @@ describe('PrismaProductRepository', () => {
       ).resolves.toBe(false);
     });
 
-    it('hasActiveProductsInUnit trả về true khi còn sản phẩm chưa xóa', async () => {
+    it('hasActiveProductsInUnit trả về true khi còn sản phẩm status=ACTIVE chưa xóa', async () => {
       prisma.product.findFirst.mockResolvedValue({ id: 'product-1' });
       await expect(repository.hasActiveProductsInUnit('unit-1')).resolves.toBe(
         true,
+      );
+      expect(prisma.product.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { unitId: 'unit-1', deletedAt: null, status: 'ACTIVE' },
+        }),
+      );
+    });
+
+    it('hasActiveProductsInUnit trả về false khi Product chỉ còn INACTIVE/ARCHIVED (Decision SU01)', async () => {
+      prisma.product.findFirst.mockResolvedValue(null);
+      await expect(repository.hasActiveProductsInUnit('unit-1')).resolves.toBe(
+        false,
       );
     });
   });
