@@ -54,6 +54,7 @@ export class PrismaAuthUserRepository implements IAuthUserRepository {
     passwordHash: string;
     status: string;
     permissionVersion: number;
+    isPlatformAdmin: boolean;
   }): AuthUserEntity {
     return {
       id: user.id,
@@ -64,6 +65,7 @@ export class PrismaAuthUserRepository implements IAuthUserRepository {
       passwordHash: user.passwordHash,
       status: user.status as AuthUserEntity['status'],
       permissionVersion: user.permissionVersion,
+      isPlatformAdmin: user.isPlatformAdmin,
     };
   }
 }

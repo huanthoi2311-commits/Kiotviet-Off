@@ -18,6 +18,7 @@ describe('JwtAccessStrategy', () => {
     passwordHash: 'x',
     status: 'ACTIVE',
     permissionVersion: 5,
+    isPlatformAdmin: false,
   };
 
   beforeEach(() => {
@@ -37,6 +38,7 @@ describe('JwtAccessStrategy', () => {
     email: 'a@b.com',
     permissions: ['product:view'],
     permissionVersion: 5,
+    isPlatformAdmin: false,
   };
 
   it('cho qua khi permissionVersion khớp với DB hiện tại', async () => {

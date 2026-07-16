@@ -33,7 +33,8 @@ describe('InventoryAdjustment Module (e2e, integration)', () => {
     const organization = await prisma.organization.upsert({
       where: { slug: 'inventory-adjustment-e2e' },
       create: {
-        name: 'InventoryAdjustment E2E Org',
+        code: 'INVENTORY-ADJUSTMENT-E2E',
+        displayName: 'InventoryAdjustment E2E Org',
         slug: 'inventory-adjustment-e2e',
       },
       update: {},

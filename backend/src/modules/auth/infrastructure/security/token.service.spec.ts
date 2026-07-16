@@ -29,6 +29,7 @@ describe('TokenService', () => {
       email: 'a@b.com',
       permissions: ['product:view'],
       permissionVersion: 1,
+      isPlatformAdmin: false,
     };
     const token = tokenService.signAccessToken(payload);
     const decoded = jwtService.verify(token);

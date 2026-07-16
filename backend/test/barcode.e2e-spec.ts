@@ -27,7 +27,11 @@ describe('Barcode Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'barcode-e2e' },
-      create: { name: 'Barcode E2E Org', slug: 'barcode-e2e' },
+      create: {
+        code: 'BARCODE-E2E',
+        displayName: 'Barcode E2E Org',
+        slug: 'barcode-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;

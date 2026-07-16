@@ -42,6 +42,7 @@ describe('AuthService', () => {
     passwordHash: 'hashed',
     status: 'ACTIVE',
     permissionVersion: 3,
+    isPlatformAdmin: false,
   };
 
   const sessionRow: SessionEntity = {

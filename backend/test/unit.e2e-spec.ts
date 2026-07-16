@@ -26,7 +26,11 @@ describe('Unit Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'unit-e2e' },
-      create: { name: 'Unit E2E Org', slug: 'unit-e2e' },
+      create: {
+        code: 'UNIT-E2E',
+        displayName: 'Unit E2E Org',
+        slug: 'unit-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;

@@ -32,7 +32,11 @@ describe('Checkout Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'checkout-e2e' },
-      create: { name: 'Checkout E2E Org', slug: 'checkout-e2e' },
+      create: {
+        code: 'CHECKOUT-E2E',
+        displayName: 'Checkout E2E Org',
+        slug: 'checkout-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;

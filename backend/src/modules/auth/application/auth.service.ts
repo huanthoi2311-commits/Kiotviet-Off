@@ -205,6 +205,7 @@ export class AuthService {
       email: user.email,
       permissions,
       permissionVersion: user.permissionVersion,
+      isPlatformAdmin: user.isPlatformAdmin,
     };
     const accessToken = this.tokenService.signAccessToken(payload);
 

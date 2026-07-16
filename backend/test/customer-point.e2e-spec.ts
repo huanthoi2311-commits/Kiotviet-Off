@@ -28,7 +28,11 @@ describe('CustomerPoint Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'customer-point-e2e' },
-      create: { name: 'CustomerPoint E2E Org', slug: 'customer-point-e2e' },
+      create: {
+        code: 'CUSTOMER-POINT-E2E',
+        displayName: 'CustomerPoint E2E Org',
+        slug: 'customer-point-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;

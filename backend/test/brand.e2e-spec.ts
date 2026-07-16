@@ -27,7 +27,11 @@ describe('Brand Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'brand-e2e' },
-      create: { name: 'Brand E2E Org', slug: 'brand-e2e' },
+      create: {
+        code: 'BRAND-E2E',
+        displayName: 'Brand E2E Org',
+        slug: 'brand-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;

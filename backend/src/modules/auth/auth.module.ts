@@ -41,6 +41,6 @@ import { JwtAccessStrategy } from './presentation/strategies/jwt-access.strategy
     { provide: PASSWORD_HASHER, useClass: Argon2PasswordHasher },
     { provide: DEVICE_INFO_RESOLVER, useClass: DeviceInfoResolver },
   ],
-  exports: [AuthService],
+  exports: [AuthService, PASSWORD_HASHER],
 })
 export class AuthModule {}

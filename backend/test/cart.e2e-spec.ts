@@ -29,7 +29,11 @@ describe('Cart Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'cart-e2e' },
-      create: { name: 'Cart E2E Org', slug: 'cart-e2e' },
+      create: {
+        code: 'CART-E2E',
+        displayName: 'Cart E2E Org',
+        slug: 'cart-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;

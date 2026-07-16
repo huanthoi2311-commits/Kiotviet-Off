@@ -68,7 +68,11 @@ describe('SupplierDebt Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'supplier-debt-e2e' },
-      create: { name: 'SupplierDebt E2E Org', slug: 'supplier-debt-e2e' },
+      create: {
+        code: 'SUPPLIER-DEBT-E2E',
+        displayName: 'SupplierDebt E2E Org',
+        slug: 'supplier-debt-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;

@@ -31,7 +31,11 @@ describe('PurchaseOrder Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'purchase-order-e2e' },
-      create: { name: 'PurchaseOrder E2E Org', slug: 'purchase-order-e2e' },
+      create: {
+        code: 'PURCHASE-ORDER-E2E',
+        displayName: 'PurchaseOrder E2E Org',
+        slug: 'purchase-order-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;

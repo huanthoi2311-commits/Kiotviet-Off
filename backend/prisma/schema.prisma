@@ -32,6 +32,14 @@ enum OrganizationPlan {
 enum OrganizationStatus {
   ACTIVE
   SUSPENDED
+  /// Đổi tên từ CANCELLED (SPEC-ORG-001 Decision 2) — trạng thái nghiệp vụ, khác với
+  /// `deletedAt` (cơ chế soft-delete kỹ thuật, vẫn giữ song song).
+  ARCHIVED
+}
+
+enum OrganizationSubscriptionStatus {
+  ACTIVE
+  EXPIRED
   CANCELLED
 }
 
@@ -203,14 +211,41 @@ enum SessionClientType {
 // IDENTITY & ACCESS + ORGANIZATION
 // =========================================================================
 
+/// Root Aggregate (SPEC-ORG-001). Không module nào được ghi trực tiếp vào OrganizationSettings/
+/// OrganizationSubscription — chỉ qua module `organization`.
 model Organization {
-  id       String             @id @default(uuid()) @db.Uuid
-  name     String
-  slug     String             @unique
+  id          String  @id @default(uuid()) @db.Uuid
+  /// Sinh tự động (ORG000001), không cho sửa (SPEC-ORG-001 Rule 7).
+  code        String  @unique
+  displayName String
+  legalName   String?
+  /// Không cho sửa sau khi tạo (SPEC-ORG-001 Rule 6).
+  slug        String  @unique
+  taxCode     String? @unique
+  email       String? @unique
+  phone       String?
+  website     String?
+  logoUrl     String?
+  address     String?
+  province    String?
+  district    String?
+  ward        String?
+  countryCode String  @default("VN")
+  /// Timezone chuẩn IANA (vd: Asia/Ho_Chi_Minh) — validate ở application layer.
+  timezone    String  @default("Asia/Ho_Chi_Minh")
+  /// ISO 4217 (vd: VND) — validate ở application layer.
+  currencyCode String @default("VND")
+  languageCode String @default("vi")
+  status       OrganizationStatus @default(ACTIVE)
+  /// Nullable ở schema vì User.organizationId bắt buộc NOT NULL — transaction tạo Organization
+  /// phải tạo Organization trước (ownerUserId tạm null), tạo Owner User, rồi UPDATE lại field
+  /// này (SPEC-ORG-001 Decision 3). Ở tầng nghiệp vụ, sau khi tạo xong KHÔNG bao giờ còn null.
+  ownerUserId String? @unique @db.Uuid
+  owner        User?  @relation("OrganizationOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  /// @deprecated Dùng OrganizationSubscription.plan làm Single Source of Truth (SPEC-ORG-001
+  /// Decision 1). Giữ cột này tạm thời để tương thích ngược, sẽ gỡ bỏ ở migration sau — KHÔNG
+  /// đọc/ghi field này ở logic mới.
   plan     OrganizationPlan   @default(FREE)
-  status   OrganizationStatus @default(ACTIVE)
-  timezone String             @default("Asia/Ho_Chi_Minh")
-  currency String             @default("VND")
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -218,6 +253,8 @@ model Organization {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  organizationSettings OrganizationSettings?
+  subscription         OrganizationSubscription?
   branches             Branch[]
   warehouses           Warehouse[]
   users                User[]
@@ -260,17 +297,85 @@ model Organization {
   @@map("organizations")
 }
 
+/// Business Setting theo Organization (SPEC-ORG-001 §8) — KHÁC với `Setting` (Platform Setting
+/// dùng chung, vd SMTP/Redis/Storage, SPEC-ORG-001 Decision 6). Không migrate module Inventory
+/// sang đọc bảng này ở Sprint-00 — để dành Sprint-05 (Inventory Review).
+model OrganizationSettings {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @unique @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  allowNegativeInventory Boolean @default(false)
+  allowBackDate          Boolean @default(false)
+  decimalQuantity        Int     @default(0)
+  decimalPrice           Int     @default(0)
+  defaultWarehouseId     String? @db.Uuid
+  defaultWarehouse       Warehouse? @relation(fields: [defaultWarehouseId], references: [id], onDelete: SetNull)
+  defaultBranchId        String? @db.Uuid
+  defaultBranch          Branch? @relation("OrganizationDefaultBranch", fields: [defaultBranchId], references: [id], onDelete: SetNull)
+  defaultLanguage        String  @default("vi")
+  defaultCurrency        String  @default("VND")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("organization_settings")
+}
+
+/// Chỉ tạo cấu trúc — không triển khai logic thanh toán/billing ở Sprint-00 (SPEC-ORG-001 §9).
+/// Single Source of Truth cho `plan` — xem `Organization.plan` (deprecated).
+model OrganizationSubscription {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @unique @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  plan           OrganizationPlan               @default(FREE)
+  status         OrganizationSubscriptionStatus @default(ACTIVE)
+  startedAt      DateTime                       @default(now())
+  expiredAt      DateTime?
+  maxBranch      Int?
+  maxUser        Int?
+  maxWarehouse   Int?
+  maxProduct     Int?
+  maxCustomer    Int?
+  storageLimitGB Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("organization_subscriptions")
+}
+
+/// SPEC-BRANCH-001. `isMain` = "Branch mặc định" (chỉ 1 cái/Organization — set qua
+/// POST /branches/:id/set-default, không phải field literal trong spec nhưng khớp đúng
+/// nghĩa "Chỉ một Branch mặc định cho mỗi Organization" — giữ nguyên tên field có sẵn).
 model Branch {
   id             String       @id @default(uuid()) @db.Uuid
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  managerUserId  String?      @db.Uuid
+  manager        User?        @relation("BranchManager", fields: [managerUserId], references: [id], onDelete: SetNull)
+  /// Nullable — Branch có thể chưa có Warehouse mặc định ngay lúc tạo (Warehouse phải tạo sau,
+  /// vì Warehouse.branchId bắt buộc NOT NULL, cùng lý do bootstrap như Organization.ownerUserId).
+  defaultWarehouseId String? @db.Uuid
+  defaultWarehouse   Warehouse? @relation("BranchDefaultWarehouse", fields: [defaultWarehouseId], references: [id], onDelete: SetNull)
 
-  code    String
-  name    String
-  address String?
-  phone   String?
-  isMain  Boolean      @default(false)
-  status  CommonStatus @default(ACTIVE)
+  /// Sinh tự động (BR000001).
+  code          String
+  name          String
+  email         String?
+  address       String?
+  province      String?
+  district      String?
+  ward          String?
+  phone         String?
+  /// Unique trong Organization (SPEC-BRANCH-001 §4).
+  invoicePrefix  String?
+  receiptPrefix  String?
+  timezone       String  @default("Asia/Ho_Chi_Minh")
+  currencyCode   String  @default("VND")
+  isMain         Boolean      @default(false)
+  status         BranchStatus @default(ACTIVE)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -278,20 +383,28 @@ model Branch {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  warehouses     Warehouse[]
-  users          User[]
-  settings       Setting[]
-  purchaseOrders PurchaseOrder[]
-  orders         Order[]
-  invoices       Invoice[]
-  payments       Payment[]
-  cashBooks      CashBook[]
-  expenses       Expense[]
-  promotions     Promotion[]
+  warehouses            Warehouse[]
+  users                 User[]
+  settings              Setting[]
+  purchaseOrders        PurchaseOrder[]
+  orders                Order[]
+  invoices              Invoice[]
+  payments              Payment[]
+  cashBooks             CashBook[]
+  expenses              Expense[]
+  promotions            Promotion[]
+  organizationDefaultOf OrganizationSettings[] @relation("OrganizationDefaultBranch")
 
   @@unique([organizationId, code])
+  @@unique([organizationId, invoicePrefix])
   @@index([organizationId])
   @@map("branches")
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
 }
 
 enum WarehouseType {
@@ -337,6 +450,8 @@ model Warehouse {
   transfersTo          Transfer[]            @relation("TransferToWarehouse")
   stockCounts          StockCount[]
   inventoryAdjustments InventoryAdjustment[]
+  organizationSettingsDefaultOf OrganizationSettings[]
+  branchDefaultOf               Branch[]                @relation("BranchDefaultWarehouse")
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -376,6 +491,7 @@ model User {
   branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   username          String
+  fullName          String?
   email             String
   phone             String?
   passwordHash      String
@@ -385,6 +501,9 @@ model User {
   /// Tăng lên mỗi khi role/permission của user thay đổi — nhúng vào JWT để
   /// buộc access token cũ (còn hạn nhưng quyền đã lỗi thời) phải đăng nhập lại.
   permissionVersion Int        @default(1)
+  /// Không gắn với Role/Organization nào — chỉ user này mới được gọi POST /organizations
+  /// (SPEC-ORG-001 Decision 4: không thêm Global Role, không sửa RBAC hiện tại).
+  isPlatformAdmin   Boolean    @default(false)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -402,6 +521,8 @@ model User {
   priceChanges      PriceHistory[] @relation("PriceHistoryChangedBy")
   paymentsReceived  Payment[]      @relation("PaymentReceivedBy")
   managedWarehouses Warehouse[]
+  managedBranches   Branch[]       @relation("BranchManager")
+  ownedOrganization Organization?  @relation("OrganizationOwner")
 
   @@unique([organizationId, username])
   @@unique([organizationId, email])

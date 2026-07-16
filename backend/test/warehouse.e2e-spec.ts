@@ -28,7 +28,11 @@ describe('Warehouse Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'warehouse-e2e' },
-      create: { name: 'Warehouse E2E Org', slug: 'warehouse-e2e' },
+      create: {
+        code: 'WAREHOUSE-E2E',
+        displayName: 'Warehouse E2E Org',
+        slug: 'warehouse-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;

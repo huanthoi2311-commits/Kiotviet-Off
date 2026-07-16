@@ -4,12 +4,14 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
+import { BranchModule } from './modules/branch/branch.module';
 import { CartModule } from './modules/cart/cart.module';
 import { CheckoutModule } from './modules/checkout/checkout.module';
 import { CustomerModule } from './modules/customer/customer.module';
 import { CustomerPointModule } from './modules/customer-point/customer-point.module';
 import { DiscountModule } from './modules/discount/discount.module';
 import { InvoiceModule } from './modules/invoice/invoice.module';
+import { OrganizationModule } from './modules/organization/organization.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -61,6 +63,8 @@ import { WebsocketModule } from './websocket/websocket.module';
     PlatformModule,
     RbacModule,
     AuthModule,
+    OrganizationModule,
+    BranchModule,
     ProductModule,
     CategoryModule,
     BrandModule,

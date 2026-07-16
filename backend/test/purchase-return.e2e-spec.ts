@@ -58,7 +58,11 @@ describe('PurchaseReturn Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'purchase-return-e2e' },
-      create: { name: 'PurchaseReturn E2E Org', slug: 'purchase-return-e2e' },
+      create: {
+        code: 'PURCHASE-RETURN-E2E',
+        displayName: 'PurchaseReturn E2E Org',
+        slug: 'purchase-return-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;

@@ -23,7 +23,7 @@ async function main() {
 
   const organization = await prisma.organization.upsert({
     where: { slug: 'default' },
-    create: { name: 'Cửa hàng mặc định', slug: 'default' },
+    create: { code: 'DEFAULT', displayName: 'Cửa hàng mặc định', slug: 'default' },
     update: {},
   });
 

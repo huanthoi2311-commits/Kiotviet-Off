@@ -31,7 +31,11 @@ describe('Transfer Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'transfer-e2e' },
-      create: { name: 'Transfer E2E Org', slug: 'transfer-e2e' },
+      create: {
+        code: 'TRANSFER-E2E',
+        displayName: 'Transfer E2E Org',
+        slug: 'transfer-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;

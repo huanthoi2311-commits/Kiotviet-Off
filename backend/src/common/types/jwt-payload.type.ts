@@ -6,4 +6,6 @@ export interface JwtAccessPayload {
   permissions: string[];
   /** Đối chiếu với User.permissionVersion hiện tại — lệch nhau nghĩa là quyền đã đổi, bắt đăng nhập lại. */
   permissionVersion: number;
+  /** Không gắn Role/Organization — chỉ user này được gọi POST /organizations (SPEC-ORG-001 Decision 4). */
+  isPlatformAdmin: boolean;
 }

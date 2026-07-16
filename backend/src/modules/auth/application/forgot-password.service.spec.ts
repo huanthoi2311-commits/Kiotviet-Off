@@ -31,6 +31,7 @@ describe('ForgotPasswordService', () => {
     passwordHash: 'old-hash',
     status: 'ACTIVE',
     permissionVersion: 1,
+    isPlatformAdmin: false,
   };
 
   beforeEach(() => {

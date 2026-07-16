@@ -9,4 +9,5 @@ export interface AuthUserEntity {
   passwordHash: string;
   status: AuthUserStatus;
   permissionVersion: number;
+  isPlatformAdmin: boolean;
 }

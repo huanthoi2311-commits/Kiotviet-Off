@@ -25,6 +25,32 @@ const crud = (
  * Đây là seed cố định — không đổi theo tenant (bảng `permissions` là global).
  */
 export const PERMISSION_CATALOG: PermissionSeed[] = [
+  // Organization (SPEC-ORG-001) — không có organization:delete, tổ chức không xóa cứng, chỉ Archive.
+  {
+    code: 'organization:create',
+    group: 'organization',
+    description: 'Tạo tổ chức (Platform Admin)',
+  },
+  {
+    code: 'organization:view',
+    group: 'organization',
+    description: 'Xem tổ chức',
+  },
+  {
+    code: 'organization:update',
+    group: 'organization',
+    description: 'Sửa tổ chức',
+  },
+  {
+    code: 'organization:archive',
+    group: 'organization',
+    description: 'Lưu trữ (Archive) tổ chức',
+  },
+  {
+    code: 'organization:transfer-owner',
+    group: 'organization',
+    description: 'Chuyển quyền sở hữu tổ chức',
+  },
   { code: 'dashboard:view', group: 'dashboard', description: 'Xem tổng quan' },
   {
     code: 'pos:access',
@@ -191,5 +217,5 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
   { code: 'file:upload', group: 'file', description: 'Tải tệp lên' },
   { code: 'file:delete', group: 'file', description: 'Xóa tệp' },
   ...crud('webhook', 'webhook'),
-  ...crud('branch', 'chi nhánh'),
+  ...crud('branch', 'chi nhánh', ['archive', 'set-default']),
 ];

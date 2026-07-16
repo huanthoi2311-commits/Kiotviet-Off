@@ -30,7 +30,11 @@ describe('StockCount Module (e2e, integration)', () => {
 
     const organization = await prisma.organization.upsert({
       where: { slug: 'stock-count-e2e' },
-      create: { name: 'StockCount E2E Org', slug: 'stock-count-e2e' },
+      create: {
+        code: 'STOCK-COUNT-E2E',
+        displayName: 'StockCount E2E Org',
+        slug: 'stock-count-e2e',
+      },
       update: {},
     });
     organizationId = organization.id;
