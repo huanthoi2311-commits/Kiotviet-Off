@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -32,7 +33,9 @@ import { ActorContext, CategoryService } from '../application/category.service';
 import {
   CategoryResponseDto,
   CategoryTreeResponseDto,
+  PaginatedCategoryResponseDto,
 } from '../application/dto/category-response.dto';
+import { CategoryQueryDto } from '../application/dto/category-query.dto';
 import { CreateCategoryDto } from '../application/dto/create-category.dto';
 import { UpdateCategoryDto } from '../application/dto/update-category.dto';
 
@@ -59,10 +62,16 @@ export class CategoryController {
 
   @Get()
   @RequirePermissions('category:view')
-  @ApiOperation({ summary: 'Danh sách danh mục dạng phẳng' })
-  @ApiResponse({ status: 200, type: [CategoryResponseDto] })
-  list(@CurrentUser() user: JwtAccessPayload): Promise<CategoryResponseDto[]> {
-    return this.categoryService.list(user.organizationId);
+  @ApiOperation({
+    summary:
+      'Danh sách danh mục dạng phẳng — tìm kiếm, lọc (status/parentId/isActive), phân trang, sắp xếp',
+  })
+  @ApiResponse({ status: 200, type: PaginatedCategoryResponseDto })
+  list(
+    @Query() query: CategoryQueryDto,
+    @CurrentUser() user: JwtAccessPayload,
+  ): Promise<PaginatedCategoryResponseDto> {
+    return this.categoryService.list(query, user.organizationId);
   }
 
   @Get('tree')
@@ -88,7 +97,10 @@ export class CategoryController {
 
   @Patch(':id')
   @RequirePermissions('category:update')
-  @ApiOperation({ summary: 'Cập nhật danh mục (kiểm tra vòng lặp cha-con)' })
+  @ApiOperation({
+    summary:
+      'Cập nhật danh mục (kiểm tra vòng lặp cha-con) — bắt buộc gửi "version" hiện tại (Optimistic Lock); không cho set status=ARCHIVED qua route này, dùng DELETE',
+  })
   @ApiResponse({ status: 200, type: CategoryResponseDto })
   @ApiWriteErrors()
   update(
@@ -103,7 +115,10 @@ export class CategoryController {
   @Delete(':id')
   @RequirePermissions('category:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Xóa mềm danh mục (chặn nếu còn sản phẩm)' })
+  @ApiOperation({
+    summary:
+      'Lưu trữ danh mục (status → ARCHIVED, xóa mềm) — từ chối nếu còn sản phẩm hoặc danh mục con (ở bất kỳ cấp nào) đang hoạt động',
+  })
   @ApiWriteErrors()
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
@@ -115,7 +130,10 @@ export class CategoryController {
 
   @Post(':id/restore')
   @RequirePermissions('category:restore')
-  @ApiOperation({ summary: 'Khôi phục danh mục đã xóa mềm' })
+  @ApiOperation({
+    summary:
+      'Khôi phục danh mục đã xóa mềm — status luôn trả về INACTIVE; từ chối nếu còn tổ tiên đang bị lưu trữ (phải khôi phục từ trên xuống)',
+  })
   @ApiResponse({ status: 201, type: CategoryResponseDto })
   @ApiWriteErrors()
   restore(

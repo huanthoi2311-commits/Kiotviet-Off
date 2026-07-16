@@ -19,6 +19,8 @@ export class CategoryMapper {
       imageUrl: entity.imageUrl,
       sortOrder: entity.sortOrder,
       isActive: entity.isActive,
+      status: entity.status,
+      version: entity.version,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
       deletedAt: entity.deletedAt,

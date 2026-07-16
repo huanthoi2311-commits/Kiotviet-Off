@@ -27,6 +27,29 @@ export interface UpdateCategoryInput {
   updatedBy: string;
 }
 
+export type CategorySortField = 'name' | 'sortOrder' | 'createdAt';
+export type CategorySortOrder = 'asc' | 'desc';
+
+/** RFC-0002 §2 "Category Search", Decision S02/IP01 — tên tham số thống nhất toàn dự án Master Data. */
+export interface CategorySearchParams {
+  organizationId: string;
+  search?: string;
+  status?: CategoryStatus;
+  parentId?: string;
+  isActive?: boolean;
+  page: number;
+  limit: number;
+  sortBy: CategorySortField;
+  sortOrder: CategorySortOrder;
+}
+
+export interface CategorySearchResult {
+  items: CategoryEntity[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export interface ICategoryRepository {
   create(input: CreateCategoryInput): Promise<CategoryEntity>;
   findById(id: string, organizationId: string): Promise<CategoryEntity | null>;
@@ -47,8 +70,10 @@ export interface ICategoryRepository {
   ): Promise<CategoryEntity>;
   softDelete(id: string, deletedBy: string): Promise<void>;
   restore(id: string, restoredBy: string): Promise<void>;
-  /** Toàn bộ category (chưa xóa mềm) trong Organization — dùng cho danh sách phẳng và dựng cây. */
+  /** Toàn bộ category (chưa xóa mềm) trong Organization — dùng cho dựng cây (`getTree()`, không phân trang). */
   listAll(organizationId: string): Promise<CategoryEntity[]>;
+  /** Danh sách phẳng có filter/phân trang (RFC-0002 §2 "Category Search"). */
+  search(params: CategorySearchParams): Promise<CategorySearchResult>;
   existsByCode(
     organizationId: string,
     code: string,

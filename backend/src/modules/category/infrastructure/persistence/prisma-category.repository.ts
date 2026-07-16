@@ -10,6 +10,8 @@ import { withCode } from '../../../../common/errors/with-code';
 import { CategoryEntity } from '../../domain/entities/category.entity';
 import { CategoryConcurrencyConflictError } from '../../domain/errors/category.errors';
 import {
+  CategorySearchParams,
+  CategorySearchResult,
   CreateCategoryInput,
   ICategoryRepository,
   UpdateCategoryInput,
@@ -142,6 +144,42 @@ export class PrismaCategoryRepository implements ICategoryRepository {
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
     return categories.map((c) => this.toEntity(c));
+  }
+
+  async search(params: CategorySearchParams): Promise<CategorySearchResult> {
+    const where: Prisma.CategoryWhereInput = {
+      organizationId: params.organizationId,
+      deletedAt: null,
+      status: params.status,
+      parentId: params.parentId,
+      isActive: params.isActive,
+      ...(params.search
+        ? {
+            OR: [
+              { name: { contains: params.search, mode: 'insensitive' } },
+              { code: { contains: params.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const skip = (params.page - 1) * params.limit;
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.category.findMany({
+        where,
+        orderBy: { [params.sortBy]: params.sortOrder },
+        skip,
+        take: params.limit,
+      }),
+      this.prisma.category.count({ where }),
+    ]);
+
+    return {
+      items: items.map((c) => this.toEntity(c)),
+      total,
+      page: params.page,
+      limit: params.limit,
+    };
   }
 
   async existsByCode(

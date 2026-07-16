@@ -1,12 +1,21 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Length,
 } from 'class-validator';
+import type { CategoryStatus } from '../../domain/entities/category.entity';
+
+/** KHÔNG gồm ARCHIVED — Archive chỉ đạt được qua DELETE (có guard), không qua Create/Update trực tiếp. */
+const CATEGORY_CREATE_UPDATE_STATUSES: CategoryStatus[] = [
+  'DRAFT',
+  'ACTIVE',
+  'INACTIVE',
+];
 
 export class CreateCategoryDto {
   @ApiProperty({
@@ -49,4 +58,14 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiProperty({
+    required: false,
+    enum: CATEGORY_CREATE_UPDATE_STATUSES,
+    example: 'ACTIVE',
+    description: 'Mặc định ACTIVE nếu không truyền',
+  })
+  @IsOptional()
+  @IsIn(CATEGORY_CREATE_UPDATE_STATUSES)
+  status?: CategoryStatus;
 }

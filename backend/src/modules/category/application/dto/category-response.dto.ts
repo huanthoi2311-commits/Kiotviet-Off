@@ -10,6 +10,9 @@ export class CategoryResponseDto {
   @ApiProperty({ nullable: true }) imageUrl: string | null;
   @ApiProperty() sortOrder: number;
   @ApiProperty() isActive: boolean;
+  @ApiProperty() status: string;
+  @ApiProperty({ description: 'Optimistic Lock — SPEC-CATEGORY-001 §7.1' })
+  version: number;
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
   @ApiProperty({ nullable: true }) deletedAt: Date | null;
@@ -18,4 +21,11 @@ export class CategoryResponseDto {
 export class CategoryTreeResponseDto extends CategoryResponseDto {
   @ApiProperty({ type: () => [CategoryTreeResponseDto] })
   children: CategoryTreeResponseDto[];
+}
+
+export class PaginatedCategoryResponseDto {
+  @ApiProperty({ type: [CategoryResponseDto] }) items: CategoryResponseDto[];
+  @ApiProperty() total: number;
+  @ApiProperty() page: number;
+  @ApiProperty() limit: number;
 }

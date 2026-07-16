@@ -84,10 +84,16 @@ describe('CategoryController', () => {
     expect(categoryService.getTree).toHaveBeenCalledWith('org-1');
   });
 
-  it('list chỉ truyền organizationId', async () => {
-    categoryService.list.mockResolvedValue([]);
-    await controller.list(user as never);
-    expect(categoryService.list).toHaveBeenCalledWith('org-1');
+  it('list truyền query DTO và organizationId', async () => {
+    categoryService.list.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 20,
+    });
+    const query = { search: 'ao' } as never;
+    await controller.list(query, user as never);
+    expect(categoryService.list).toHaveBeenCalledWith(query, 'org-1');
   });
 
   it('findOne ủy quyền cho service.findOne kèm organizationId', async () => {

@@ -25,7 +25,9 @@ describe('PrismaCategoryRepository', () => {
       update: jest.Mock;
       updateMany: jest.Mock;
       findUniqueOrThrow: jest.Mock;
+      count: jest.Mock;
     };
+    $transaction: jest.Mock;
   };
 
   const rawCategory = {
@@ -55,7 +57,9 @@ describe('PrismaCategoryRepository', () => {
         update: jest.fn(),
         updateMany: jest.fn(),
         findUniqueOrThrow: jest.fn(),
+        count: jest.fn(),
       },
+      $transaction: jest.fn(),
     };
     repository = new PrismaCategoryRepository(
       prisma as unknown as PrismaService,
@@ -218,6 +222,58 @@ describe('PrismaCategoryRepository', () => {
           where: { organizationId: 'org-1', deletedAt: null },
         }),
       );
+    });
+  });
+
+  describe('search', () => {
+    const baseParams = {
+      organizationId: 'org-1',
+      page: 1,
+      limit: 20,
+      sortBy: 'sortOrder' as const,
+      sortOrder: 'asc' as const,
+    };
+
+    it('phân trang qua $transaction, trả đúng total/page/limit', async () => {
+      prisma.$transaction.mockResolvedValue([[rawCategory], 1]);
+
+      const result = await repository.search(baseParams);
+
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(result.items).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(result.page).toBe(1);
+      expect(result.limit).toBe(20);
+    });
+
+    it('lọc theo status/parentId/isActive', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+
+      await repository.search({
+        ...baseParams,
+        status: 'ACTIVE',
+        parentId: 'parent-1',
+        isActive: true,
+      });
+
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(prisma.category.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: 'ACTIVE',
+            parentId: 'parent-1',
+            isActive: true,
+          }),
+        }),
+      );
+    });
+
+    it('search tìm theo name hoặc code (insensitive)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+
+      await repository.search({ ...baseParams, search: 'ao thun' });
+
+      expect(prisma.$transaction).toHaveBeenCalled();
     });
   });
 

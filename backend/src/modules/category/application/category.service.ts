@@ -21,7 +21,9 @@ import type { ICategorySlugGenerator } from '../domain/services/category-slug-ge
 import {
   CategoryResponseDto,
   CategoryTreeResponseDto,
+  PaginatedCategoryResponseDto,
 } from './dto/category-response.dto';
+import { CategoryQueryDto } from './dto/category-query.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CategoryMapper } from './mappers/category.mapper';
@@ -67,6 +69,7 @@ export class CategoryService {
       imageUrl: dto.imageUrl ?? null,
       sortOrder: dto.sortOrder,
       isActive: dto.isActive,
+      status: dto.status,
       createdBy: actor.userId,
     });
 
@@ -94,9 +97,28 @@ export class CategoryService {
     return CategoryMapper.toResponseDto(category);
   }
 
-  async list(organizationId: string): Promise<CategoryResponseDto[]> {
-    const categories = await this.categoryRepository.listAll(organizationId);
-    return categories.map((c) => CategoryMapper.toResponseDto(c));
+  async list(
+    query: CategoryQueryDto,
+    organizationId: string,
+  ): Promise<PaginatedCategoryResponseDto> {
+    const result = await this.categoryRepository.search({
+      organizationId,
+      search: query.search,
+      status: query.status,
+      parentId: query.parentId,
+      isActive: query.isActive,
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+      sortBy: query.sortBy ?? 'sortOrder',
+      sortOrder: query.sortOrder ?? 'asc',
+    });
+
+    return {
+      items: result.items.map((c) => CategoryMapper.toResponseDto(c)),
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    };
   }
 
   async getTree(organizationId: string): Promise<CategoryTreeResponseDto[]> {
@@ -141,12 +163,9 @@ export class CategoryService {
           )
         : undefined;
 
-    // Cau noi tam thoi - UpdateCategoryDto chua co field "version" (se them o Step 7 Controller +
-    // DTO, dung thu tu da duoc uy quyen). Dung existing.version doc lai ngay truoc do KHONG phai
-    // Optimistic Lock dung nghia - se thay bang dto.version that ngay sau khi Step 7 hoan tat.
     let updated: CategoryEntity;
     try {
-      updated = await this.categoryRepository.update(id, existing.version, {
+      updated = await this.categoryRepository.update(id, dto.version, {
         parentId: dto.parentId,
         code: dto.code,
         slug,
@@ -155,6 +174,7 @@ export class CategoryService {
         imageUrl: dto.imageUrl,
         sortOrder: dto.sortOrder,
         isActive: dto.isActive,
+        status: dto.status,
         updatedBy: actor.userId,
       });
     } catch (error) {

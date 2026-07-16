@@ -50,6 +50,7 @@ describe('CategoryService', () => {
       softDelete: jest.fn(),
       restore: jest.fn(),
       listAll: jest.fn().mockResolvedValue([]),
+      search: jest.fn(),
       existsByCode: jest.fn(),
       existsBySlug: jest.fn(),
       findAncestorChainIncludingArchived: jest.fn().mockResolvedValue([]),
@@ -116,14 +117,55 @@ describe('CategoryService', () => {
   });
 
   describe('list', () => {
-    it('trả về danh sách phẳng đã map sang response DTO', async () => {
-      categoryRepository.listAll.mockResolvedValue([
-        makeCategory(),
-        makeCategory({ id: 'cat-2' }),
-      ]);
-      const result = await service.list('org-1');
-      expect(result).toHaveLength(2);
-      expect(categoryRepository.listAll).toHaveBeenCalledWith('org-1');
+    it('trả về danh sách phẳng đã map sang response DTO, phân trang mặc định', async () => {
+      categoryRepository.search.mockResolvedValue({
+        items: [makeCategory(), makeCategory({ id: 'cat-2' })],
+        total: 2,
+        page: 1,
+        limit: 20,
+      });
+
+      const result = await service.list({}, 'org-1');
+
+      expect(result.items).toHaveLength(2);
+      expect(result.total).toBe(2);
+      expect(categoryRepository.search).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: 'org-1',
+          page: 1,
+          limit: 20,
+          sortBy: 'sortOrder',
+          sortOrder: 'asc',
+        }),
+      );
+    });
+
+    it('truyền search/status/parentId/isActive vào search params', async () => {
+      categoryRepository.search.mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        limit: 20,
+      });
+
+      await service.list(
+        {
+          search: 'ao',
+          status: 'ACTIVE',
+          parentId: 'parent-1',
+          isActive: true,
+        },
+        'org-1',
+      );
+
+      expect(categoryRepository.search).toHaveBeenCalledWith(
+        expect.objectContaining({
+          search: 'ao',
+          status: 'ACTIVE',
+          parentId: 'parent-1',
+          isActive: true,
+        }),
+      );
     });
   });
 
@@ -179,7 +221,11 @@ describe('CategoryService', () => {
         makeCategory({ name: 'Tên mới', slug: 'ten-moi' }),
       );
 
-      const result = await service.update('cat-1', { name: 'Tên mới' }, actor);
+      const result = await service.update(
+        'cat-1',
+        { version: 1, name: 'Tên mới' },
+        actor,
+      );
 
       expect(result.slug).toBe('ten-moi');
     });
@@ -188,7 +234,7 @@ describe('CategoryService', () => {
       categoryRepository.findById.mockResolvedValue(makeCategory());
 
       await expect(
-        service.update('cat-1', { parentId: 'cat-1' }, actor),
+        service.update('cat-1', { version: 1, parentId: 'cat-1' }, actor),
       ).rejects.toThrow(UnprocessableEntityException);
     });
 
@@ -206,7 +252,7 @@ describe('CategoryService', () => {
 
       // Cố gán root.parentId = grandchild (grandchild là hậu duệ của root) → vòng lặp.
       await expect(
-        service.update('root', { parentId: 'grandchild' }, actor),
+        service.update('root', { version: 1, parentId: 'grandchild' }, actor),
       ).rejects.toThrow(UnprocessableEntityException);
       expect(categoryRepository.update).not.toHaveBeenCalled();
     });
@@ -222,14 +268,18 @@ describe('CategoryService', () => {
         makeCategory({ id: 'root', parentId: 'other' }),
       );
 
-      const result = await service.update('root', { parentId: 'other' }, actor);
+      const result = await service.update(
+        'root',
+        { version: 1, parentId: 'other' },
+        actor,
+      );
       expect(result.parentId).toBe('other');
     });
 
     it('ném NotFoundException khi category không tồn tại', async () => {
       categoryRepository.findById.mockResolvedValue(null);
       await expect(
-        service.update('missing', { name: 'x' }, actor),
+        service.update('missing', { version: 1, name: 'x' }, actor),
       ).rejects.toThrow(NotFoundException);
     });
   });
