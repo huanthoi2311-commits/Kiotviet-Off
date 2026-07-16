@@ -7,6 +7,39 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/lang/vi/) (`MAJOR.
 
 ## [Unreleased]
 
+**Sprint-01 — T008: Unit Domain** (`SPEC-UNIT-001`), theo đúng `RFC-0004` →
+`docs/architecture/unit-dependency-audit.md` → `ARCHITECTURE REVIEW – RFC-0004 Unit Domain`
+(RQ1-RQ10) → `SPEC-UNIT-001` → `ARCHITECTURE REVIEW – SPEC-UNIT-001` (SU01-SU10) →
+`Unit Implementation Plan` → `ARCHITECTURE REVIEW – Unit Implementation Plan` (UP01-UP10). Chi
+tiết đầy đủ: `docs/release/t008-release-note.md`.
+
+### Added
+- `UnitStatus` (`ACTIVE`/`INACTIVE`/`ARCHIVED`, enum riêng — Decision RQ1) — **không** dùng
+  `CommonStatus` (khác Brand), **không** có `DRAFT` (khác Product/Category).
+- `Unit.version` (Optimistic Lock, `DEFAULT 1`) — `PATCH /units/:id` bắt buộc gửi đúng version,
+  sai → `409`.
+- `POST /units/:id/restore` — khôi phục Unit đã xóa mềm, luôn trả `status` về `INACTIVE` (Decision
+  RQ3), permission mới `unit:restore`.
+- `GET /units` — thêm `isActive`/`sortBy`/`sortOrder`, đủ 7 tham số Query Convention (Decision
+  RQ7). `isActive` là alias cho `status=ACTIVE`, không phải cột schema mới (Decision SU04).
+- `BarcodeDomainService` (module `barcode`, mới) — đúng 1 method `hasActiveBarcodesInUnit()`,
+  đúng mẫu `ProductDomainService`, phục vụ Delete Guard mở rộng của Unit (Decision RQ5).
+
+### Changed
+- **`DELETE /units/:id`** nay chặn nếu còn Product `status=ACTIVE` HOẶC Barcode chưa xóa mềm tham
+  chiếu — mở rộng từ chỉ-Product trước đây (Decision RQ5/UP07, "không để dữ liệu mồ côi").
+- **`hasActiveProductsInUnit()`** (module `product`) nay chỉ tính Product `status=ACTIVE` — Product
+  `INACTIVE`/`ARCHIVED` không còn chặn xóa Unit như trước (Decision SU01, Behavior Change có chủ
+  đích).
+- **`update()`/`softDelete()`/`restore()`** của `unit` nay bắt buộc lọc `organizationId` trong
+  `where` (Decision SU03/UP06) — chuẩn mới, áp dụng lần đầu ở Unit, chưa retro-fit
+  Product/Category/Brand.
+
+### Known Limitations
+- Integration Test (`test/unit.e2e-spec.ts`), Rollback Test (2 migration), Manual API Smoke Test —
+  🟡 PENDING: không có Docker/Postgres/Redis trong môi trường phát triển hiện tại. Xem
+  `docs/architecture/technical-debt.md`.
+
 ## [0.4.0-brand-foundation] - 2026-07-16
 
 **Sprint-01 — T007: Brand Domain** (`SPEC-BRAND-001`), theo đúng `RFC-0003` →
