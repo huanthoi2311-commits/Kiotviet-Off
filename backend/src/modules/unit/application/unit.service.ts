@@ -6,6 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { BarcodeDomainService } from '../../barcode/application/barcode-domain.service';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
 import { ProductDomainService } from '../../product/application/product-domain.service';
@@ -34,6 +35,7 @@ export class UnitService {
   constructor(
     @Inject(UNIT_REPOSITORY) private readonly unitRepository: IUnitRepository,
     private readonly productDomainService: ProductDomainService,
+    private readonly barcodeDomainService: BarcodeDomainService,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -159,9 +161,16 @@ export class UnitService {
       );
     }
 
-    // Delete Guard cho Barcode (Decision RQ5/UP07) sẽ được thêm ở bước "Barcode Adjustment"
-    // (đúng thứ tự đã ủy quyền: Repository → Application → Controller → Product Adjustment →
-    // Barcode Adjustment) — BarcodeDomainService chưa tồn tại tại commit này.
+    const hasBarcodes =
+      await this.barcodeDomainService.hasActiveBarcodesInUnit(id);
+    if (hasBarcodes) {
+      throw new UnprocessableEntityException(
+        withCode(
+          ErrorCode.UNIT_IN_USE,
+          'Không thể xóa đơn vị tính đang có mã vạch sử dụng',
+        ),
+      );
+    }
 
     await this.unitRepository.softDelete(
       id,

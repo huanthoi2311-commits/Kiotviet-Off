@@ -32,6 +32,8 @@ export interface IBarcodeRepository {
     updatedBy: string,
   ): Promise<BarcodeEntity>;
   existsByCode(code: string, excludeId?: string): Promise<boolean>;
+  /** SPEC-UNIT-001 §8 (Decision RQ5) — dùng cho Delete Guard của Unit qua BarcodeDomainService. */
+  hasActiveBarcodesInUnit(unitId: string): Promise<boolean>;
 }
 
 export const BARCODE_REPOSITORY = Symbol('BARCODE_REPOSITORY');

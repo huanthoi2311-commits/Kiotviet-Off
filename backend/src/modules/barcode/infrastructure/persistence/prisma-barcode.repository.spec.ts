@@ -228,4 +228,24 @@ describe('PrismaBarcodeRepository', () => {
       });
     });
   });
+
+  describe('hasActiveBarcodesInUnit', () => {
+    it('true khi còn Barcode chưa xóa mềm tham chiếu Unit', async () => {
+      prisma.barcode.findFirst.mockResolvedValue({ id: 'barcode-1' });
+      await expect(repository.hasActiveBarcodesInUnit('unit-1')).resolves.toBe(
+        true,
+      );
+      expect(prisma.barcode.findFirst).toHaveBeenCalledWith({
+        where: { unitId: 'unit-1', deletedAt: null },
+        select: { id: true },
+      });
+    });
+
+    it('false khi không còn Barcode nào tham chiếu Unit', async () => {
+      prisma.barcode.findFirst.mockResolvedValue(null);
+      await expect(repository.hasActiveBarcodesInUnit('unit-1')).resolves.toBe(
+        false,
+      );
+    });
+  });
 });

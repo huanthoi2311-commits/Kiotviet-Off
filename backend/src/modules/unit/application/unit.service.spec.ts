@@ -4,6 +4,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { BarcodeDomainService } from '../../barcode/application/barcode-domain.service';
 import { ProductDomainService } from '../../product/application/product-domain.service';
 import { UnitEntity } from '../domain/entities/unit.entity';
 import { UnitConcurrencyConflictError } from '../domain/errors/unit.errors';
@@ -15,6 +16,9 @@ describe('UnitService', () => {
   let unitRepository: jest.Mocked<IUnitRepository>;
   let productDomainService: jest.Mocked<
     Pick<ProductDomainService, 'hasActiveProductsInUnit'>
+  >;
+  let barcodeDomainService: jest.Mocked<
+    Pick<BarcodeDomainService, 'hasActiveBarcodesInUnit'>
   >;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
 
@@ -48,11 +52,15 @@ describe('UnitService', () => {
     productDomainService = {
       hasActiveProductsInUnit: jest.fn().mockResolvedValue(false),
     };
+    barcodeDomainService = {
+      hasActiveBarcodesInUnit: jest.fn().mockResolvedValue(false),
+    };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     service = new UnitService(
       unitRepository,
       productDomainService as unknown as ProductDomainService,
+      barcodeDomainService as unknown as BarcodeDomainService,
       auditLogService as unknown as AuditLogService,
     );
   });
@@ -196,9 +204,21 @@ describe('UnitService', () => {
       expect(unitRepository.softDelete).not.toHaveBeenCalled();
     });
 
-    it('xóa mềm thành công khi không còn sản phẩm', async () => {
+    it('chặn xóa khi còn Barcode sử dụng đơn vị tính (Decision RQ5/UP07)', async () => {
+      unitRepository.findById.mockResolvedValue(makeUnit());
+      barcodeDomainService.hasActiveBarcodesInUnit.mockResolvedValue(true);
+      await expect(service.remove('unit-1', actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(unitRepository.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('xóa mềm thành công khi không còn sản phẩm lẫn mã vạch', async () => {
       unitRepository.findById.mockResolvedValue(makeUnit());
       await service.remove('unit-1', actor);
+      expect(barcodeDomainService.hasActiveBarcodesInUnit).toHaveBeenCalledWith(
+        'unit-1',
+      );
       expect(unitRepository.softDelete).toHaveBeenCalledWith(
         'unit-1',
         'org-1',

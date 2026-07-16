@@ -141,6 +141,15 @@ export class PrismaBarcodeRepository implements IBarcodeRepository {
     return !!found;
   }
 
+  /** SPEC-UNIT-001 §8 (Decision RQ5) — Delete Guard của Unit qua BarcodeDomainService. */
+  async hasActiveBarcodesInUnit(unitId: string): Promise<boolean> {
+    const found = await this.prisma.barcode.findFirst({
+      where: { unitId, deletedAt: null },
+      select: { id: true },
+    });
+    return !!found;
+  }
+
   private translateWriteError(error: unknown): Error {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {

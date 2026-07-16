@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BarcodeModule } from '../barcode/barcode.module';
 import { ProductModule } from '../product/product.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { UnitService } from './application/unit.service';
@@ -7,7 +8,7 @@ import { PrismaUnitRepository } from './infrastructure/persistence/prisma-unit.r
 import { UnitController } from './presentation/unit.controller';
 
 @Module({
-  imports: [RbacModule, ProductModule],
+  imports: [RbacModule, ProductModule, BarcodeModule],
   controllers: [UnitController],
   providers: [
     UnitService,

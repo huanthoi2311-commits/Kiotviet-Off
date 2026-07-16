@@ -37,6 +37,7 @@ describe('BarcodeService', () => {
       softDelete: jest.fn(),
       setDefault: jest.fn(),
       existsByCode: jest.fn(),
+      hasActiveBarcodesInUnit: jest.fn(),
     };
     productDomainService = {
       findById: jest.fn().mockResolvedValue({ id: 'product-1' }),
