@@ -1,55 +1,34 @@
 # Project Status
 
-**Đây là nguồn trạng thái chính của dự án** (Decision T006-R04) — đọc file này để biết đang ở đâu, việc gì vừa xong, việc gì tiếp theo, trước khi bắt đầu bất kỳ task mới nào sau khi hết session. Cập nhật file này mỗi khi đóng 1 Sprint task (T00x) hoặc phát hành version mới.
-
-**Version hiện tại:** `v0.5.0-unit-foundation`
-**Sprint hiện tại:** Sprint-01 (đang tiến hành)
-**Task tiếp theo:** T009 — Barcode Domain, chờ `RFC-0005` từ Architect. **Không tự bắt đầu Audit/RFC/SPEC/Plan cho T009 khi chưa có RFC-0005** (Decision RC05).
-
-Roadmap cố định Sprint-01 (Decision RC01, xác nhận lại — không đổi so với Decision T007-03): Product → Category → Brand → Unit → **Barcode** → Attribute → Variant → Gate-01. `Customer` không thuộc Sprint-01 — thuộc Sprint CRM, triển khai sau khi hoàn thành toàn bộ Master Data (Decision RC03).
+**Nguồn trạng thái chính của dự án** (Decision T006-R04, thu gọn phạm vi theo Decision P04 — chỉ giữ Version/Sprint hiện tại/Release; Progress/Module Status/Overall Project/Roadmap chuyển hẳn sang `docs/SPRINT_DASHBOARD.md`, không lặp lại ở đây). Đọc file này + `SPRINT_DASHBOARD.md` trước khi bắt đầu bất kỳ task mới nào sau khi hết session.
 
 ---
 
-## Sprint-00 — Architecture Stabilization (ĐÃ ĐÓNG)
+## Version
 
-Tag `v0.1.0-foundation`. Xem `docs/implementation/sprint-00-summary.md`, `docs/release/gate-status.md`.
+**Version hiện tại:** `v0.5.0-unit-foundation`
 
-## Sprint-01 — Progress
+## Sprint hiện tại
 
-| Task | Domain | SPEC | Trạng thái | Tag |
-|---|---|---|---|---|
-| T005 | Product Refactor | `SPEC-PRODUCT-001` | ✅ **DONE** (Technical Complete, Operational Complete PENDING) | `v0.2.0-product-foundation` |
-| T006 | Category Implementation | `SPEC-CATEGORY-001` | ✅ **DONE** (Technical Complete, Operational Complete PENDING) | `v0.3.0-category-foundation` |
-| T007 | Brand Domain | `SPEC-BRAND-001` | ✅ **DONE** (Technical Complete, Operational Complete PENDING) | `v0.4.0-brand-foundation` |
-| T008 | Unit Domain | `SPEC-UNIT-001` | ✅ **DONE** (Technical Complete, Operational Complete PENDING) | `v0.5.0-unit-foundation` |
-| T009 | Barcode Domain | — | ⬜ WAITING `RFC-0005` | — |
-| T010 | Attribute Domain | — | ⬜ Chưa bắt đầu | — |
-| T011 | Variant Domain | — | ⬜ Chưa bắt đầu | — |
-| Gate-01 | Master Data hoàn tất | — | ⬜ Chưa bắt đầu | — |
+Sprint-01 (Master Data). Tiến độ chi tiết từng module, roadmap, trạng thái Audit/RFC/SPEC/Plan: xem `docs/SPRINT_DASHBOARD.md`.
 
-**Quy trình chuẩn đang áp dụng** (từ T006 trở đi, chạy trọn vẹn):
-`Dependency Audit → RFC → Architecture Review → SPEC → Implementation Plan → Architecture Review → Code (theo đúng thứ tự bước, không gộp) → Architecture Review → Release`.
+## Release
 
-## Regression Baseline (Decision T006-R06, mở rộng bởi T007-04.9/UP10)
-
-Từ T006 trở đi, **mỗi Sprint task mới phải xác nhận toàn bộ Task đã DONE trước đó vẫn PASS** — chạy `npx jest` toàn bộ, không chỉ phạm vi module đang làm. Hiện tại (sau T008 code xong): **142/142 test suite PASS, 1352/1352 test PASS** — xác nhận T005 (Product) + T006 (Category) + T007 (Brand) + Auth/RBAC/Inventory/Organization/Branch đều không bị ảnh hưởng bởi T008. Baseline cho T009 (Barcode) gồm **T005 + T006 + T007 + T008**.
-
-## Operational Pending toàn dự án
-
-Xem `docs/architecture/technical-debt.md` — theo dõi tập trung mọi mục PENDING do giới hạn môi trường (không có Docker/Postgres/Redis trong sandbox phát triển hiện tại), không phải Bug/Technical Debt thật.
-
-## Versioning Policy (Decision T006-R07)
-
-- `v0.x.y` cho toàn bộ giai đoạn Foundation và phát triển các domain (Master Data, CRM, Inventory, POS, ERP Core).
-- Chỉ chuyển sang `v1.0.0` khi hoàn thành đầy đủ các domain trên theo roadmap.
-- **Không phát hành `v1.0.0` sớm.**
+- **Tag mới nhất:** `v0.5.0-unit-foundation` — Release Note đầy đủ: `docs/release/t008-release-note.md`.
+- **Technical Complete = YES, Operational Complete = PENDING** (Docker Integration Test/Rollback Test/Manual Smoke Test/Performance Benchmark — theo dõi tập trung ở `docs/architecture/technical-debt.md`).
+- **Regression Baseline tại thời điểm release:** 142/142 test suite PASS, 1352/1352 test PASS (Sprint-00 + T005 Product + T006 Category + T007 Brand + T008 Unit).
+- **Versioning Policy** (Decision T006-R07): `v0.x.y` xuyên suốt Foundation + Master Data + CRM + Inventory + POS + ERP Core. Chỉ chuyển `v1.0.0` khi hoàn thành đầy đủ các domain trên theo roadmap — không phát hành sớm.
 
 ## Tài liệu tham chiếu nhanh
 
 | Cần gì | Xem ở đâu |
 |---|---|
+| Tiến độ / Module Status / Roadmap | `docs/SPRINT_DASHBOARD.md` |
 | Quy trình AI phải theo trước khi code | `docs/project-governance/AI_WORKFLOW.md` |
 | Toàn bộ quy tắc governance | `docs/project-governance/README.md` |
+| Template chuẩn Master Data (Decision P01) | `docs/architecture/MASTER_DATA_TEMPLATE.md` |
+| Quyết định đã ổn định, tổng hợp (Decision P02) | `docs/architecture/MASTER_DECISION.md` |
+| Mặc định được tự áp dụng không cần hỏi lại (Decision P03) | `docs/architecture/DEFAULT_DECISIONS.md` |
 | Kiến trúc bất biến / ADR | `docs/architecture/adr/` |
 | Báo cáo implementation từng Task | `docs/implementation/t0xx-*.md` |
 | Release Note từng Task | `docs/release/t0xx-release-note.md` |
