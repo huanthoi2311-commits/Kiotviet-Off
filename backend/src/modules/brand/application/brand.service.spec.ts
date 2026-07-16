@@ -1,10 +1,12 @@
 import {
+  ConflictException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { ProductDomainService } from '../../product/application/product-domain.service';
 import { BrandEntity } from '../domain/entities/brand.entity';
+import { BrandConcurrencyConflictError } from '../domain/errors/brand.errors';
 import { IBrandRepository } from '../domain/repositories/brand.repository.interface';
 import { ActorContext, BrandService } from './brand.service';
 
@@ -112,14 +114,19 @@ describe('BrandService', () => {
     it('cập nhật thành công, ghi audit log old/new', async () => {
       brandRepository.findById.mockResolvedValue(makeBrand());
       brandRepository.update.mockResolvedValue(
-        makeBrand({ name: 'Nike Inc.' }),
+        makeBrand({ name: 'Nike Inc.', version: 2 }),
       );
       const result = await service.update(
         'brand-1',
-        { name: 'Nike Inc.' },
+        { version: 1, name: 'Nike Inc.' },
         actor,
       );
       expect(result.name).toBe('Nike Inc.');
+      expect(brandRepository.update).toHaveBeenCalledWith(
+        'brand-1',
+        1,
+        expect.objectContaining({ name: 'Nike Inc.' }),
+      );
       expect(auditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'brand.update' }),
       );
@@ -128,8 +135,52 @@ describe('BrandService', () => {
     it('ném NotFoundException khi không tồn tại', async () => {
       brandRepository.findById.mockResolvedValue(null);
       await expect(
-        service.update('missing', { name: 'x' }, actor),
+        service.update('missing', { version: 1, name: 'x' }, actor),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('dịch BrandConcurrencyConflictError sang ConflictException 409', async () => {
+      brandRepository.findById.mockResolvedValue(makeBrand());
+      brandRepository.update.mockRejectedValue(
+        new BrandConcurrencyConflictError('brand-1'),
+      );
+      await expect(
+        service.update('brand-1', { version: 1, name: 'x' }, actor),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('restore', () => {
+    it('ném NotFoundException khi không tồn tại (kể cả đã xóa)', async () => {
+      brandRepository.findByIdIncludingDeleted.mockResolvedValue(null);
+      await expect(service.restore('missing', actor)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('ném lỗi nghiệp vụ khi brand chưa bị xóa mềm', async () => {
+      brandRepository.findByIdIncludingDeleted.mockResolvedValue(
+        makeBrand({ deletedAt: null }),
+      );
+      await expect(service.restore('brand-1', actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(brandRepository.restore).not.toHaveBeenCalled();
+    });
+
+    it('khôi phục thành công, status luôn về INACTIVE, ghi audit log', async () => {
+      brandRepository.findByIdIncludingDeleted.mockResolvedValue(
+        makeBrand({ deletedAt: new Date('2026-01-02'), status: 'ACTIVE' }),
+      );
+      brandRepository.findById.mockResolvedValue(
+        makeBrand({ status: 'INACTIVE', deletedAt: null }),
+      );
+      const result = await service.restore('brand-1', actor);
+      expect(result.status).toBe('INACTIVE');
+      expect(brandRepository.restore).toHaveBeenCalledWith('brand-1', 'user-1');
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'brand.restore' }),
+      );
     });
   });
 

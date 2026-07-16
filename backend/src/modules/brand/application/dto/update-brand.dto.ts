@@ -1,9 +1,20 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsOptional, IsString, IsUrl, Length } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Length,
+} from 'class-validator';
 
 const BRAND_STATUSES = ['ACTIVE', 'INACTIVE'] as const;
 
 export class UpdateBrandDto {
+  @ApiProperty({ description: 'Version hiện tại — Optimistic Lock, bắt buộc' })
+  @IsInt()
+  version: number;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()

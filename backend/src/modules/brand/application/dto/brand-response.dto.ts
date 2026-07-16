@@ -9,6 +9,7 @@ export class BrandResponseDto {
   @ApiProperty({ nullable: true }) website: string | null;
   @ApiProperty({ nullable: true }) country: string | null;
   @ApiProperty() status: string;
+  @ApiProperty() version: number;
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
 }

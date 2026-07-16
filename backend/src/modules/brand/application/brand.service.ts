@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
@@ -9,6 +10,7 @@ import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
 import { ProductDomainService } from '../../product/application/product-domain.service';
 import { BrandEntity } from '../domain/entities/brand.entity';
+import { BrandConcurrencyConflictError } from '../domain/errors/brand.errors';
 import { BRAND_REPOSITORY } from '../domain/repositories/brand.repository.interface';
 import type { IBrandRepository } from '../domain/repositories/brand.repository.interface';
 import { BrandQueryDto } from './dto/brand-query.dto';
@@ -57,6 +59,7 @@ export class BrandService {
       userAgent: actor.userAgent,
     });
 
+    this.onBrandCreated(created);
     return BrandMapper.toResponseDto(created);
   }
 
@@ -74,12 +77,11 @@ export class BrandService {
       organizationId,
       search: query.search,
       status: query.status,
+      isActive: query.isActive,
       page: query.page ?? 1,
       limit: query.limit ?? 20,
-      // Cầu nối tạm thời (sẽ thay ở Commit 3 sau khi BrandQueryDto thêm isActive/sortBy/sortOrder
-      // thật) — default cứng, đúng hành vi hardcode hiện có trước SPEC-BRAND-001.
-      sortBy: 'name',
-      sortOrder: 'asc',
+      sortBy: query.sortBy ?? 'name',
+      sortOrder: query.sortOrder ?? 'asc',
     });
 
     return {
@@ -101,13 +103,26 @@ export class BrandService {
     );
     if (!existing) throw this.notFound();
 
-    // Cầu nối tạm thời (sẽ thay ở Commit 3 sau khi UpdateBrandDto thêm field `version` thật —
-    // đúng thứ tự đã ủy quyền, Repository trước DTO, tiền lệ T006 commit de08921):
-    // dùng existing.version thay vì dto.version thật.
-    const updated = await this.brandRepository.update(id, existing.version, {
-      ...dto,
-      updatedBy: actor.userId,
-    });
+    let updated: BrandEntity;
+    try {
+      updated = await this.brandRepository.update(id, dto.version, {
+        code: dto.code,
+        name: dto.name,
+        logo: dto.logo,
+        description: dto.description,
+        website: dto.website,
+        country: dto.country,
+        status: dto.status,
+        updatedBy: actor.userId,
+      });
+    } catch (error) {
+      if (error instanceof BrandConcurrencyConflictError) {
+        throw new ConflictException(
+          withCode(ErrorCode.BRAND_VERSION_CONFLICT, error.message),
+        );
+      }
+      throw error;
+    }
 
     await this.auditLogService.log({
       organizationId: actor.organizationId,
@@ -121,6 +136,7 @@ export class BrandService {
       userAgent: actor.userAgent,
     });
 
+    this.onBrandUpdated(updated);
     return BrandMapper.toResponseDto(updated);
   }
 
@@ -154,6 +170,46 @@ export class BrandService {
       ip: actor.ip,
       userAgent: actor.userAgent,
     });
+
+    this.onBrandArchived(id);
+  }
+
+  /** SPEC-BRAND-001 §8 (Decision B02.3/RQ2) — luôn trả status về INACTIVE, không tự động ACTIVE. */
+  async restore(id: string, actor: ActorContext): Promise<BrandResponseDto> {
+    const existing = await this.brandRepository.findByIdIncludingDeleted(
+      id,
+      actor.organizationId,
+    );
+    if (!existing) throw this.notFound();
+    if (!existing.deletedAt) {
+      throw new UnprocessableEntityException(
+        withCode(
+          ErrorCode.BRAND_NOT_DELETED,
+          'Thương hiệu chưa bị xóa, không thể khôi phục',
+        ),
+      );
+    }
+
+    await this.brandRepository.restore(id, actor.userId);
+    const restored = await this.brandRepository.findById(
+      id,
+      actor.organizationId,
+    );
+    if (!restored) throw this.notFound();
+
+    await this.auditLogService.log({
+      organizationId: actor.organizationId,
+      userId: actor.userId,
+      action: 'brand.restore',
+      entityType: 'Brand',
+      entityId: id,
+      newValue: this.toAuditSnapshot(restored),
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+    });
+
+    this.onBrandRestored(restored);
+    return BrandMapper.toResponseDto(restored);
   }
 
   private notFound(): NotFoundException {
@@ -164,5 +220,26 @@ export class BrandService {
 
   private toAuditSnapshot(brand: BrandEntity): Record<string, unknown> {
     return { code: brand.code, name: brand.name, status: brand.status };
+  }
+
+  /**
+   * Điểm mở rộng Domain Event (RFC-0003 §Out of Scope, SPEC-BRAND-001 §10, Decision B02.9) — cố
+   * ý để trống, KHÔNG publish (đúng mẫu `CategoryService.onCategoryCreated()` v.v., T006). Chỉ
+   * định nghĩa tên + thời điểm gọi, chờ Sprint Event triển khai Outbox thật (ADR-0009/ADR-0011).
+   */
+  private onBrandCreated(brand: BrandEntity): void {
+    void brand;
+  }
+
+  private onBrandUpdated(brand: BrandEntity): void {
+    void brand;
+  }
+
+  private onBrandArchived(brandId: string): void {
+    void brandId;
+  }
+
+  private onBrandRestored(brand: BrandEntity): void {
+    void brand;
   }
 }

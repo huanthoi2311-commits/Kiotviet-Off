@@ -12,6 +12,7 @@ export class BrandMapper {
       website: entity.website,
       country: entity.country,
       status: entity.status,
+      version: entity.version,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };
