@@ -24,6 +24,8 @@ describe('UnitService', () => {
     code: 'CAI',
     name: 'Cái',
     symbol: 'cái',
+    status: 'ACTIVE',
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -34,8 +36,10 @@ describe('UnitService', () => {
     unitRepository = {
       create: jest.fn(),
       findById: jest.fn(),
+      findByIdIncludingDeleted: jest.fn(),
       update: jest.fn(),
       softDelete: jest.fn(),
+      restore: jest.fn(),
       search: jest.fn(),
       existsByCode: jest.fn(),
     };
@@ -141,6 +145,7 @@ describe('UnitService', () => {
       await service.remove('unit-1', actor);
       expect(unitRepository.softDelete).toHaveBeenCalledWith(
         'unit-1',
+        'org-1',
         'user-1',
       );
     });

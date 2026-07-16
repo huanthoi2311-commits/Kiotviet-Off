@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
 import { UnitEntity } from '../../domain/entities/unit.entity';
+import { UnitConcurrencyConflictError } from '../../domain/errors/unit.errors';
 import {
   CreateUnitInput,
   IUnitRepository,
@@ -26,6 +27,7 @@ export class PrismaUnitRepository implements IUnitRepository {
           code: input.code,
           name: input.name,
           symbol: input.symbol,
+          status: input.status ?? 'ACTIVE',
           createdBy: input.createdBy,
           updatedBy: input.createdBy,
         },
@@ -46,34 +48,103 @@ export class PrismaUnitRepository implements IUnitRepository {
     return unit ? this.toEntity(unit) : null;
   }
 
-  async update(id: string, input: UpdateUnitInput): Promise<UnitEntity> {
+  async findByIdIncludingDeleted(
+    id: string,
+    organizationId: string,
+  ): Promise<UnitEntity | null> {
+    const unit = await this.prisma.unit.findFirst({
+      where: { id, organizationId },
+    });
+    return unit ? this.toEntity(unit) : null;
+  }
+
+  /**
+   * Optimistic Lock (SPEC-UNIT-001 §10.1, Decision RQ2) — compare-and-swap qua `updateMany`,
+   * đúng mẫu `PrismaBrandRepository.update()`. `organizationId` bắt buộc trong `where` (Decision
+   * SU03/UP06). 0 dòng bị ảnh hưởng → `id`/`organizationId`/`expectedVersion` không khớp →
+   * `UnitConcurrencyConflictError`.
+   */
+  async update(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    input: UpdateUnitInput,
+  ): Promise<UnitEntity> {
     try {
-      const unit = await this.prisma.unit.update({
-        where: { id },
+      const updateResult = await this.prisma.unit.updateMany({
+        where: { id, organizationId, version: expectedVersion },
         data: {
           code: input.code,
           name: input.name,
           symbol: input.symbol,
+          status: input.status,
           updatedBy: input.updatedBy,
+          version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new UnitConcurrencyConflictError(id);
+      }
+
+      const unit = await this.prisma.unit.findUniqueOrThrow({
+        where: { id },
       });
       return this.toEntity(unit);
     } catch (error) {
+      if (error instanceof UnitConcurrencyConflictError) {
+        throw error;
+      }
       throw this.translateWriteError(error);
     }
   }
 
-  async softDelete(id: string, deletedBy: string): Promise<void> {
-    await this.prisma.unit.update({
-      where: { id },
-      data: { deletedAt: new Date(), updatedBy: deletedBy },
+  async softDelete(
+    id: string,
+    organizationId: string,
+    deletedBy: string,
+  ): Promise<void> {
+    await this.prisma.unit.updateMany({
+      where: { id, organizationId },
+      data: {
+        deletedAt: new Date(),
+        status: 'ARCHIVED',
+        updatedBy: deletedBy,
+        version: { increment: 1 },
+      },
+    });
+  }
+
+  /** SPEC-UNIT-001 §9/Decision RQ3: restore luôn trả status về INACTIVE, không tự động ACTIVE. */
+  async restore(
+    id: string,
+    organizationId: string,
+    restoredBy: string,
+  ): Promise<void> {
+    await this.prisma.unit.updateMany({
+      where: { id, organizationId },
+      data: {
+        deletedAt: null,
+        status: 'INACTIVE',
+        updatedBy: restoredBy,
+        version: { increment: 1 },
+      },
     });
   }
 
   async search(params: UnitSearchParams): Promise<UnitSearchResult> {
+    const statusConditions: Prisma.UnitWhereInput[] = [];
+    if (params.status) statusConditions.push({ status: params.status });
+    if (params.isActive !== undefined) {
+      statusConditions.push({
+        status: params.isActive ? 'ACTIVE' : { not: 'ACTIVE' },
+      });
+    }
+
     const where: Prisma.UnitWhereInput = {
       organizationId: params.organizationId,
       deletedAt: null,
+      ...(statusConditions.length > 0 ? { AND: statusConditions } : {}),
       ...(params.search
         ? {
             OR: [
@@ -88,7 +159,7 @@ export class PrismaUnitRepository implements IUnitRepository {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.unit.findMany({
         where,
-        orderBy: { name: 'asc' },
+        orderBy: { [params.sortBy]: params.sortOrder },
         skip,
         take: params.limit,
       }),
@@ -144,6 +215,8 @@ export class PrismaUnitRepository implements IUnitRepository {
       code: unit.code,
       name: unit.name,
       symbol: unit.symbol,
+      status: unit.status,
+      version: unit.version,
       createdAt: unit.createdAt,
       updatedAt: unit.updatedAt,
       deletedAt: unit.deletedAt,

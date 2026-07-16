@@ -74,6 +74,10 @@ export class UnitService {
       search: query.search,
       page: query.page ?? 1,
       limit: query.limit ?? 20,
+      // Cầu nối tạm thời (sẽ thay ở Application commit sau khi UnitQueryDto thêm
+      // isActive/sortBy/sortOrder thật) — default cứng, đúng hành vi hardcode hiện có.
+      sortBy: 'name',
+      sortOrder: 'asc',
     });
 
     return {
@@ -95,10 +99,15 @@ export class UnitService {
     );
     if (!existing) throw this.notFound();
 
-    const updated = await this.unitRepository.update(id, {
-      ...dto,
-      updatedBy: actor.userId,
-    });
+    // Cầu nối tạm thời (sẽ thay ở Application commit sau khi UpdateUnitDto thêm field `version`
+    // thật — đúng thứ tự đã ủy quyền, Repository trước DTO, tiền lệ T006/T007): dùng
+    // existing.version thay vì dto.version thật.
+    const updated = await this.unitRepository.update(
+      id,
+      actor.organizationId,
+      existing.version,
+      { ...dto, updatedBy: actor.userId },
+    );
 
     await this.auditLogService.log({
       organizationId: actor.organizationId,
@@ -133,7 +142,11 @@ export class UnitService {
       );
     }
 
-    await this.unitRepository.softDelete(id, actor.userId);
+    await this.unitRepository.softDelete(
+      id,
+      actor.organizationId,
+      actor.userId,
+    );
 
     await this.auditLogService.log({
       organizationId: actor.organizationId,

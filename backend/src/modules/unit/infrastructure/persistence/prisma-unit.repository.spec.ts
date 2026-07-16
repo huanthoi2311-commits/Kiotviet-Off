@@ -19,6 +19,8 @@ describe('PrismaUnitRepository', () => {
       findFirst: jest.Mock;
       findMany: jest.Mock;
       update: jest.Mock;
+      updateMany: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
       count: jest.Mock;
     };
     $transaction: jest.Mock;
@@ -30,6 +32,8 @@ describe('PrismaUnitRepository', () => {
     code: 'CAI',
     name: 'Cái',
     symbol: 'cái',
+    status: 'ACTIVE',
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -42,6 +46,8 @@ describe('PrismaUnitRepository', () => {
         findFirst: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
+        updateMany: jest.fn(),
+        findUniqueOrThrow: jest.fn(),
         count: jest.fn(),
       },
       $transaction: jest.fn(),
@@ -93,63 +99,173 @@ describe('PrismaUnitRepository', () => {
     });
   });
 
+  describe('findByIdIncludingDeleted', () => {
+    it('trả về null khi không tìm thấy', async () => {
+      prisma.unit.findFirst.mockResolvedValue(null);
+      await expect(
+        repository.findByIdIncludingDeleted('missing', 'org-1'),
+      ).resolves.toBeNull();
+    });
+
+    it('trả về entity kể cả đã bị xóa mềm (không lọc deletedAt)', async () => {
+      prisma.unit.findFirst.mockResolvedValue({
+        ...rawUnit,
+        deletedAt: new Date('2026-01-02'),
+      });
+      const result = await repository.findByIdIncludingDeleted(
+        'unit-1',
+        'org-1',
+      );
+      expect(result?.deletedAt).not.toBeNull();
+      expect(prisma.unit.findFirst).toHaveBeenCalledWith({
+        where: { id: 'unit-1', organizationId: 'org-1' },
+      });
+    });
+  });
+
   describe('update', () => {
-    it('cập nhật thành công', async () => {
-      prisma.unit.update.mockResolvedValue({
+    it('cập nhật thành công khi id/organizationId/version khớp', async () => {
+      prisma.unit.updateMany.mockResolvedValue({ count: 1 });
+      prisma.unit.findUniqueOrThrow.mockResolvedValue({
         ...rawUnit,
         name: 'Cái (đã sửa)',
+        version: 2,
       });
-      const result = await repository.update('unit-1', {
+      const result = await repository.update('unit-1', 'org-1', 1, {
         name: 'Cái (đã sửa)',
         updatedBy: 'user-1',
       });
       expect(result.name).toBe('Cái (đã sửa)');
+      expect(prisma.unit.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'unit-1', organizationId: 'org-1', version: 1 },
+        }),
+      );
+    });
+
+    it('ném UnitConcurrencyConflictError khi version không khớp', async () => {
+      prisma.unit.updateMany.mockResolvedValue({ count: 0 });
+      await expect(
+        repository.update('unit-1', 'org-1', 1, {
+          name: 'x',
+          updatedBy: 'user-1',
+        }),
+      ).rejects.toThrow('vừa bị thay đổi bởi giao dịch khác');
+    });
+
+    it('ném UnitConcurrencyConflictError khi organizationId khác (multi-tenant)', async () => {
+      prisma.unit.updateMany.mockResolvedValue({ count: 0 });
+      await expect(
+        repository.update('unit-1', 'org-KHAC', 1, {
+          name: 'x',
+          updatedBy: 'user-1',
+        }),
+      ).rejects.toThrow('vừa bị thay đổi bởi giao dịch khác');
     });
 
     it('dịch lỗi P2002 khi trùng code', async () => {
-      prisma.unit.update.mockRejectedValue(
+      prisma.unit.updateMany.mockRejectedValue(
         knownError('P2002', { target: ['code'] }),
       );
       await expect(
-        repository.update('unit-1', { name: 'x', updatedBy: 'user-1' }),
+        repository.update('unit-1', 'org-1', 1, {
+          name: 'x',
+          updatedBy: 'user-1',
+        }),
       ).rejects.toThrow(ConflictException);
     });
   });
 
   describe('softDelete', () => {
-    it('set deletedAt và updatedBy', async () => {
-      prisma.unit.update.mockResolvedValue(rawUnit);
-      await repository.softDelete('unit-1', 'user-1');
-      expect(prisma.unit.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'unit-1' },
-          data: expect.objectContaining({ updatedBy: 'user-1' }),
-        }),
-      );
+    it('set deletedAt, status=ARCHIVED, updatedBy và tăng version, lọc theo organizationId', async () => {
+      prisma.unit.updateMany.mockResolvedValue({ count: 1 });
+      await repository.softDelete('unit-1', 'org-1', 'user-1');
+      expect(prisma.unit.updateMany).toHaveBeenCalledWith({
+        where: { id: 'unit-1', organizationId: 'org-1' },
+        data: {
+          deletedAt: expect.any(Date),
+          status: 'ARCHIVED',
+          updatedBy: 'user-1',
+          version: { increment: 1 },
+        },
+      });
+    });
+  });
+
+  describe('restore', () => {
+    it('set deletedAt=null, status=INACTIVE, tăng version, lọc theo organizationId', async () => {
+      prisma.unit.updateMany.mockResolvedValue({ count: 1 });
+      await repository.restore('unit-1', 'org-1', 'user-1');
+      expect(prisma.unit.updateMany).toHaveBeenCalledWith({
+        where: { id: 'unit-1', organizationId: 'org-1' },
+        data: {
+          deletedAt: null,
+          status: 'INACTIVE',
+          updatedBy: 'user-1',
+          version: { increment: 1 },
+        },
+      });
     });
   });
 
   describe('search', () => {
+    const baseParams = {
+      organizationId: 'org-1',
+      page: 1,
+      limit: 20,
+      sortBy: 'name' as const,
+      sortOrder: 'asc' as const,
+    };
+
     it('trả về danh sách phân trang', async () => {
       prisma.$transaction.mockResolvedValue([[rawUnit], 1]);
-      const result = await repository.search({
-        organizationId: 'org-1',
-        page: 1,
-        limit: 20,
-      });
+      const result = await repository.search(baseParams);
       expect(result.total).toBe(1);
       expect(result.items).toHaveLength(1);
     });
 
     it('thêm điều kiện OR khi có search text', async () => {
       prisma.$transaction.mockResolvedValue([[], 0]);
-      await repository.search({
-        organizationId: 'org-1',
-        search: 'cai',
-        page: 1,
-        limit: 20,
-      });
+      await repository.search({ ...baseParams, search: 'cai' });
       expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('isActive=true lọc theo status=ACTIVE (không có cột isActive)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({ ...baseParams, isActive: true });
+      expect(prisma.unit.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ AND: [{ status: 'ACTIVE' }] }),
+        }),
+      );
+    });
+
+    it('status và isActive gửi đồng thời áp dụng AND cả 2 điều kiện', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({
+        ...baseParams,
+        status: 'ACTIVE',
+        isActive: false,
+      });
+      expect(prisma.unit.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: [{ status: 'ACTIVE' }, { status: { not: 'ACTIVE' } }],
+          }),
+        }),
+      );
+    });
+
+    it('orderBy theo sortBy/sortOrder được truyền', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({
+        ...baseParams,
+        sortBy: 'code',
+        sortOrder: 'desc',
+      });
+      expect(prisma.unit.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { code: 'desc' } }),
+      );
     });
   });
 
