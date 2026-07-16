@@ -138,7 +138,10 @@ export class CategoryService {
           )
         : undefined;
 
-    const updated = await this.categoryRepository.update(id, {
+    // Cau noi tam thoi - UpdateCategoryDto chua co field "version" (se them o Step 7 Controller +
+    // DTO, dung thu tu da duoc uy quyen). Dung existing.version doc lai ngay truoc do KHONG phai
+    // Optimistic Lock dung nghia - se thay bang dto.version that ngay sau khi Step 7 hoan tat.
+    const updated = await this.categoryRepository.update(id, existing.version, {
       parentId: dto.parentId,
       code: dto.code,
       slug,

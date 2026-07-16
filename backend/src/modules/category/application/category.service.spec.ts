@@ -52,6 +52,7 @@ describe('CategoryService', () => {
       listAll: jest.fn(),
       existsByCode: jest.fn(),
       existsBySlug: jest.fn(),
+      findAncestorChainIncludingArchived: jest.fn(),
     };
     slugGenerator = {
       generateUnique: jest.fn().mockResolvedValue('danh-muc-moi'),
