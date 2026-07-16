@@ -82,6 +82,13 @@ enum ProductType {
   VARIANT_CHILD
 }
 
+enum CategoryStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
 enum PriceType {
   COST
   SELLING
@@ -695,8 +702,11 @@ model Category {
   slug        String
   description String?
   imageUrl    String?
-  sortOrder   Int     @default(0)
-  isActive    Boolean @default(true)
+  sortOrder   Int            @default(0)
+  /// Bat/tat nhanh khong doi vong doi - tach biet "status" (SPEC-CATEGORY-001 Decision Q1).
+  isActive    Boolean        @default(true)
+  /// Trang thai vong doi (DRAFT/ACTIVE/INACTIVE/ARCHIVED). Doc lap voi isActive.
+  status      CategoryStatus @default(ACTIVE)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
