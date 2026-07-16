@@ -7,6 +7,35 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/lang/vi/) (`MAJOR.
 
 ## [Unreleased]
 
+**Sprint-01 — T007: Brand Domain** (`SPEC-BRAND-001`), theo đúng `RFC-0003` →
+`docs/architecture/brand-dependency-audit.md` → `ARCHITECT RESOLUTION – RFC-0003 Brand Domain`
+(RQ1-RQ5) → `SPEC-BRAND-001` → `ARCHITECT DECISION – APPROVE SPEC-BRAND-001 & AUTHORIZE T007
+IMPLEMENTATION PLAN` → `Brand Implementation Plan` → `ARCHITECTURE REVIEW – Brand Implementation
+Plan` (T007-04.1-10). Chi tiết đầy đủ: `docs/release/t007-release-note.md`.
+
+### Added
+- `Brand.version` (Optimistic Lock, `DEFAULT 1`) — `PATCH /brands/:id` bắt buộc gửi đúng version,
+  sai → `409`.
+- `POST /brands/:id/restore` — khôi phục Brand đã xóa mềm, luôn trả `status` về `INACTIVE` (không
+  bao giờ trực tiếp `ACTIVE` — Decision RQ2), permission mới `brand:restore`.
+- `GET /brands` — thêm `isActive`/`sortBy`/`sortOrder` vào bộ filter/phân trang hiện có
+  (`search`/`status`/`page`/`limit`), đúng chuẩn tham số thống nhất Master Data (Decision B02.5).
+  `isActive` là **filter alias tầng business cho `status`, không phải cột schema mới** (Decision
+  RQ1) — ngoại lệ có chủ đích so với Product/Category, theo nguyên tắc mới **"Business First,
+  Consistency Second"** (Decision RQ5).
+
+### Changed
+- `PATCH /brands/:id` nay bắt buộc gửi `version` (Optimistic Lock) — sai version trả `409`.
+- `GET /brands` mặc định sắp xếp theo `name` (trước đây hardcode, nay tường minh và có thể đổi
+  qua `sortBy`/`sortOrder`).
+
+### Known Limitations
+- Integration Test (`test/brand.e2e-spec.ts`), Rollback Test (migration `version`), Manual API
+  Smoke Test — 🟡 PENDING: không có Docker/Postgres/Redis trong môi trường phát triển hiện tại.
+  Xem `docs/architecture/technical-debt.md`.
+
+## [0.3.0-category-foundation] - 2026-07-16
+
 **Sprint-01 — T006: Category Implementation** (`SPEC-CATEGORY-001`), theo đúng `RFC-0002` →
 `docs/architecture/category-dependency-audit.md` → `ARCHITECTURE REVIEW – RFC-0002` (Q1-Q12) →
 `SPEC-CATEGORY-001` → `ARCHITECTURE REVIEW – SPEC-CATEGORY-001` (S01-S08) →
@@ -131,7 +160,8 @@ Decision T005-R01..R05). **Technical Complete = PASS, Operational Complete = PEN
 - Refresh token lưu dưới dạng HMAC-SHA256 hash trong DB, không lưu plaintext.
 - Refresh token reuse detection: phát hiện token đã bị thu hồi nhưng vẫn được dùng lại → thu hồi toàn bộ session của user.
 
-[Unreleased]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.2.0-product-foundation...HEAD
+[Unreleased]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.3.0-category-foundation...HEAD
+[0.3.0-category-foundation]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.2.0-product-foundation...v0.3.0-category-foundation
 [0.2.0-product-foundation]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.1.0-foundation...v0.2.0-product-foundation
 [0.1.0-foundation]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.1.0...v0.1.0-foundation
 [0.1.0]: https://github.com/huanthoi2311-commits/Kiotviet-Off/releases/tag/v0.1.0
