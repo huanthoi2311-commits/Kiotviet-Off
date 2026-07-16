@@ -763,6 +763,9 @@ model Unit {
   name   String
   symbol String
 
+  /// UnitStatus rieng (SPEC-UNIT-001 Decision RQ1) - KHONG dung CommonStatus, KHONG co DRAFT.
+  status UnitStatus @default(ACTIVE)
+
   /// Optimistic Lock (SPEC-UNIT-001 Decision RQ2) - tang o moi UPDATE, khong bao gio reset.
   version Int @default(1)
 
@@ -778,6 +781,12 @@ model Unit {
   @@unique([organizationId, code])
   @@index([organizationId])
   @@map("units")
+}
+
+enum UnitStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
 }
 
 model Tax {
