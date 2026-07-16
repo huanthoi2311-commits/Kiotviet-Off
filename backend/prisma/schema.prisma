@@ -739,6 +739,7 @@ model Brand {
   website     String?
   country     String?
   status      CommonStatus @default(ACTIVE)
+  version     Int          @default(1)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
