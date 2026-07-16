@@ -1,11 +1,14 @@
 import {
+  ConflictException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { TransferEntity } from '../domain/entities/transfer.entity';
 import {
   ITransferRepository,
+  TransferNegativeStockError,
   TransferStatusConflictError,
 } from '../domain/repositories/transfer.repository.interface';
 import { ITransferCodeGenerator } from '../domain/services/transfer-code-generator.interface';
@@ -125,7 +128,7 @@ describe('TransferService', () => {
       );
     });
 
-    it('gọi transitionStatus với movement TRANSFER_OUT âm + captureUnitCostToItem', async () => {
+    it('gọi transitionStatus với movement direction=OUT + captureUnitCostToItem', async () => {
       transferRepository.findById.mockResolvedValue(makeTransfer());
       transferRepository.transitionStatus.mockResolvedValue(
         makeTransfer({ status: 'APPROVED' }),
@@ -143,9 +146,8 @@ describe('TransferService', () => {
             transferItemId: 'item-1',
             warehouseId: 'wh-a',
             productId: 'product-1',
-            quantity: -10,
-            movementType: 'TRANSFER_OUT',
-            referenceType: 'TRANSFER',
+            quantity: 10,
+            direction: 'OUT',
             captureUnitCostToItem: true,
           }),
         ],
@@ -163,6 +165,26 @@ describe('TransferService', () => {
       );
       await expect(service.approve('transfer-1', actor)).rejects.toThrow(
         UnprocessableEntityException,
+      );
+    });
+
+    it('dịch TransferNegativeStockError sang UnprocessableEntityException', async () => {
+      transferRepository.findById.mockResolvedValue(makeTransfer());
+      transferRepository.transitionStatus.mockRejectedValue(
+        new TransferNegativeStockError('product-1'),
+      );
+      await expect(service.approve('transfer-1', actor)).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+    });
+
+    it('dịch InventoryConcurrencyConflictError sang ConflictException', async () => {
+      transferRepository.findById.mockResolvedValue(makeTransfer());
+      transferRepository.transitionStatus.mockRejectedValue(
+        new InventoryConcurrencyConflictError('product-1'),
+      );
+      await expect(service.approve('transfer-1', actor)).rejects.toThrow(
+        ConflictException,
       );
     });
   });
@@ -198,7 +220,7 @@ describe('TransferService', () => {
             productId: 'product-1',
             quantity: 10,
             unitCost: 50,
-            movementType: 'TRANSFER_IN',
+            direction: 'IN',
           }),
         ],
         'user-1',
@@ -266,7 +288,7 @@ describe('TransferService', () => {
             productId: 'product-1',
             quantity: 10,
             unitCost: 50,
-            movementType: 'TRANSFER_IN',
+            direction: 'IN',
           }),
         ],
         'user-1',

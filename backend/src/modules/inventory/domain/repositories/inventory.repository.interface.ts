@@ -6,27 +6,6 @@ import {
   InventoryReferenceType,
 } from '../entities/inventory.entity';
 
-/**
- * Đầu vào duy nhất để thay đổi tồn kho. Không có API/DTO tạo trực tiếp — các module
- * nghiệp vụ tương lai (Purchase, POS, Transfer, Stock Count, Adjustment) gọi hàm này
- * qua INVENTORY_REPOSITORY để ghi Movement + đồng bộ Inventory trong 1 transaction.
- * `quantity` là delta có dấu do caller quyết định (dương = nhập, âm = xuất) — repository
- * không tự suy đoán dấu từ movementType, vì đó là quyết định nghiệp vụ của caller.
- */
-export interface RecordMovementInput {
-  organizationId: string;
-  warehouseId: string;
-  productId: string;
-  movementType: InventoryMovementType;
-  referenceType: InventoryReferenceType;
-  referenceId?: string | null;
-  quantity: number;
-  /** Chỉ có ý nghĩa khi quantity > 0 (nhập kho) — dùng để tính lại Average Cost. */
-  unitCost?: number | null;
-  remark?: string | null;
-  createdBy: string;
-}
-
 export interface InventorySearchParams {
   organizationId: string;
   warehouseId?: string;
@@ -62,41 +41,44 @@ export interface MovementSearchResult {
 }
 
 /**
- * Input cho recordSaleMovement (Prompt 035 — POS Checkout) — quantity luôn là số DƯƠNG
- * (số lượng bán ra); repository tự trừ, không nhận delta có dấu như recordMovement().
+ * Đầu vào DUY NHẤT để thay đổi tồn kho (SPEC-INV-001, T004) — chỉ được gọi bởi
+ * `InventoryDomainService`, không phải trực tiếp bởi module nghiệp vụ khác. `quantity` là
+ * delta có dấu do caller quyết định (dương = nhập, âm = xuất) — repository không tự suy đoán
+ * dấu từ movementType. `checkNegativeStock` do `InventoryDomainService` quyết định theo từng
+ * loại thao tác (increase/transfer-in: false; decrease/transfer-out: true; adjust: theo
+ * movementType) — repository chỉ thực thi, không tự quyết định policy khi nào cần check.
  */
-export interface RecordSaleMovementInput {
+export interface RecordMovementInput {
   organizationId: string;
   warehouseId: string;
   productId: string;
-  quantity: number;
+  movementType: InventoryMovementType;
+  referenceType: InventoryReferenceType;
   referenceId?: string | null;
+  quantity: number;
+  /** Chỉ có ý nghĩa khi quantity > 0 (nhập kho) — dùng để tính lại Average Cost. */
+  unitCost?: number | null;
+  remark?: string | null;
+  /** Có kiểm tra Setting `inventory.allowNegativeStock` trước khi cho phép quantity < 0 hay không. */
+  checkNegativeStock: boolean;
   createdBy: string;
 }
 
-/** Ném bởi recordSaleMovement() khi tồn kho không đủ VÀ tổ chức không bật `inventory.allowNegativeStock`. */
-export class InventoryInsufficientStockError extends Error {
-  constructor(
-    public readonly productId: string,
-    public readonly available: string,
-  ) {
-    super(`Không đủ tồn kho cho sản phẩm (còn ${available})`);
-  }
+/**
+ * `avgCostAfter` không phải field của bảng `inventory_movements` (không lưu DB) — chỉ trả về
+ * ngay tại thời điểm ghi, cho caller cần biết giá vốn hiện hành sau movement (vd Transfer
+ * snapshot avgCost của kho nguồn vào `TransferItem.unitCost` để dùng khi ghi nhận kho đích).
+ */
+export interface RecordMovementResult {
+  movement: InventoryMovementEntity;
+  avgCostAfter: string;
 }
 
 /**
- * Ném bởi recordSaleMovement() khi optimistic lock thất bại — tồn kho đã bị 1 giao dịch
- * khác ghi đè giữa lúc đọc và lúc ghi (race condition, vd nhiều cashier bán cùng sản phẩm
- * đồng thời). Caller (Checkout Engine) nên rollback toàn bộ transaction và có thể thử lại.
+ * Repository là chi tiết triển khai NỘI BỘ của Inventory Module (Decision 8, SPEC-INV-001) —
+ * không được inject bởi bất kỳ module nào khác. Module khác chỉ được gọi qua
+ * `InventoryDomainService` (xem `application/inventory-domain.service.ts`).
  */
-export class InventoryConcurrencyConflictError extends Error {
-  constructor(public readonly productId: string) {
-    super(
-      `Tồn kho sản phẩm vừa bị thay đổi bởi giao dịch khác, vui lòng thử lại`,
-    );
-  }
-}
-
 export interface IInventoryRepository {
   search(params: InventorySearchParams): Promise<InventorySearchResult>;
   getByProduct(
@@ -104,19 +86,16 @@ export interface IInventoryRepository {
     organizationId: string,
   ): Promise<InventoryEntity[]>;
   getHistory(params: MovementSearchParams): Promise<MovementSearchResult>;
-  recordMovement(input: RecordMovementInput): Promise<InventoryMovementEntity>;
   /**
-   * Xuất kho cho bán hàng (SALE/POS) với Optimistic Lock — UPDATE có điều kiện
-   * `WHERE quantity = <giá trị vừa đọc>`, nếu 0 dòng bị ảnh hưởng nghĩa là tồn kho đã đổi
-   * do giao dịch khác chạy chen giữa → ném InventoryConcurrencyConflictError thay vì ghi
-   * đè mù. Tôn trọng setting `inventory.allowNegativeStock` giống Purchase Return/Adjustment.
-   * `tx` tùy chọn — truyền vào khi cần gộp chung 1 Prisma transaction lớn hơn (Checkout
-   * Engine, Prompt 035); không truyền thì tự mở transaction riêng như mọi method khác.
+   * Điểm ghi duy nhất cho mọi biến động tồn kho — luôn dùng Optimistic Lock (compare-and-swap
+   * `UPDATE ... WHERE quantity = <giá trị vừa đọc>`, xem `inventory-locking-strategy.md`).
+   * `tx` BẮT BUỘC (Decision 5, SPEC-INV-001 Revision) — hàm này tuyệt đối KHÔNG tự mở
+   * transaction, không commit, không rollback; toàn bộ transaction do caller quản lý.
    */
-  recordSaleMovement(
-    input: RecordSaleMovementInput,
-    tx?: Prisma.TransactionClient,
-  ): Promise<InventoryMovementEntity>;
+  recordMovement(
+    tx: Prisma.TransactionClient,
+    input: RecordMovementInput,
+  ): Promise<RecordMovementResult>;
 }
 
 export const INVENTORY_REPOSITORY = Symbol('INVENTORY_REPOSITORY');

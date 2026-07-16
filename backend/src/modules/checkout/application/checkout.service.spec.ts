@@ -9,11 +9,11 @@ import { CartEntity } from '../../cart/domain/entities/cart.entity';
 import type { ICustomerRepository } from '../../customer/domain/repositories/customer.repository.interface';
 import { CustomerPointInsufficientBalanceError } from '../../customer-point/domain/repositories/customer-point.repository.interface';
 import type { ICustomerPointRepository } from '../../customer-point/domain/repositories/customer-point.repository.interface';
+import { InventoryDomainService } from '../../inventory/application/inventory-domain.service';
 import {
   InventoryConcurrencyConflictError,
   InventoryInsufficientStockError,
-} from '../../inventory/domain/repositories/inventory.repository.interface';
-import type { IInventoryRepository } from '../../inventory/domain/repositories/inventory.repository.interface';
+} from '../../inventory/domain/errors/inventory.errors';
 import { DiscountEngineService } from '../../discount/application/discount-engine.service';
 import { AmountDiscountStrategy } from '../../discount/infrastructure/strategies/amount-discount.strategy';
 import { BuyXGetYDiscountStrategy } from '../../discount/infrastructure/strategies/buy-x-get-y-discount.strategy';
@@ -39,7 +39,9 @@ describe('CheckoutService', () => {
   let cartRepository: jest.Mocked<ICartRepository>;
   let customerRepository: jest.Mocked<Pick<ICustomerRepository, 'findById'>>;
   let customerPointRepository: jest.Mocked<ICustomerPointRepository>;
-  let inventoryRepository: jest.Mocked<IInventoryRepository>;
+  let inventoryDomainService: jest.Mocked<
+    Pick<InventoryDomainService, 'decrease'>
+  >;
   let voucherRepository: jest.Mocked<IVoucherRepository>;
   let invoiceService: jest.Mocked<Pick<InvoiceService, 'createInvoice'>>;
   let paymentService: jest.Mocked<Pick<PaymentService, 'createPayment'>>;
@@ -134,12 +136,10 @@ describe('CheckoutService', () => {
       getHistory: jest.fn(),
       getBalance: jest.fn(),
     };
-    inventoryRepository = {
-      search: jest.fn(),
-      getByProduct: jest.fn(),
-      getHistory: jest.fn(),
-      recordMovement: jest.fn(),
-      recordSaleMovement: jest.fn().mockResolvedValue({}),
+    inventoryDomainService = {
+      decrease: jest
+        .fn()
+        .mockResolvedValue({ movement: {}, avgCostAfter: '0' }),
     };
     voucherRepository = {
       findActiveByCode: jest.fn(),
@@ -169,7 +169,7 @@ describe('CheckoutService', () => {
       cartRepository,
       customerRepository as unknown as ICustomerRepository,
       customerPointRepository,
-      inventoryRepository,
+      inventoryDomainService as unknown as InventoryDomainService,
       voucherRepository,
       discountEngine,
       invoiceService as unknown as InvoiceService,
@@ -255,13 +255,15 @@ describe('CheckoutService', () => {
         expect.objectContaining({ amount: 220000, invoiceId: 'inv-1' }),
         expect.anything(),
       );
-      expect(inventoryRepository.recordSaleMovement).toHaveBeenCalledWith(
+      expect(inventoryDomainService.decrease).toHaveBeenCalledWith(
+        expect.anything(),
         expect.objectContaining({
           productId: 'prod-1',
           quantity: 2,
+          movementType: 'SALE',
+          referenceType: 'POS',
           referenceId: 'inv-1',
         }),
-        expect.anything(),
       );
       expect(cartRepository.delete).toHaveBeenCalledWith('org-1', 'user-1');
       expect(eventPublisher.publish).toHaveBeenCalledWith(
@@ -356,7 +358,7 @@ describe('CheckoutService', () => {
 
   describe('rollback khi có lỗi giữa transaction', () => {
     it('map InventoryInsufficientStockError -> 422, không xóa cart, publish CHECKOUT_FAILED_EVENT', async () => {
-      inventoryRepository.recordSaleMovement.mockRejectedValue(
+      inventoryDomainService.decrease.mockRejectedValue(
         new InventoryInsufficientStockError('prod-1', '0'),
       );
 
@@ -371,7 +373,7 @@ describe('CheckoutService', () => {
     });
 
     it('map InventoryConcurrencyConflictError -> 409', async () => {
-      inventoryRepository.recordSaleMovement.mockRejectedValue(
+      inventoryDomainService.decrease.mockRejectedValue(
         new InventoryConcurrencyConflictError('prod-1'),
       );
       await expect(service.checkout(baseDto, actor)).rejects.toThrow(

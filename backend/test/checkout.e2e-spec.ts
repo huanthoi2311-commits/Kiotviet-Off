@@ -181,16 +181,19 @@ describe('Checkout Module (e2e, integration)', () => {
     // không có route ghi, đúng thiết kế Prompt 022) để có đủ hàng bán trong Checkout.
     const inventoryRepository =
       app.get<IInventoryRepository>(INVENTORY_REPOSITORY);
-    await inventoryRepository.recordMovement({
-      organizationId,
-      warehouseId,
-      productId,
-      movementType: 'INITIAL',
-      referenceType: 'SYSTEM',
-      quantity: 100,
-      unitCost: 80000,
-      createdBy: user.id,
-    });
+    await prisma.$transaction((tx) =>
+      inventoryRepository.recordMovement(tx, {
+        organizationId,
+        warehouseId,
+        productId,
+        movementType: 'INITIAL',
+        referenceType: 'SYSTEM',
+        quantity: 100,
+        unitCost: 80000,
+        checkNegativeStock: false,
+        createdBy: user.id,
+      }),
+    );
   });
 
   afterAll(async () => {

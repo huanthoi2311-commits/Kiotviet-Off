@@ -1,7 +1,15 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { TransferStatusConflictError } from '../../domain/repositories/transfer.repository.interface';
+import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
+import {
+  InventoryConcurrencyConflictError,
+  InventoryInsufficientStockError,
+} from '../../../inventory/domain/errors/inventory.errors';
+import {
+  TransferNegativeStockError,
+  TransferStatusConflictError,
+} from '../../domain/repositories/transfer.repository.interface';
 import { PrismaTransferRepository } from './prisma-transfer.repository';
 
 function knownError(code: string, meta?: Record<string, unknown>) {
@@ -48,6 +56,9 @@ describe('PrismaTransferRepository', () => {
     };
     $transaction: jest.Mock;
   };
+  let inventoryDomainService: jest.Mocked<
+    Pick<InventoryDomainService, 'transfer'>
+  >;
 
   beforeEach(() => {
     prisma = {
@@ -59,8 +70,14 @@ describe('PrismaTransferRepository', () => {
       },
       $transaction: jest.fn(),
     };
+    inventoryDomainService = {
+      transfer: jest
+        .fn()
+        .mockResolvedValue({ movement: {}, avgCostAfter: '50' }),
+    };
     repository = new PrismaTransferRepository(
       prisma as unknown as PrismaService,
+      inventoryDomainService as unknown as InventoryDomainService,
     );
   });
 
@@ -138,10 +155,7 @@ describe('PrismaTransferRepository', () => {
   });
 
   describe('transitionStatus', () => {
-    function makeTx(overrides: {
-      currentTransfer?: unknown;
-      inventory?: unknown;
-    }) {
+    function makeTx(overrides: { currentTransfer?: unknown }) {
       const transferUpdate = jest.fn().mockResolvedValue(rawTransfer);
       const currentTransfer =
         'currentTransfer' in overrides
@@ -152,11 +166,6 @@ describe('PrismaTransferRepository', () => {
           findUnique: jest.fn().mockResolvedValue(currentTransfer),
           update: transferUpdate,
         },
-        inventory: {
-          findUnique: jest.fn().mockResolvedValue(overrides.inventory ?? null),
-          upsert: jest.fn().mockResolvedValue({}),
-        },
-        inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
         transferItem: { update: jest.fn().mockResolvedValue({}) },
       };
       prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
@@ -191,14 +200,9 @@ describe('PrismaTransferRepository', () => {
       ).rejects.toThrow(TransferStatusConflictError);
     });
 
-    it('approve: trừ kho nguồn và ghi lại unitCost vào TransferItem khi captureUnitCostToItem=true', async () => {
+    it('approve: gọi InventoryDomainService.transfer() direction=OUT, ghi lại avgCostAfter vào TransferItem.unitCost', async () => {
       const tx = makeTx({
         currentTransfer: { ...rawTransfer, status: 'PENDING' },
-        inventory: {
-          quantity: new Prisma.Decimal(100),
-          avgCost: new Prisma.Decimal(50),
-          lastCost: new Prisma.Decimal(50),
-        },
       });
 
       await repository.transitionStatus(
@@ -210,13 +214,24 @@ describe('PrismaTransferRepository', () => {
             transferItemId: 'item-1',
             warehouseId: 'wh-a',
             productId: 'product-1',
-            quantity: -10,
-            movementType: 'TRANSFER_OUT',
-            referenceType: 'TRANSFER',
+            quantity: 10,
+            direction: 'OUT',
             captureUnitCostToItem: true,
           },
         ],
         'user-1',
+      );
+
+      expect(inventoryDomainService.transfer).toHaveBeenCalledWith(
+        tx,
+        expect.objectContaining({
+          direction: 'OUT',
+          organizationId: 'org-1',
+          warehouseId: 'wh-a',
+          productId: 'product-1',
+          quantity: 10,
+          referenceId: 'transfer-1',
+        }),
       );
 
       expect(tx.transferItem.update).toHaveBeenCalledWith({
@@ -230,14 +245,6 @@ describe('PrismaTransferRepository', () => {
         ).toString(),
       ).toBe('50');
 
-      const upsertArg = tx.inventory.upsert.mock.calls[0][0];
-      expect(upsertArg.update.quantity.toString()).toBe('90');
-
-      const movementArg = tx.inventoryMovement.create.mock.calls[0][0].data;
-      expect(movementArg.quantity.toString()).toBe('-10');
-      expect(movementArg.beforeQuantity.toString()).toBe('100');
-      expect(movementArg.afterQuantity.toString()).toBe('90');
-
       expect(tx.transfer.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'transfer-1' },
@@ -246,10 +253,9 @@ describe('PrismaTransferRepository', () => {
       );
     });
 
-    it('receive: cộng kho đích với unitCost đã ghi lại lúc Approve', async () => {
+    it('receive: gọi InventoryDomainService.transfer() direction=IN với unitCost đã ghi lại lúc Approve, không đụng TransferItem', async () => {
       const tx = makeTx({
         currentTransfer: { ...rawTransfer, status: 'APPROVED' },
-        inventory: null,
       });
 
       await repository.transitionStatus(
@@ -263,19 +269,78 @@ describe('PrismaTransferRepository', () => {
             productId: 'product-1',
             quantity: 10,
             unitCost: 50,
-            movementType: 'TRANSFER_IN',
-            referenceType: 'TRANSFER',
+            direction: 'IN',
           },
         ],
         'user-1',
       );
 
-      const createArg = tx.inventory.upsert.mock.calls[0][0].create;
-      expect(createArg.quantity.toString()).toBe('10');
-      expect(createArg.avgCost.toString()).toBe('50');
+      expect(inventoryDomainService.transfer).toHaveBeenCalledWith(
+        tx,
+        expect.objectContaining({
+          direction: 'IN',
+          warehouseId: 'wh-b',
+          productId: 'product-1',
+          quantity: 10,
+          unitCost: 50,
+        }),
+      );
+      expect(tx.transferItem.update).not.toHaveBeenCalled();
     });
 
-    it('cancel không kèm movement chỉ đổi trạng thái, không đụng Inventory', async () => {
+    it('dịch InventoryInsufficientStockError (từ lượt OUT) sang TransferNegativeStockError', async () => {
+      makeTx({ currentTransfer: { ...rawTransfer, status: 'PENDING' } });
+      inventoryDomainService.transfer.mockRejectedValueOnce(
+        new InventoryInsufficientStockError('product-1', '5'),
+      );
+
+      await expect(
+        repository.transitionStatus(
+          'transfer-1',
+          ['PENDING'],
+          'APPROVED',
+          [
+            {
+              transferItemId: 'item-1',
+              warehouseId: 'wh-a',
+              productId: 'product-1',
+              quantity: 10,
+              direction: 'OUT',
+              captureUnitCostToItem: true,
+            },
+          ],
+          'user-1',
+        ),
+      ).rejects.toThrow(TransferNegativeStockError);
+    });
+
+    it('lan truyền nguyên trạng InventoryConcurrencyConflictError (không dịch thành TransferNegativeStockError)', async () => {
+      makeTx({ currentTransfer: { ...rawTransfer, status: 'PENDING' } });
+      inventoryDomainService.transfer.mockRejectedValueOnce(
+        new InventoryConcurrencyConflictError('product-1'),
+      );
+
+      await expect(
+        repository.transitionStatus(
+          'transfer-1',
+          ['PENDING'],
+          'APPROVED',
+          [
+            {
+              transferItemId: 'item-1',
+              warehouseId: 'wh-a',
+              productId: 'product-1',
+              quantity: 10,
+              direction: 'OUT',
+              captureUnitCostToItem: true,
+            },
+          ],
+          'user-1',
+        ),
+      ).rejects.toThrow(InventoryConcurrencyConflictError);
+    });
+
+    it('cancel không kèm movement chỉ đổi trạng thái, không gọi InventoryDomainService', async () => {
       const tx = makeTx({
         currentTransfer: { ...rawTransfer, status: 'PENDING' },
       });
@@ -288,8 +353,7 @@ describe('PrismaTransferRepository', () => {
         'user-1',
       );
 
-      expect(tx.inventory.upsert).not.toHaveBeenCalled();
-      expect(tx.inventoryMovement.create).not.toHaveBeenCalled();
+      expect(inventoryDomainService.transfer).not.toHaveBeenCalled();
       expect(tx.transfer.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { status: 'CANCELLED', updatedBy: 'user-1' },

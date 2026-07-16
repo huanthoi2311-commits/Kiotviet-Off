@@ -1,8 +1,10 @@
 import {
+  ConflictException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { StockCountEntity } from '../domain/entities/stock-count.entity';
 import {
   IStockCountRepository,
@@ -196,6 +198,22 @@ describe('StockCountService', () => {
           actor,
         ),
       ).rejects.toThrow(UnprocessableEntityException);
+    });
+
+    it('dịch InventoryConcurrencyConflictError sang ConflictException (Optimistic Lock)', async () => {
+      stockCountRepository.findById.mockResolvedValue(
+        makeStockCount({ status: 'COUNTING' }),
+      );
+      stockCountRepository.complete.mockRejectedValue(
+        new InventoryConcurrencyConflictError('product-1'),
+      );
+      await expect(
+        service.complete(
+          'sc-1',
+          { items: [{ itemId: 'item-1', actualQty: 90 }] },
+          actor,
+        ),
+      ).rejects.toThrow(ConflictException);
     });
   });
 });

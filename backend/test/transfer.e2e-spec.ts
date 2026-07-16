@@ -185,16 +185,19 @@ describe('Transfer Module (e2e, integration)', () => {
 
     const inventoryRepository =
       app.get<IInventoryRepository>(INVENTORY_REPOSITORY);
-    await inventoryRepository.recordMovement({
-      organizationId,
-      warehouseId: warehouseAId,
-      productId,
-      movementType: 'INITIAL',
-      referenceType: 'SYSTEM',
-      quantity: 100,
-      unitCost: 50000,
-      createdBy: user.id,
-    });
+    await prisma.$transaction((tx) =>
+      inventoryRepository.recordMovement(tx, {
+        organizationId,
+        warehouseId: warehouseAId,
+        productId,
+        movementType: 'INITIAL',
+        referenceType: 'SYSTEM',
+        quantity: 100,
+        unitCost: 50000,
+        checkNegativeStock: false,
+        createdBy: user.id,
+      }),
+    );
   });
 
   afterAll(async () => {

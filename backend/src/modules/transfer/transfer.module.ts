@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { InventoryModule } from '../inventory/inventory.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { TransferService } from './application/transfer.service';
 import { TRANSFER_REPOSITORY } from './domain/repositories/transfer.repository.interface';
@@ -8,7 +9,7 @@ import { PrismaTransferRepository } from './infrastructure/persistence/prisma-tr
 import { TransferController } from './presentation/transfer.controller';
 
 @Module({
-  imports: [RbacModule],
+  imports: [RbacModule, InventoryModule],
   controllers: [TransferController],
   providers: [
     TransferService,

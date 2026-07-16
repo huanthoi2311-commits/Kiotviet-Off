@@ -30,7 +30,7 @@ import { PaginatedInventoryMovementResponseDto } from '../application/dto/moveme
 /**
  * Chỉ đọc — không có POST/PATCH/DELETE. Tồn kho không được phép thay đổi qua API;
  * chỉ được sinh ra bởi các module nghiệp vụ (Purchase, POS, Transfer, Stock Count,
- * Adjustment) gọi IInventoryRepository.recordMovement() nội bộ.
+ * Adjustment) gọi InventoryDomainService (Single Writer — SPEC-INV-001).
  */
 @ApiTags('Inventory')
 @ApiBearerAuth()

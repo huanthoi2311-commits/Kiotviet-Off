@@ -1,10 +1,12 @@
 import {
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
 import { PURCHASE_ORDER_REPOSITORY } from '../../purchase-order/domain/repositories/purchase-order.repository.interface';
@@ -293,6 +295,11 @@ export class PurchaseReturnService {
             ErrorCode.PURCHASE_RETURN_NEGATIVE_STOCK_NOT_ALLOWED,
             error.message,
           ),
+        );
+      }
+      if (error instanceof InventoryConcurrencyConflictError) {
+        throw new ConflictException(
+          withCode(ErrorCode.PURCHASE_RETURN_INVENTORY_CONFLICT, error.message),
         );
       }
       throw error;

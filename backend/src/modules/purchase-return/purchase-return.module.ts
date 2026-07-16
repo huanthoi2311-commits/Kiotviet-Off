@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { InventoryModule } from '../inventory/inventory.module';
 import { PurchaseOrderModule } from '../purchase-order/purchase-order.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { PurchaseReturnService } from './application/purchase-return.service';
@@ -9,7 +10,7 @@ import { PrismaPurchaseReturnRepository } from './infrastructure/persistence/pri
 import { PurchaseReturnController } from './presentation/purchase-return.controller';
 
 @Module({
-  imports: [RbacModule, PurchaseOrderModule],
+  imports: [RbacModule, PurchaseOrderModule, InventoryModule],
   controllers: [PurchaseReturnController],
   providers: [
     PurchaseReturnService,

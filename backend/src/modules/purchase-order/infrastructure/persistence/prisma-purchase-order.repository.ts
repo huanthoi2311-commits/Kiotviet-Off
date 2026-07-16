@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { applyInventoryDelta } from '../../../../common/utils/average-cost.util';
+import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
 import {
@@ -30,7 +30,10 @@ type PurchaseOrderWithItems = Prisma.PurchaseOrderGetPayload<{
 
 @Injectable()
 export class PrismaPurchaseOrderRepository implements IPurchaseOrderRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly inventoryDomainService: InventoryDomainService,
+  ) {}
 
   async create(input: CreatePurchaseOrderInput): Promise<PurchaseOrderEntity> {
     try {
@@ -148,12 +151,10 @@ export class PrismaPurchaseOrderRepository implements IPurchaseOrderRepository {
   }
 
   /**
-   * APPROVED → RECEIVED trong 1 transaction: với mỗi PurchaseItem, đọc snapshot Inventory
-   * hiện tại của đúng warehouseId của dòng hàng đó, tính lại Average Cost theo unitCost,
-   * upsert Inventory, ghi 1 InventoryMovement (PURCHASE) bất biến, và cập nhật
-   * receivedQuantity = quantity trên PurchaseItem. Không gọi IInventoryRepository.recordMovement()
-   * vì hàm đó tự mở transaction riêng — không thể tham gia transaction ngoài này, vi phạm
-   * yêu cầu "Purchase + Inventory + Movement History phải là một Transaction" của Prompt 027.
+   * APPROVED → RECEIVED trong 1 transaction: với mỗi PurchaseItem, gọi
+   * InventoryDomainService.increase() (Single Writer — SPEC-INV-001) để ghi InventoryMovement
+   * (PURCHASE) + đồng bộ Inventory/Average Cost, truyền `tx` của chính transaction này để cùng
+   * nằm một giao dịch, rồi cập nhật receivedQuantity = quantity trên PurchaseItem.
    */
   async receive(
     id: string,
@@ -172,68 +173,16 @@ export class PrismaPurchaseOrderRepository implements IPurchaseOrderRepository {
       }
 
       for (const item of current.purchaseItems) {
-        const existingInventory = await tx.inventory.findUnique({
-          where: {
-            warehouseId_productId: {
-              warehouseId: item.warehouseId,
-              productId: item.productId,
-            },
-          },
-        });
-        const beforeQuantity =
-          existingInventory?.quantity ?? new Prisma.Decimal(0);
-        const beforeAvgCost =
-          existingInventory?.avgCost ?? new Prisma.Decimal(0);
-        const { afterQuantity, avgCost, lastCost } = applyInventoryDelta({
-          beforeQuantity,
-          beforeAvgCost,
-          delta: item.quantity,
-          unitCost: item.unitCost,
-        });
-        const resolvedLastCost =
-          lastCost ?? existingInventory?.lastCost ?? new Prisma.Decimal(0);
-
-        await tx.inventory.upsert({
-          where: {
-            warehouseId_productId: {
-              warehouseId: item.warehouseId,
-              productId: item.productId,
-            },
-          },
-          create: {
-            organizationId,
-            warehouseId: item.warehouseId,
-            productId: item.productId,
-            quantity: afterQuantity,
-            reservedQty: 0,
-            avgCost,
-            lastCost: resolvedLastCost,
-            createdBy: updatedBy,
-            updatedBy,
-          },
-          update: {
-            quantity: afterQuantity,
-            avgCost,
-            lastCost: resolvedLastCost,
-            updatedBy,
-          },
-        });
-
-        await tx.inventoryMovement.create({
-          data: {
-            organizationId,
-            warehouseId: item.warehouseId,
-            productId: item.productId,
-            movementType: 'PURCHASE',
-            referenceType: 'PURCHASE',
-            referenceId: id,
-            quantity: item.quantity,
-            beforeQuantity,
-            afterQuantity,
-            unitCost: item.unitCost,
-            remark: null,
-            createdBy: updatedBy,
-          },
+        await this.inventoryDomainService.increase(tx, {
+          organizationId,
+          warehouseId: item.warehouseId,
+          productId: item.productId,
+          quantity: Number(item.quantity),
+          unitCost: Number(item.unitCost),
+          movementType: 'PURCHASE',
+          referenceType: 'PURCHASE',
+          referenceId: id,
+          createdBy: updatedBy,
         });
 
         await tx.purchaseItem.update({

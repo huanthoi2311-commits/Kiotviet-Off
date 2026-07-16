@@ -5,7 +5,8 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { applyInventoryDelta } from '../../../../common/utils/average-cost.util';
+import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
+import { InventoryInsufficientStockError } from '../../../inventory/domain/errors/inventory.errors';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
 import {
@@ -16,10 +17,12 @@ import {
   CreateTransferInput,
   ITransferRepository,
   TransferMovementInput,
+  TransferNegativeStockError,
   TransferSearchParams,
   TransferSearchResult,
   TransferStatusConflictError,
 } from '../../domain/repositories/transfer.repository.interface';
+import type { RecordMovementResult } from '../../../inventory/domain/repositories/inventory.repository.interface';
 
 const TRANSFER_INCLUDE = {
   items: { orderBy: { createdAt: 'asc' as const } },
@@ -31,7 +34,10 @@ type TransferWithItems = Prisma.TransferGetPayload<{
 
 @Injectable()
 export class PrismaTransferRepository implements ITransferRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly inventoryDomainService: InventoryDomainService,
+  ) {}
 
   async create(input: CreateTransferInput): Promise<TransferEntity> {
     try {
@@ -112,6 +118,15 @@ export class PrismaTransferRepository implements ITransferRepository {
     return !!found;
   }
 
+  /**
+   * Chuyển trạng thái + ghi các InventoryMovement liên quan trong 1 transaction duy nhất, qua
+   * InventoryDomainService.transfer() (Single Writer — SPEC-INV-001). `avgCostAfter` trả về từ
+   * lượt OUT (Approve) chính là Average Cost của kho nguồn TẠI THỜI ĐIỂM trừ (decrease/OUT
+   * không tính lại avgCost, nên giá trị này không đổi trước/sau) — dùng thẳng để snapshot vào
+   * TransferItem.unitCost thay vì phải đọc riêng Inventory (không được phép — Decision 11).
+   * `InventoryInsufficientStockError` từ lượt OUT được dịch sang `TransferNegativeStockError`
+   * để Service có lớp lỗi domain riêng, nhất quán với Purchase Return/Inventory Adjustment.
+   */
   async transitionStatus(
     id: string,
     expectedStatuses: TransferStatus[],
@@ -126,80 +141,34 @@ export class PrismaTransferRepository implements ITransferRepository {
       }
 
       for (const movement of movements) {
-        const existing = await tx.inventory.findUnique({
-          where: {
-            warehouseId_productId: {
-              warehouseId: movement.warehouseId,
-              productId: movement.productId,
-            },
-          },
-        });
-
-        const beforeQuantity = existing?.quantity ?? new Prisma.Decimal(0);
-        const beforeAvgCost = existing?.avgCost ?? new Prisma.Decimal(0);
+        let result: RecordMovementResult;
+        try {
+          result = await this.inventoryDomainService.transfer(tx, {
+            direction: movement.direction,
+            organizationId: current.organizationId,
+            warehouseId: movement.warehouseId,
+            productId: movement.productId,
+            quantity: movement.quantity,
+            unitCost: movement.unitCost ?? null,
+            referenceId: id,
+            createdBy: updatedBy,
+          });
+        } catch (error) {
+          if (error instanceof InventoryInsufficientStockError) {
+            throw new TransferNegativeStockError(movement.productId);
+          }
+          throw error;
+        }
 
         if (movement.captureUnitCostToItem) {
           await tx.transferItem.update({
             where: { id: movement.transferItemId },
-            data: { unitCost: beforeAvgCost, updatedBy },
+            data: {
+              unitCost: new Prisma.Decimal(result.avgCostAfter),
+              updatedBy,
+            },
           });
         }
-
-        const delta = new Prisma.Decimal(movement.quantity);
-        const { afterQuantity, avgCost, lastCost } = applyInventoryDelta({
-          beforeQuantity,
-          beforeAvgCost,
-          delta,
-          unitCost:
-            movement.unitCost != null
-              ? new Prisma.Decimal(movement.unitCost)
-              : null,
-        });
-        const resolvedLastCost =
-          lastCost ?? existing?.lastCost ?? new Prisma.Decimal(0);
-
-        await tx.inventory.upsert({
-          where: {
-            warehouseId_productId: {
-              warehouseId: movement.warehouseId,
-              productId: movement.productId,
-            },
-          },
-          create: {
-            organizationId: current.organizationId,
-            warehouseId: movement.warehouseId,
-            productId: movement.productId,
-            quantity: afterQuantity,
-            reservedQty: 0,
-            avgCost,
-            lastCost: resolvedLastCost,
-            createdBy: updatedBy,
-            updatedBy,
-          },
-          update: {
-            quantity: afterQuantity,
-            avgCost,
-            lastCost: resolvedLastCost,
-            updatedBy,
-          },
-        });
-
-        await tx.inventoryMovement.create({
-          data: {
-            organizationId: current.organizationId,
-            warehouseId: movement.warehouseId,
-            productId: movement.productId,
-            movementType: movement.movementType,
-            referenceType: movement.referenceType,
-            referenceId: id,
-            quantity: delta,
-            beforeQuantity,
-            afterQuantity,
-            unitCost: movement.unitCost ?? null,
-            remark: null,
-            createdBy: updatedBy,
-          },
-        });
       }
 
       const updated = await tx.transfer.update({

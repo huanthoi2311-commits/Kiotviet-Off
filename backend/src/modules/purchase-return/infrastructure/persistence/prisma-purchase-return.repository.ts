@@ -5,7 +5,8 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { applyInventoryDelta } from '../../../../common/utils/average-cost.util';
+import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
+import { InventoryInsufficientStockError } from '../../../inventory/domain/errors/inventory.errors';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
 import {
@@ -22,8 +23,6 @@ import {
   PurchaseReturnStatusConflictError,
 } from '../../domain/repositories/purchase-return.repository.interface';
 
-const ALLOW_NEGATIVE_STOCK_SETTING_KEY = 'inventory.allowNegativeStock';
-
 const PURCHASE_RETURN_INCLUDE = {
   items: { orderBy: { createdAt: 'asc' as const } },
 } satisfies Prisma.PurchaseReturnInclude;
@@ -34,7 +33,10 @@ type PurchaseReturnWithItems = Prisma.PurchaseReturnGetPayload<{
 
 @Injectable()
 export class PrismaPurchaseReturnRepository implements IPurchaseReturnRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly inventoryDomainService: InventoryDomainService,
+  ) {}
 
   async create(
     input: CreatePurchaseReturnInput,
@@ -177,11 +179,12 @@ export class PrismaPurchaseReturnRepository implements IPurchaseReturnRepository
   }
 
   /**
-   * APPROVED → COMPLETED trong 1 transaction: với mỗi dòng hàng, ghi InventoryMovement
-   * (RETURN, số lượng âm) + đồng bộ Inventory (chặn âm tồn kho theo Setting, cùng cơ chế
-   * InventoryAdjustment), sau đó ghi 1 dòng Debt (PAYABLE, amount âm — giảm công nợ NCC).
-   * Không dùng IInventoryRepository.recordMovement() vì hàm đó tự mở transaction riêng —
-   * lý do giống hệt PurchaseOrder.receive() (Prompt 027).
+   * APPROVED → COMPLETED trong 1 transaction: với mỗi dòng hàng, gọi
+   * InventoryDomainService.decrease() (Single Writer — SPEC-INV-001, tự kiểm tra âm kho +
+   * Optimistic Lock) để ghi InventoryMovement (RETURN) + đồng bộ Inventory, sau đó ghi 1 dòng
+   * Debt (PAYABLE, amount âm — giảm công nợ NCC). `InventoryInsufficientStockError` từ
+   * InventoryDomainService được dịch sang `PurchaseReturnNegativeStockError` để giữ nguyên
+   * error contract hiện có của module này (Service đã catch đúng lớp lỗi này).
    */
   async complete(
     id: string,
@@ -199,85 +202,24 @@ export class PrismaPurchaseReturnRepository implements IPurchaseReturnRepository
         );
       }
 
-      const negativeStockSetting = await tx.setting.findFirst({
-        where: {
-          organizationId,
-          branchId: null,
-          key: ALLOW_NEGATIVE_STOCK_SETTING_KEY,
-        },
-      });
-      const allowNegativeStock = negativeStockSetting?.value === true;
-
       for (const item of current.items) {
-        const existingInventory = await tx.inventory.findUnique({
-          where: {
-            warehouseId_productId: {
-              warehouseId: item.warehouseId,
-              productId: item.productId,
-            },
-          },
-        });
-        const beforeQuantity =
-          existingInventory?.quantity ?? new Prisma.Decimal(0);
-        const beforeAvgCost =
-          existingInventory?.avgCost ?? new Prisma.Decimal(0);
-        const delta = item.quantity.negated();
-        const { afterQuantity, avgCost, lastCost } = applyInventoryDelta({
-          beforeQuantity,
-          beforeAvgCost,
-          delta,
-          unitCost: null,
-        });
-
-        if (!allowNegativeStock && afterQuantity.lessThan(0)) {
-          throw new PurchaseReturnNegativeStockError(item.productId);
-        }
-
-        const resolvedLastCost =
-          lastCost ?? existingInventory?.lastCost ?? new Prisma.Decimal(0);
-
-        await tx.inventory.upsert({
-          where: {
-            warehouseId_productId: {
-              warehouseId: item.warehouseId,
-              productId: item.productId,
-            },
-          },
-          create: {
+        try {
+          await this.inventoryDomainService.decrease(tx, {
             organizationId,
             warehouseId: item.warehouseId,
             productId: item.productId,
-            quantity: afterQuantity,
-            reservedQty: 0,
-            avgCost,
-            lastCost: resolvedLastCost,
-            createdBy: updatedBy,
-            updatedBy,
-          },
-          update: {
-            quantity: afterQuantity,
-            avgCost,
-            lastCost: resolvedLastCost,
-            updatedBy,
-          },
-        });
-
-        await tx.inventoryMovement.create({
-          data: {
-            organizationId,
-            warehouseId: item.warehouseId,
-            productId: item.productId,
+            quantity: Number(item.quantity),
             movementType: 'RETURN',
             referenceType: 'RETURN',
             referenceId: id,
-            quantity: delta,
-            beforeQuantity,
-            afterQuantity,
-            unitCost: null,
-            remark: null,
             createdBy: updatedBy,
-          },
-        });
+          });
+        } catch (error) {
+          if (error instanceof InventoryInsufficientStockError) {
+            throw new PurchaseReturnNegativeStockError(item.productId);
+          }
+          throw error;
+        }
       }
 
       await tx.debt.create({

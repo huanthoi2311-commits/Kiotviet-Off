@@ -3,7 +3,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   InventoryConcurrencyConflictError,
   InventoryInsufficientStockError,
-} from '../../domain/repositories/inventory.repository.interface';
+} from '../../domain/errors/inventory.errors';
 import { PrismaInventoryRepository } from './prisma-inventory.repository';
 
 describe('PrismaInventoryRepository', () => {
@@ -12,18 +12,10 @@ describe('PrismaInventoryRepository', () => {
     inventory: {
       findMany: jest.Mock;
       count: jest.Mock;
-      findUnique: jest.Mock;
-      upsert: jest.Mock;
-      updateMany: jest.Mock;
-      create: jest.Mock;
     };
     inventoryMovement: {
       findMany: jest.Mock;
       count: jest.Mock;
-      create: jest.Mock;
-    };
-    setting: {
-      findFirst: jest.Mock;
     };
     $transaction: jest.Mock;
   };
@@ -62,18 +54,10 @@ describe('PrismaInventoryRepository', () => {
       inventory: {
         findMany: jest.fn(),
         count: jest.fn(),
-        findUnique: jest.fn(),
-        upsert: jest.fn(),
-        updateMany: jest.fn(),
-        create: jest.fn(),
       },
       inventoryMovement: {
         findMany: jest.fn(),
         count: jest.fn(),
-        create: jest.fn(),
-      },
-      setting: {
-        findFirst: jest.fn(),
       },
       $transaction: jest.fn(),
     };
@@ -138,143 +122,7 @@ describe('PrismaInventoryRepository', () => {
     });
   });
 
-  describe('recordMovement', () => {
-    function mockTransaction(tx: {
-      inventory: { findUnique: jest.Mock; upsert: jest.Mock };
-      inventoryMovement: { create: jest.Mock };
-    }) {
-      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
-        Promise.resolve(fn(tx)),
-      );
-    }
-
-    it('khởi tạo Inventory mới khi chưa tồn tại (INITIAL, nhập kho)', async () => {
-      const findUnique = jest.fn().mockResolvedValue(null);
-      const upsert = jest.fn().mockResolvedValue({});
-      const create = jest.fn().mockResolvedValue(rawMovement);
-      mockTransaction({
-        inventory: { findUnique, upsert },
-        inventoryMovement: { create },
-      });
-
-      const result = await repository.recordMovement({
-        organizationId: 'org-1',
-        warehouseId: 'wh-1',
-        productId: 'product-1',
-        movementType: 'INITIAL',
-        referenceType: 'SYSTEM',
-        quantity: 100,
-        unitCost: 50,
-        createdBy: 'user-1',
-      });
-
-      expect(result.afterQuantity).toBe('100');
-      const upsertArg = upsert.mock.calls[0][0];
-      expect(upsertArg.create.quantity.toString()).toBe('100');
-      expect(upsertArg.create.avgCost.toString()).toBe('50');
-      expect(upsertArg.create.lastCost.toString()).toBe('50');
-      expect(create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            beforeQuantity: expect.any(Prisma.Decimal),
-            afterQuantity: expect.any(Prisma.Decimal),
-          }),
-        }),
-      );
-    });
-
-    it('tính lại Average Cost khi nhập kho thêm với đơn giá khác', async () => {
-      const findUnique = jest.fn().mockResolvedValue({
-        ...rawInventory,
-        quantity: new Prisma.Decimal(100),
-        avgCost: new Prisma.Decimal(50),
-      });
-      const upsert = jest.fn().mockResolvedValue({});
-      const create = jest.fn().mockResolvedValue(rawMovement);
-      mockTransaction({
-        inventory: { findUnique, upsert },
-        inventoryMovement: { create },
-      });
-
-      await repository.recordMovement({
-        organizationId: 'org-1',
-        warehouseId: 'wh-1',
-        productId: 'product-1',
-        movementType: 'PURCHASE',
-        referenceType: 'PURCHASE',
-        quantity: 50,
-        unitCost: 80,
-        createdBy: 'user-1',
-      });
-
-      const updateArg = upsert.mock.calls[0][0].update;
-      // (100*50 + 50*80) / 150 = 60
-      expect(updateArg.quantity.toString()).toBe('150');
-      expect(updateArg.avgCost.toString()).toBe('60');
-      expect(updateArg.lastCost.toString()).toBe('80');
-    });
-
-    it('xuất kho không tính lại Average Cost, giữ nguyên avgCost/lastCost', async () => {
-      const findUnique = jest.fn().mockResolvedValue({
-        ...rawInventory,
-        quantity: new Prisma.Decimal(150),
-        avgCost: new Prisma.Decimal(60),
-        lastCost: new Prisma.Decimal(80),
-      });
-      const upsert = jest.fn().mockResolvedValue({});
-      const create = jest.fn().mockResolvedValue(rawMovement);
-      mockTransaction({
-        inventory: { findUnique, upsert },
-        inventoryMovement: { create },
-      });
-
-      await repository.recordMovement({
-        organizationId: 'org-1',
-        warehouseId: 'wh-1',
-        productId: 'product-1',
-        movementType: 'SALE',
-        referenceType: 'POS',
-        quantity: -30,
-        createdBy: 'user-1',
-      });
-
-      const updateArg = upsert.mock.calls[0][0].update;
-      expect(updateArg.quantity.toString()).toBe('120');
-      expect(updateArg.avgCost.toString()).toBe('60');
-      expect(updateArg.lastCost.toString()).toBe('80');
-    });
-
-    it('ghi đúng before/afterQuantity vào InventoryMovement', async () => {
-      const findUnique = jest.fn().mockResolvedValue({
-        ...rawInventory,
-        quantity: new Prisma.Decimal(150),
-        avgCost: new Prisma.Decimal(60),
-      });
-      const upsert = jest.fn().mockResolvedValue({});
-      const create = jest.fn().mockResolvedValue(rawMovement);
-      mockTransaction({
-        inventory: { findUnique, upsert },
-        inventoryMovement: { create },
-      });
-
-      await repository.recordMovement({
-        organizationId: 'org-1',
-        warehouseId: 'wh-1',
-        productId: 'product-1',
-        movementType: 'SALE',
-        referenceType: 'POS',
-        quantity: -30,
-        createdBy: 'user-1',
-      });
-
-      const createArg = create.mock.calls[0][0].data;
-      expect(createArg.beforeQuantity.toString()).toBe('150');
-      expect(createArg.afterQuantity.toString()).toBe('120');
-      expect(createArg.quantity.toString()).toBe('-30');
-    });
-  });
-
-  describe('recordSaleMovement (Prompt 035 — Optimistic Lock, không âm kho)', () => {
+  describe('recordMovement (SPEC-INV-001, T004 — Optimistic Lock cho mọi movementType)', () => {
     function makeClient(overrides: {
       existingInventory?: unknown;
       settingValue?: unknown;
@@ -305,24 +153,149 @@ describe('PrismaInventoryRepository', () => {
       };
     }
 
-    const input = {
+    const baseInput = {
       organizationId: 'org-1',
       warehouseId: 'wh-1',
       productId: 'product-1',
-      quantity: 30,
-      referenceId: 'invoice-1',
+      movementType: 'PURCHASE' as const,
+      referenceType: 'PURCHASE' as const,
       createdBy: 'user-1',
     };
 
-    it('trừ đúng tồn kho qua updateMany điều kiện quantity = beforeQuantity, ghi movement SALE/POS', async () => {
+    it('không tự mở $transaction — dùng thẳng tx được truyền vào', async () => {
+      const client = makeClient({
+        existingInventory: {
+          quantity: new Prisma.Decimal(100),
+          avgCost: new Prisma.Decimal(50),
+        },
+      });
+
+      await repository.recordMovement(
+        client as unknown as Prisma.TransactionClient,
+        {
+          ...baseInput,
+          quantity: 50,
+          unitCost: 80,
+          checkNegativeStock: false,
+        },
+      );
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(client.inventory.updateMany).toHaveBeenCalled();
+    });
+
+    it('khởi tạo Inventory mới khi chưa tồn tại (nhập kho lần đầu)', async () => {
+      const client = makeClient({
+        existingInventory: null,
+        updateManyCount: 0,
+      });
+
+      const result = await repository.recordMovement(
+        client as unknown as Prisma.TransactionClient,
+        {
+          ...baseInput,
+          movementType: 'INITIAL',
+          quantity: 100,
+          unitCost: 50,
+          checkNegativeStock: false,
+        },
+      );
+
+      expect(result.movement.afterQuantity).toBe('100');
+      expect(result.avgCostAfter).toBe('50');
+      const createArg = client.inventory.create.mock.calls[0][0];
+      expect(createArg.data.quantity.toString()).toBe('100');
+      expect(createArg.data.avgCost.toString()).toBe('50');
+    });
+
+    it('tính lại Average Cost khi nhập kho thêm với đơn giá khác', async () => {
+      const client = makeClient({
+        existingInventory: {
+          quantity: new Prisma.Decimal(100),
+          avgCost: new Prisma.Decimal(50),
+          lastCost: new Prisma.Decimal(50),
+        },
+      });
+
+      const result = await repository.recordMovement(
+        client as unknown as Prisma.TransactionClient,
+        { ...baseInput, quantity: 50, unitCost: 80, checkNegativeStock: false },
+      );
+
+      // (100*50 + 50*80) / 150 = 60
+      const updateArg = client.inventory.updateMany.mock.calls[0][0];
+      expect(updateArg.data.quantity.toString()).toBe('150');
+      expect(updateArg.data.avgCost.toString()).toBe('60');
+      expect(result.avgCostAfter).toBe('60');
+    });
+
+    it('xuất kho không tính lại Average Cost, giữ nguyên avgCost/lastCost', async () => {
+      const client = makeClient({
+        existingInventory: {
+          quantity: new Prisma.Decimal(150),
+          avgCost: new Prisma.Decimal(60),
+          lastCost: new Prisma.Decimal(80),
+        },
+      });
+
+      await repository.recordMovement(
+        client as unknown as Prisma.TransactionClient,
+        {
+          ...baseInput,
+          movementType: 'SALE',
+          referenceType: 'POS',
+          quantity: -30,
+          checkNegativeStock: true,
+        },
+      );
+
+      const updateArg = client.inventory.updateMany.mock.calls[0][0];
+      expect(updateArg.data.quantity.toString()).toBe('120');
+      expect(updateArg.data.avgCost.toString()).toBe('60');
+      expect(updateArg.data.lastCost.toString()).toBe('80');
+    });
+
+    it('ghi đúng before/afterQuantity vào InventoryMovement', async () => {
+      const client = makeClient({
+        existingInventory: {
+          quantity: new Prisma.Decimal(150),
+          avgCost: new Prisma.Decimal(60),
+        },
+      });
+
+      await repository.recordMovement(
+        client as unknown as Prisma.TransactionClient,
+        {
+          ...baseInput,
+          movementType: 'SALE',
+          referenceType: 'POS',
+          quantity: -30,
+          checkNegativeStock: true,
+        },
+      );
+
+      const createArg = client.inventoryMovement.create.mock.calls[0][0].data;
+      expect(createArg.beforeQuantity.toString()).toBe('150');
+      expect(createArg.afterQuantity.toString()).toBe('120');
+      expect(createArg.quantity.toString()).toBe('-30');
+    });
+
+    it('trừ đúng tồn kho qua updateMany điều kiện quantity = beforeQuantity khi checkNegativeStock=true', async () => {
       const client = makeClient({
         existingInventory: { quantity: new Prisma.Decimal(100) },
       });
-      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
-        Promise.resolve(fn(client)),
-      );
 
-      const result = await repository.recordSaleMovement(input);
+      const result = await repository.recordMovement(
+        client as unknown as Prisma.TransactionClient,
+        {
+          ...baseInput,
+          movementType: 'SALE',
+          referenceType: 'POS',
+          referenceId: 'invoice-1',
+          quantity: -30,
+          checkNegativeStock: true,
+        },
+      );
 
       expect(client.inventory.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -345,33 +318,66 @@ describe('PrismaInventoryRepository', () => {
           }),
         }),
       );
-      expect(result.id).toBe('mv-1');
+      expect(result.movement.id).toBe('mv-1');
     });
 
-    it('ném InventoryInsufficientStockError khi không đủ tồn kho và allowNegativeStock=false (mặc định)', async () => {
+    it('ném InventoryInsufficientStockError khi không đủ tồn kho, checkNegativeStock=true và allowNegativeStock=false (mặc định)', async () => {
       const client = makeClient({
         existingInventory: { quantity: new Prisma.Decimal(10) },
       });
-      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
-        Promise.resolve(fn(client)),
-      );
 
-      await expect(repository.recordSaleMovement(input)).rejects.toThrow(
-        InventoryInsufficientStockError,
-      );
+      await expect(
+        repository.recordMovement(
+          client as unknown as Prisma.TransactionClient,
+          {
+            ...baseInput,
+            movementType: 'SALE',
+            referenceType: 'POS',
+            quantity: -30,
+            checkNegativeStock: true,
+          },
+        ),
+      ).rejects.toThrow(InventoryInsufficientStockError);
       expect(client.inventory.updateMany).not.toHaveBeenCalled();
     });
 
-    it('cho phép âm kho khi setting inventory.allowNegativeStock = true', async () => {
+    it('bỏ qua kiểm tra âm kho khi checkNegativeStock=false dù afterQuantity < 0', async () => {
+      const client = makeClient({
+        existingInventory: { quantity: new Prisma.Decimal(10) },
+      });
+
+      await repository.recordMovement(
+        client as unknown as Prisma.TransactionClient,
+        {
+          ...baseInput,
+          movementType: 'ADJUSTMENT',
+          referenceType: 'SYSTEM',
+          quantity: -30,
+          checkNegativeStock: false,
+        },
+      );
+
+      expect(client.setting.findFirst).not.toHaveBeenCalled();
+      expect(client.inventory.updateMany).toHaveBeenCalled();
+    });
+
+    it('cho phép âm kho khi checkNegativeStock=true và setting inventory.allowNegativeStock = true', async () => {
       const client = makeClient({
         existingInventory: { quantity: new Prisma.Decimal(10) },
         settingValue: true,
       });
-      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
-        Promise.resolve(fn(client)),
+
+      await repository.recordMovement(
+        client as unknown as Prisma.TransactionClient,
+        {
+          ...baseInput,
+          movementType: 'SALE',
+          referenceType: 'POS',
+          quantity: -30,
+          checkNegativeStock: true,
+        },
       );
 
-      await repository.recordSaleMovement(input);
       expect(client.inventory.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -386,13 +392,19 @@ describe('PrismaInventoryRepository', () => {
         existingInventory: { quantity: new Prisma.Decimal(100) },
         updateManyCount: 0,
       });
-      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
-        Promise.resolve(fn(client)),
-      );
 
-      await expect(repository.recordSaleMovement(input)).rejects.toThrow(
-        InventoryConcurrencyConflictError,
-      );
+      await expect(
+        repository.recordMovement(
+          client as unknown as Prisma.TransactionClient,
+          {
+            ...baseInput,
+            movementType: 'SALE',
+            referenceType: 'POS',
+            quantity: -30,
+            checkNegativeStock: true,
+          },
+        ),
+      ).rejects.toThrow(InventoryConcurrencyConflictError);
     });
 
     it('tạo mới Inventory (quantity âm) khi chưa từng có dòng nào và allowNegativeStock=true', async () => {
@@ -403,11 +415,18 @@ describe('PrismaInventoryRepository', () => {
         // nào trong Postgres thật, luôn trả count=0 -> đi vào nhánh tạo mới bên dưới.
         updateManyCount: 0,
       });
-      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
-        Promise.resolve(fn(client)),
+
+      await repository.recordMovement(
+        client as unknown as Prisma.TransactionClient,
+        {
+          ...baseInput,
+          movementType: 'SALE',
+          referenceType: 'POS',
+          quantity: -30,
+          checkNegativeStock: true,
+        },
       );
 
-      await repository.recordSaleMovement(input);
       expect(client.inventory.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -415,20 +434,6 @@ describe('PrismaInventoryRepository', () => {
           }),
         }),
       );
-    });
-
-    it('dùng thẳng tx được truyền vào, không tự mở $transaction mới', async () => {
-      const client = makeClient({
-        existingInventory: { quantity: new Prisma.Decimal(100) },
-      });
-
-      await repository.recordSaleMovement(
-        input,
-        client as unknown as Prisma.TransactionClient,
-      );
-
-      expect(prisma.$transaction).not.toHaveBeenCalled();
-      expect(client.inventory.updateMany).toHaveBeenCalled();
     });
   });
 });

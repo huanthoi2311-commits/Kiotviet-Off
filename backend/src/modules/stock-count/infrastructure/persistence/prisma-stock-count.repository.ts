@@ -1,7 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { applyInventoryDelta } from '../../../../common/utils/average-cost.util';
+import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
 import { StockCountEntity } from '../../domain/entities/stock-count.entity';
@@ -25,7 +25,10 @@ type StockCountWithItems = Prisma.StockCountGetPayload<{
 
 @Injectable()
 export class PrismaStockCountRepository implements IStockCountRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly inventoryDomainService: InventoryDomainService,
+  ) {}
 
   async create(input: CreateStockCountInput): Promise<StockCountEntity> {
     try {
@@ -179,66 +182,16 @@ export class PrismaStockCountRepository implements IStockCountRepository {
         });
 
         if (!difference.isZero()) {
-          const existingInventory = await tx.inventory.findUnique({
-            where: {
-              warehouseId_productId: {
-                warehouseId: current.warehouseId,
-                productId: existingItem.productId,
-              },
-            },
-          });
-          const beforeQuantity =
-            existingInventory?.quantity ?? new Prisma.Decimal(0);
-          const { afterQuantity, avgCost, lastCost } = applyInventoryDelta({
-            beforeQuantity,
-            beforeAvgCost: existingInventory?.avgCost ?? new Prisma.Decimal(0),
-            delta: difference,
-            unitCost: null,
-          });
-          const resolvedLastCost =
-            lastCost ?? existingInventory?.lastCost ?? new Prisma.Decimal(0);
-
-          await tx.inventory.upsert({
-            where: {
-              warehouseId_productId: {
-                warehouseId: current.warehouseId,
-                productId: existingItem.productId,
-              },
-            },
-            create: {
-              organizationId,
-              warehouseId: current.warehouseId,
-              productId: existingItem.productId,
-              quantity: afterQuantity,
-              reservedQty: 0,
-              avgCost,
-              lastCost: resolvedLastCost,
-              createdBy: updatedBy,
-              updatedBy,
-            },
-            update: {
-              quantity: afterQuantity,
-              avgCost,
-              lastCost: resolvedLastCost,
-              updatedBy,
-            },
-          });
-
-          await tx.inventoryMovement.create({
-            data: {
-              organizationId,
-              warehouseId: current.warehouseId,
-              productId: existingItem.productId,
-              movementType: 'COUNT',
-              referenceType: 'COUNT',
-              referenceId: id,
-              quantity: difference,
-              beforeQuantity,
-              afterQuantity,
-              unitCost: null,
-              remark: input.remark ?? null,
-              createdBy: updatedBy,
-            },
+          await this.inventoryDomainService.adjust(tx, {
+            organizationId,
+            warehouseId: current.warehouseId,
+            productId: existingItem.productId,
+            delta: Number(difference),
+            movementType: 'COUNT',
+            referenceType: 'COUNT',
+            referenceId: id,
+            remark: input.remark ?? null,
+            createdBy: updatedBy,
           });
         }
       }

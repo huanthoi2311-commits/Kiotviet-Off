@@ -7,15 +7,17 @@ import {
   InventoryMovementEntity,
 } from '../../domain/entities/inventory.entity';
 import {
-  IInventoryRepository,
   InventoryConcurrencyConflictError,
   InventoryInsufficientStockError,
+} from '../../domain/errors/inventory.errors';
+import {
+  IInventoryRepository,
   InventorySearchParams,
   InventorySearchResult,
   MovementSearchParams,
   MovementSearchResult,
   RecordMovementInput,
-  RecordSaleMovementInput,
+  RecordMovementResult,
 } from '../../domain/repositories/inventory.repository.interface';
 
 const ALLOW_NEGATIVE_STOCK_SETTING_KEY = 'inventory.allowNegativeStock';
@@ -99,104 +101,43 @@ export class PrismaInventoryRepository implements IInventoryRepository {
   }
 
   /**
-   * Điểm ghi duy nhất cho mọi biến động tồn kho: trong 1 transaction, (1) đọc snapshot
-   * hiện tại, (2) tính before/after quantity + Average Cost (chỉ tính lại khi nhập kho,
-   * quantity > 0 và có unitCost — xuất kho dùng nguyên avgCost hiện có làm giá vốn),
-   * (3) upsert Inventory, (4) ghi 1 dòng InventoryMovement bất biến. Không có đường nào
-   * khác để thay đổi Inventory.quantity ngoài hàm này.
+   * Điểm ghi duy nhất cho mọi biến động tồn kho (SPEC-INV-001, T004): (1) đọc snapshot hiện
+   * tại trong `tx` của caller, (2) tính before/after quantity + Average Cost, (3) nếu
+   * `checkNegativeStock` và không đủ tồn kho (và Setting không cho phép âm) → ném lỗi trước
+   * khi ghi bất cứ gì, (4) Optimistic Lock: `updateMany WHERE quantity = beforeQuantity` — 0
+   * dòng bị ảnh hưởng nghĩa là tồn kho đã đổi do giao dịch khác chạy chen giữa → ném
+   * `InventoryConcurrencyConflictError` (trừ khi đây là lần đầu tạo dòng Inventory, khi đó
+   * `create` mới), (5) ghi 1 dòng `InventoryMovement` bất biến. `tx` bắt buộc — không tự mở,
+   * không commit, không rollback transaction.
    */
   async recordMovement(
+    tx: Prisma.TransactionClient,
     input: RecordMovementInput,
-  ): Promise<InventoryMovementEntity> {
-    return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.inventory.findUnique({
-        where: {
-          warehouseId_productId: {
-            warehouseId: input.warehouseId,
-            productId: input.productId,
-          },
-        },
-      });
-
-      const delta = new Prisma.Decimal(input.quantity);
-      const beforeQuantity = existing?.quantity ?? new Prisma.Decimal(0);
-      const { afterQuantity, avgCost, lastCost } = applyInventoryDelta({
-        beforeQuantity,
-        beforeAvgCost: existing?.avgCost ?? new Prisma.Decimal(0),
-        delta,
-        unitCost:
-          input.unitCost != null ? new Prisma.Decimal(input.unitCost) : null,
-      });
-      const resolvedLastCost =
-        lastCost ?? existing?.lastCost ?? new Prisma.Decimal(0);
-
-      await tx.inventory.upsert({
-        where: {
-          warehouseId_productId: {
-            warehouseId: input.warehouseId,
-            productId: input.productId,
-          },
-        },
-        create: {
-          organizationId: input.organizationId,
+  ): Promise<RecordMovementResult> {
+    const existing = await tx.inventory.findUnique({
+      where: {
+        warehouseId_productId: {
           warehouseId: input.warehouseId,
           productId: input.productId,
-          quantity: afterQuantity,
-          reservedQty: 0,
-          avgCost,
-          lastCost: resolvedLastCost,
-          createdBy: input.createdBy,
-          updatedBy: input.createdBy,
         },
-        update: {
-          quantity: afterQuantity,
-          avgCost,
-          lastCost: resolvedLastCost,
-          updatedBy: input.createdBy,
-        },
-      });
-
-      const movement = await tx.inventoryMovement.create({
-        data: {
-          organizationId: input.organizationId,
-          warehouseId: input.warehouseId,
-          productId: input.productId,
-          movementType: input.movementType,
-          referenceType: input.referenceType,
-          referenceId: input.referenceId ?? null,
-          quantity: delta,
-          beforeQuantity,
-          afterQuantity,
-          unitCost: input.unitCost ?? null,
-          remark: input.remark ?? null,
-          createdBy: input.createdBy,
-        },
-      });
-
-      return this.toMovementEntity(movement);
+      },
     });
-  }
 
-  async recordSaleMovement(
-    input: RecordSaleMovementInput,
-    tx?: Prisma.TransactionClient,
-  ): Promise<InventoryMovementEntity> {
-    const run = async (
-      client: Prisma.TransactionClient,
-    ): Promise<InventoryMovementEntity> => {
-      const existing = await client.inventory.findUnique({
-        where: {
-          warehouseId_productId: {
-            warehouseId: input.warehouseId,
-            productId: input.productId,
-          },
-        },
-      });
-      const beforeQuantity = existing?.quantity ?? new Prisma.Decimal(0);
-      const delta = new Prisma.Decimal(input.quantity).negated();
-      const afterQuantity = beforeQuantity.plus(delta);
+    const delta = new Prisma.Decimal(input.quantity);
+    const beforeQuantity = existing?.quantity ?? new Prisma.Decimal(0);
+    const beforeAvgCost = existing?.avgCost ?? new Prisma.Decimal(0);
+    const { afterQuantity, avgCost, lastCost } = applyInventoryDelta({
+      beforeQuantity,
+      beforeAvgCost,
+      delta,
+      unitCost:
+        input.unitCost != null ? new Prisma.Decimal(input.unitCost) : null,
+    });
+    const resolvedLastCost =
+      lastCost ?? existing?.lastCost ?? new Prisma.Decimal(0);
 
-      const negativeStockSetting = await client.setting.findFirst({
+    if (input.checkNegativeStock) {
+      const negativeStockSetting = await tx.setting.findFirst({
         where: {
           organizationId: input.organizationId,
           branchId: null,
@@ -210,60 +151,63 @@ export class PrismaInventoryRepository implements IInventoryRepository {
           beforeQuantity.toString(),
         );
       }
+    }
 
-      // Optimistic Lock: WHERE quantity = beforeQuantity đóng vai trò "version check" — nếu
-      // 1 giao dịch khác đã ghi đè quantity giữa lúc đọc và lúc ghi ở đây, updateMany trả về
-      // count=0 (điều kiện WHERE không còn khớp), ta phát hiện conflict thay vì ghi đè mù.
-      const updateResult = await client.inventory.updateMany({
-        where: {
-          warehouseId: input.warehouseId,
-          productId: input.productId,
-          quantity: beforeQuantity,
-        },
-        data: { quantity: afterQuantity, updatedBy: input.createdBy },
-      });
+    const updateResult = await tx.inventory.updateMany({
+      where: {
+        warehouseId: input.warehouseId,
+        productId: input.productId,
+        quantity: beforeQuantity,
+      },
+      data: {
+        quantity: afterQuantity,
+        avgCost,
+        lastCost: resolvedLastCost,
+        updatedBy: input.createdBy,
+      },
+    });
 
-      if (updateResult.count === 0) {
-        if (!existing) {
-          await client.inventory.create({
-            data: {
-              organizationId: input.organizationId,
-              warehouseId: input.warehouseId,
-              productId: input.productId,
-              quantity: afterQuantity,
-              reservedQty: 0,
-              avgCost: 0,
-              lastCost: 0,
-              createdBy: input.createdBy,
-              updatedBy: input.createdBy,
-            },
-          });
-        } else {
-          throw new InventoryConcurrencyConflictError(input.productId);
-        }
+    if (updateResult.count === 0) {
+      if (!existing) {
+        await tx.inventory.create({
+          data: {
+            organizationId: input.organizationId,
+            warehouseId: input.warehouseId,
+            productId: input.productId,
+            quantity: afterQuantity,
+            reservedQty: 0,
+            avgCost,
+            lastCost: resolvedLastCost,
+            createdBy: input.createdBy,
+            updatedBy: input.createdBy,
+          },
+        });
+      } else {
+        throw new InventoryConcurrencyConflictError(input.productId);
       }
+    }
 
-      const movement = await client.inventoryMovement.create({
-        data: {
-          organizationId: input.organizationId,
-          warehouseId: input.warehouseId,
-          productId: input.productId,
-          movementType: 'SALE',
-          referenceType: 'POS',
-          referenceId: input.referenceId ?? null,
-          quantity: delta,
-          beforeQuantity,
-          afterQuantity,
-          unitCost: null,
-          remark: null,
-          createdBy: input.createdBy,
-        },
-      });
+    const movement = await tx.inventoryMovement.create({
+      data: {
+        organizationId: input.organizationId,
+        warehouseId: input.warehouseId,
+        productId: input.productId,
+        movementType: input.movementType,
+        referenceType: input.referenceType,
+        referenceId: input.referenceId ?? null,
+        quantity: delta,
+        beforeQuantity,
+        afterQuantity,
+        unitCost: input.unitCost ?? null,
+        remark: input.remark ?? null,
+        createdBy: input.createdBy,
+      },
+    });
 
-      return this.toMovementEntity(movement);
+    return {
+      movement: this.toMovementEntity(movement),
+      avgCostAfter: avgCost.toString(),
     };
-
-    return tx ? run(tx) : this.prisma.$transaction(run);
   }
 
   private toEntity(inventory: RawInventory): InventoryEntity {

@@ -1,6 +1,11 @@
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
+import {
+  InventoryConcurrencyConflictError,
+  InventoryInsufficientStockError,
+} from '../../../inventory/domain/errors/inventory.errors';
 import {
   InventoryAdjustmentNegativeStockError,
   InventoryAdjustmentStatusConflictError,
@@ -52,6 +57,9 @@ describe('PrismaInventoryAdjustmentRepository', () => {
     };
     $transaction: jest.Mock;
   };
+  let inventoryDomainService: jest.Mocked<
+    Pick<InventoryDomainService, 'adjust'>
+  >;
 
   beforeEach(() => {
     prisma = {
@@ -64,8 +72,12 @@ describe('PrismaInventoryAdjustmentRepository', () => {
       },
       $transaction: jest.fn(),
     };
+    inventoryDomainService = {
+      adjust: jest.fn().mockResolvedValue({ movement: {}, avgCostAfter: '0' }),
+    };
     repository = new PrismaInventoryAdjustmentRepository(
       prisma as unknown as PrismaService,
+      inventoryDomainService as unknown as InventoryDomainService,
     );
   });
 
@@ -176,11 +188,7 @@ describe('PrismaInventoryAdjustmentRepository', () => {
   });
 
   describe('complete', () => {
-    function makeTx(overrides: {
-      currentAdjustment?: unknown;
-      inventory?: unknown;
-      setting?: unknown;
-    }) {
+    function makeTx(overrides: { currentAdjustment?: unknown }) {
       const adjustmentUpdate = jest.fn().mockResolvedValue(rawAdjustment);
       const currentAdjustment =
         'currentAdjustment' in overrides
@@ -191,14 +199,6 @@ describe('PrismaInventoryAdjustmentRepository', () => {
           findFirst: jest.fn().mockResolvedValue(currentAdjustment),
           update: adjustmentUpdate,
         },
-        setting: {
-          findFirst: jest.fn().mockResolvedValue(overrides.setting ?? null),
-        },
-        inventory: {
-          findUnique: jest.fn().mockResolvedValue(overrides.inventory ?? null),
-          upsert: jest.fn().mockResolvedValue({}),
-        },
-        inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
       };
       prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
         Promise.resolve(fn(tx)),
@@ -213,26 +213,24 @@ describe('PrismaInventoryAdjustmentRepository', () => {
       ).rejects.toThrow(InventoryAdjustmentStatusConflictError);
     });
 
-    it('ghi đúng Movement ADJUSTMENT và cập nhật Inventory khi đủ tồn kho', async () => {
-      const tx = makeTx({
-        inventory: {
-          quantity: new Prisma.Decimal(10),
-          avgCost: new Prisma.Decimal(50),
-          lastCost: new Prisma.Decimal(50),
-        },
-      });
+    it('gọi InventoryDomainService.adjust() đúng tham số cho từng dòng hàng', async () => {
+      const tx = makeTx({});
 
       await repository.complete('adj-1', 'org-1', 'user-1');
 
-      const upsertArg = tx.inventory.upsert.mock.calls[0][0];
-      expect(upsertArg.update.quantity.toString()).toBe('5');
-
-      const movementArg = tx.inventoryMovement.create.mock.calls[0][0].data;
-      expect(movementArg.movementType).toBe('ADJUSTMENT');
-      expect(movementArg.referenceType).toBe('SYSTEM');
-      expect(movementArg.quantity.toString()).toBe('-5');
-      expect(movementArg.beforeQuantity.toString()).toBe('10');
-      expect(movementArg.afterQuantity.toString()).toBe('5');
+      expect(inventoryDomainService.adjust).toHaveBeenCalledWith(
+        tx,
+        expect.objectContaining({
+          organizationId: 'org-1',
+          warehouseId: 'wh-1',
+          productId: 'product-1',
+          delta: -5,
+          movementType: 'ADJUSTMENT',
+          referenceType: 'SYSTEM',
+          referenceId: 'adj-1',
+          createdBy: 'user-1',
+        }),
+      );
 
       expect(tx.inventoryAdjustment.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -242,38 +240,27 @@ describe('PrismaInventoryAdjustmentRepository', () => {
       );
     });
 
-    it('ném NegativeStockError khi sẽ âm tồn kho và Setting không cho phép', async () => {
-      const tx = makeTx({
-        inventory: {
-          quantity: new Prisma.Decimal(2),
-          avgCost: new Prisma.Decimal(50),
-          lastCost: new Prisma.Decimal(50),
-        },
-        setting: null,
-      });
+    it('dịch InventoryInsufficientStockError sang InventoryAdjustmentNegativeStockError', async () => {
+      const tx = makeTx({});
+      inventoryDomainService.adjust.mockRejectedValueOnce(
+        new InventoryInsufficientStockError('product-1', '2'),
+      );
 
       await expect(
         repository.complete('adj-1', 'org-1', 'user-1'),
       ).rejects.toThrow(InventoryAdjustmentNegativeStockError);
-      expect(tx.inventory.upsert).not.toHaveBeenCalled();
       expect(tx.inventoryAdjustment.update).not.toHaveBeenCalled();
     });
 
-    it('cho phép âm tồn kho khi Setting inventory.allowNegativeStock = true', async () => {
-      const tx = makeTx({
-        inventory: {
-          quantity: new Prisma.Decimal(2),
-          avgCost: new Prisma.Decimal(50),
-          lastCost: new Prisma.Decimal(50),
-        },
-        setting: { value: true },
-      });
+    it('lan truyền nguyên trạng InventoryConcurrencyConflictError (không dịch)', async () => {
+      makeTx({});
+      inventoryDomainService.adjust.mockRejectedValueOnce(
+        new InventoryConcurrencyConflictError('product-1'),
+      );
 
-      await repository.complete('adj-1', 'org-1', 'user-1');
-
-      const upsertArg = tx.inventory.upsert.mock.calls[0][0];
-      expect(upsertArg.update.quantity.toString()).toBe('-3');
-      expect(tx.inventoryAdjustment.update).toHaveBeenCalled();
+      await expect(
+        repository.complete('adj-1', 'org-1', 'user-1'),
+      ).rejects.toThrow(InventoryConcurrencyConflictError);
     });
   });
 });

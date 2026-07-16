@@ -1,10 +1,12 @@
 import {
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
 import {
@@ -13,6 +15,7 @@ import {
 } from '../domain/entities/transfer.entity';
 import {
   TRANSFER_REPOSITORY,
+  TransferNegativeStockError,
   TransferStatusConflictError,
 } from '../domain/repositories/transfer.repository.interface';
 import type {
@@ -137,9 +140,8 @@ export class TransferService {
       transferItemId: item.id,
       warehouseId: transfer.fromWarehouseId,
       productId: item.productId,
-      quantity: -Number(item.quantity),
-      movementType: 'TRANSFER_OUT',
-      referenceType: 'TRANSFER',
+      quantity: Number(item.quantity),
+      direction: 'OUT',
       captureUnitCostToItem: true,
     }));
 
@@ -179,8 +181,7 @@ export class TransferService {
       productId: item.productId,
       quantity: Number(item.quantity),
       unitCost: item.unitCost != null ? Number(item.unitCost) : null,
-      movementType: 'TRANSFER_IN',
-      referenceType: 'TRANSFER',
+      direction: 'IN',
     }));
 
     const updated = await this.transitionOrConflict(
@@ -233,8 +234,7 @@ export class TransferService {
             productId: item.productId,
             quantity: Number(item.quantity),
             unitCost: item.unitCost != null ? Number(item.unitCost) : null,
-            movementType: 'TRANSFER_IN',
-            referenceType: 'TRANSFER',
+            direction: 'IN',
           }))
         : [];
 
@@ -279,6 +279,19 @@ export class TransferService {
       if (error instanceof TransferStatusConflictError) {
         throw new UnprocessableEntityException(
           withCode(ErrorCode.TRANSFER_INVALID_STATUS_TRANSITION, error.message),
+        );
+      }
+      if (error instanceof TransferNegativeStockError) {
+        throw new UnprocessableEntityException(
+          withCode(
+            ErrorCode.TRANSFER_NEGATIVE_STOCK_NOT_ALLOWED,
+            error.message,
+          ),
+        );
+      }
+      if (error instanceof InventoryConcurrencyConflictError) {
+        throw new ConflictException(
+          withCode(ErrorCode.TRANSFER_INVENTORY_CONFLICT, error.message),
         );
       }
       throw error;

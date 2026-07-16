@@ -15,8 +15,8 @@ import { InventoryMapper } from './mappers/inventory.mapper';
 
 /**
  * Chỉ đọc — không có create/update/delete. Mọi thay đổi tồn kho đi qua
- * IInventoryRepository.recordMovement(), được gọi từ các module nghiệp vụ khác
- * (Purchase, POS, Transfer, Stock Count, Adjustment), không qua service này.
+ * InventoryDomainService, được gọi từ các module nghiệp vụ khác (Purchase, POS,
+ * Transfer, Stock Count, Adjustment), không qua service này.
  */
 @Injectable()
 export class InventoryService {

@@ -1,7 +1,8 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { applyInventoryDelta } from '../../../../common/utils/average-cost.util';
+import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
+import { InventoryInsufficientStockError } from '../../../inventory/domain/errors/inventory.errors';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
 import { InventoryAdjustmentEntity } from '../../domain/entities/inventory-adjustment.entity';
@@ -14,8 +15,6 @@ import {
   InventoryAdjustmentStatusConflictError,
 } from '../../domain/repositories/inventory-adjustment.repository.interface';
 
-const ALLOW_NEGATIVE_STOCK_SETTING_KEY = 'inventory.allowNegativeStock';
-
 const ADJUSTMENT_INCLUDE = {
   items: { orderBy: { createdAt: 'asc' as const } },
 } satisfies Prisma.InventoryAdjustmentInclude;
@@ -26,7 +25,10 @@ type AdjustmentWithItems = Prisma.InventoryAdjustmentGetPayload<{
 
 @Injectable()
 export class PrismaInventoryAdjustmentRepository implements IInventoryAdjustmentRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly inventoryDomainService: InventoryDomainService,
+  ) {}
 
   async create(
     input: CreateInventoryAdjustmentInput,
@@ -140,6 +142,13 @@ export class PrismaInventoryAdjustmentRepository implements IInventoryAdjustment
     );
   }
 
+  /**
+   * APPROVED → COMPLETED trong 1 transaction: với mỗi dòng hàng, gọi
+   * InventoryDomainService.adjust() (Single Writer — SPEC-INV-001, movementType=ADJUSTMENT tự
+   * kiểm tra âm kho + Optimistic Lock). `InventoryInsufficientStockError` được dịch sang
+   * `InventoryAdjustmentNegativeStockError` để giữ nguyên error contract hiện có (Service đã
+   * catch đúng lớp lỗi này).
+   */
   async complete(
     id: string,
     organizationId: string,
@@ -156,82 +165,25 @@ export class PrismaInventoryAdjustmentRepository implements IInventoryAdjustment
         );
       }
 
-      const negativeStockSetting = await tx.setting.findFirst({
-        where: {
-          organizationId,
-          branchId: null,
-          key: ALLOW_NEGATIVE_STOCK_SETTING_KEY,
-        },
-      });
-      const allowNegativeStock = negativeStockSetting?.value === true;
-
       for (const item of current.items) {
-        const existingInventory = await tx.inventory.findUnique({
-          where: {
-            warehouseId_productId: {
-              warehouseId: current.warehouseId,
-              productId: item.productId,
-            },
-          },
-        });
-        const beforeQuantity =
-          existingInventory?.quantity ?? new Prisma.Decimal(0);
-        const { afterQuantity, avgCost, lastCost } = applyInventoryDelta({
-          beforeQuantity,
-          beforeAvgCost: existingInventory?.avgCost ?? new Prisma.Decimal(0),
-          delta: item.quantity,
-          unitCost: null,
-        });
-
-        if (!allowNegativeStock && afterQuantity.lessThan(0)) {
-          throw new InventoryAdjustmentNegativeStockError(item.productId);
-        }
-
-        const resolvedLastCost =
-          lastCost ?? existingInventory?.lastCost ?? new Prisma.Decimal(0);
-
-        await tx.inventory.upsert({
-          where: {
-            warehouseId_productId: {
-              warehouseId: current.warehouseId,
-              productId: item.productId,
-            },
-          },
-          create: {
+        try {
+          await this.inventoryDomainService.adjust(tx, {
             organizationId,
             warehouseId: current.warehouseId,
             productId: item.productId,
-            quantity: afterQuantity,
-            reservedQty: 0,
-            avgCost,
-            lastCost: resolvedLastCost,
-            createdBy: updatedBy,
-            updatedBy,
-          },
-          update: {
-            quantity: afterQuantity,
-            avgCost,
-            lastCost: resolvedLastCost,
-            updatedBy,
-          },
-        });
-
-        await tx.inventoryMovement.create({
-          data: {
-            organizationId,
-            warehouseId: current.warehouseId,
-            productId: item.productId,
+            delta: Number(item.quantity),
             movementType: 'ADJUSTMENT',
             referenceType: 'SYSTEM',
             referenceId: id,
-            quantity: item.quantity,
-            beforeQuantity,
-            afterQuantity,
-            unitCost: null,
             remark: item.remark,
             createdBy: updatedBy,
-          },
-        });
+          });
+        } catch (error) {
+          if (error instanceof InventoryInsufficientStockError) {
+            throw new InventoryAdjustmentNegativeStockError(item.productId);
+          }
+          throw error;
+        }
       }
 
       const updated = await tx.inventoryAdjustment.update({

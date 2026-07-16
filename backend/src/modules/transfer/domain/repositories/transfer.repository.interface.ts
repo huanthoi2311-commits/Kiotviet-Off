@@ -1,7 +1,3 @@
-import type {
-  InventoryMovementType,
-  InventoryReferenceType,
-} from '../../../inventory/domain/entities/inventory.entity';
 import { TransferEntity, TransferStatus } from '../entities/transfer.entity';
 
 export interface CreateTransferItemInput {
@@ -41,14 +37,17 @@ export interface TransferMovementInput {
   transferItemId: string;
   warehouseId: string;
   productId: string;
-  /** Delta có dấu (dương = nhập, âm = xuất) — do TransferService quyết định theo hướng nghiệp vụ. */
+  /** Số lượng, luôn dương — chiều xử lý do `direction` quyết định. */
   quantity: number;
   unitCost?: number | null;
-  movementType: InventoryMovementType;
-  referenceType: InventoryReferenceType;
   /**
-   * Chỉ dùng khi Approve: ghi lại Average Cost CỦA KHO NGUỒN tại thời điểm này (trước
-   * khi trừ) vào TransferItem.unitCost, để Receive mang đúng giá vốn sang Kho đích.
+   * OUT = trừ kho (Approve — kiểm tra âm kho, Decision 9 SPEC-INV-001). IN = cộng kho
+   * (Receive, hoặc hoàn trả kho nguồn khi Cancel một phiếu đã Approve — không kiểm tra).
+   */
+  direction: 'OUT' | 'IN';
+  /**
+   * Chỉ dùng khi direction=OUT (Approve): ghi lại Average Cost CỦA KHO NGUỒN tại thời điểm
+   * này vào TransferItem.unitCost, để Receive mang đúng giá vốn sang Kho đích.
    */
   captureUnitCostToItem?: boolean;
 }
@@ -59,6 +58,13 @@ export class TransferStatusConflictError extends Error {
     super(
       `Transfer đang ở trạng thái ${currentStatus}, không thể thực hiện thao tác này`,
     );
+  }
+}
+
+/** Ném bởi transitionStatus() khi Approve (trừ kho nguồn) sẽ làm âm kho và Setting không cho phép (Decision 9, SPEC-INV-001). */
+export class TransferNegativeStockError extends Error {
+  constructor(public readonly productId: string) {
+    super(`Không đủ tồn kho ở kho nguồn cho sản phẩm (productId=${productId})`);
   }
 }
 

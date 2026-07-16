@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
 import { PurchaseOrderStatusConflictError } from '../../domain/repositories/purchase-order.repository.interface';
 import { PrismaPurchaseOrderRepository } from './prisma-purchase-order.repository';
 
@@ -56,6 +57,9 @@ describe('PrismaPurchaseOrderRepository', () => {
     };
     $transaction: jest.Mock;
   };
+  let inventoryDomainService: jest.Mocked<
+    Pick<InventoryDomainService, 'increase'>
+  >;
 
   beforeEach(() => {
     prisma = {
@@ -68,8 +72,15 @@ describe('PrismaPurchaseOrderRepository', () => {
       },
       $transaction: jest.fn(),
     };
+    inventoryDomainService = {
+      increase: jest.fn().mockResolvedValue({
+        movement: {},
+        avgCostAfter: '0',
+      }),
+    };
     repository = new PrismaPurchaseOrderRepository(
       prisma as unknown as PrismaService,
+      inventoryDomainService as unknown as InventoryDomainService,
     );
   });
 
@@ -215,10 +226,7 @@ describe('PrismaPurchaseOrderRepository', () => {
   });
 
   describe('receive', () => {
-    function makeTx(overrides: {
-      currentOrder?: unknown;
-      inventory?: unknown;
-    }) {
+    function makeTx(overrides: { currentOrder?: unknown }) {
       const orderUpdate = jest.fn().mockResolvedValue(rawOrder);
       const currentOrder =
         'currentOrder' in overrides
@@ -229,11 +237,6 @@ describe('PrismaPurchaseOrderRepository', () => {
           findFirst: jest.fn().mockResolvedValue(currentOrder),
           update: orderUpdate,
         },
-        inventory: {
-          findUnique: jest.fn().mockResolvedValue(overrides.inventory ?? null),
-          upsert: jest.fn().mockResolvedValue({}),
-        },
-        inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
         purchaseItem: { update: jest.fn().mockResolvedValue({}) },
         debt: { create: jest.fn().mockResolvedValue({}) },
       };
@@ -250,30 +253,25 @@ describe('PrismaPurchaseOrderRepository', () => {
       ).rejects.toThrow(PurchaseOrderStatusConflictError);
     });
 
-    it('ghi đúng Movement PURCHASE, đồng bộ Inventory + Average Cost, cập nhật receivedQuantity', async () => {
-      const tx = makeTx({
-        inventory: {
-          quantity: new Prisma.Decimal(10),
-          avgCost: new Prisma.Decimal(8000),
-          lastCost: new Prisma.Decimal(8000),
-        },
-      });
+    it('gọi InventoryDomainService.increase() đúng tham số cho từng dòng hàng, cập nhật receivedQuantity', async () => {
+      const tx = makeTx({});
 
       await repository.receive('po-1', 'org-1', 'user-1');
 
-      // Average Cost mới = (10*8000 + 100*10000) / 110 = (80000+1000000)/110 = 9818.18...
-      const upsertArg = tx.inventory.upsert.mock.calls[0][0];
-      expect(upsertArg.update.quantity.toString()).toBe('110');
-      expect(upsertArg.update.avgCost.toFixed(2)).toBe('9818.18');
-
-      const movementArg = tx.inventoryMovement.create.mock.calls[0][0].data;
-      expect(movementArg.movementType).toBe('PURCHASE');
-      expect(movementArg.referenceType).toBe('PURCHASE');
-      expect(movementArg.referenceId).toBe('po-1');
-      expect(movementArg.quantity.toString()).toBe('100');
-      expect(movementArg.beforeQuantity.toString()).toBe('10');
-      expect(movementArg.afterQuantity.toString()).toBe('110');
-      expect(movementArg.unitCost.toString()).toBe('10000');
+      expect(inventoryDomainService.increase).toHaveBeenCalledWith(
+        tx,
+        expect.objectContaining({
+          organizationId: 'org-1',
+          warehouseId: 'wh-1',
+          productId: 'product-1',
+          quantity: 100,
+          unitCost: 10000,
+          movementType: 'PURCHASE',
+          referenceType: 'PURCHASE',
+          referenceId: 'po-1',
+          createdBy: 'user-1',
+        }),
+      );
 
       expect(tx.purchaseItem.update).toHaveBeenCalledWith({
         where: { id: 'item-1' },
@@ -296,14 +294,15 @@ describe('PrismaPurchaseOrderRepository', () => {
       );
     });
 
-    it('tạo Inventory mới khi kho/sản phẩm chưa có snapshot', async () => {
-      const tx = makeTx({ inventory: null });
+    it('lan truyền lỗi từ InventoryDomainService.increase() (vd Optimistic Lock conflict)', async () => {
+      makeTx({});
+      inventoryDomainService.increase.mockRejectedValueOnce(
+        new Error('conflict'),
+      );
 
-      await repository.receive('po-1', 'org-1', 'user-1');
-
-      const upsertArg = tx.inventory.upsert.mock.calls[0][0];
-      expect(upsertArg.create.quantity.toString()).toBe('100');
-      expect(upsertArg.create.avgCost.toString()).toBe('10000');
+      await expect(
+        repository.receive('po-1', 'org-1', 'user-1'),
+      ).rejects.toThrow('conflict');
     });
   });
 });

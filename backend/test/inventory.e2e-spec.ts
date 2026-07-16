@@ -170,26 +170,32 @@ describe('Inventory Module (e2e, integration)', () => {
     productId = productRes.body.data.id;
 
     // Mô phỏng luồng nghiệp vụ: nhập kho ban đầu rồi bán ra — giống cách các module
-    // Purchase/POS tương lai sẽ gọi recordMovement().
-    await inventoryRepository.recordMovement({
-      organizationId,
-      warehouseId,
-      productId,
-      movementType: 'INITIAL',
-      referenceType: 'SYSTEM',
-      quantity: 100,
-      unitCost: 50000,
-      createdBy: user.id,
-    });
-    await inventoryRepository.recordMovement({
-      organizationId,
-      warehouseId,
-      productId,
-      movementType: 'SALE',
-      referenceType: 'POS',
-      quantity: -30,
-      createdBy: user.id,
-    });
+    // Purchase/POS tương lai sẽ gọi recordMovement() (qua InventoryDomainService).
+    await prisma.$transaction((tx) =>
+      inventoryRepository.recordMovement(tx, {
+        organizationId,
+        warehouseId,
+        productId,
+        movementType: 'INITIAL',
+        referenceType: 'SYSTEM',
+        quantity: 100,
+        unitCost: 50000,
+        checkNegativeStock: false,
+        createdBy: user.id,
+      }),
+    );
+    await prisma.$transaction((tx) =>
+      inventoryRepository.recordMovement(tx, {
+        organizationId,
+        warehouseId,
+        productId,
+        movementType: 'SALE',
+        referenceType: 'POS',
+        quantity: -30,
+        checkNegativeStock: true,
+        createdBy: user.id,
+      }),
+    );
   });
 
   afterAll(async () => {

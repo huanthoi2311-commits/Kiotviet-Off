@@ -22,12 +22,11 @@ import { CUSTOMER_POINT_REPOSITORY } from '../../customer-point/domain/repositor
 import type { CustomerPointLedgerEntity } from '../../customer-point/domain/entities/customer-point-ledger.entity';
 import type { ICustomerPointRepository } from '../../customer-point/domain/repositories/customer-point.repository.interface';
 import { CustomerPointInsufficientBalanceError } from '../../customer-point/domain/repositories/customer-point.repository.interface';
+import { InventoryDomainService } from '../../inventory/application/inventory-domain.service';
 import {
-  INVENTORY_REPOSITORY,
   InventoryConcurrencyConflictError,
   InventoryInsufficientStockError,
-} from '../../inventory/domain/repositories/inventory.repository.interface';
-import type { IInventoryRepository } from '../../inventory/domain/repositories/inventory.repository.interface';
+} from '../../inventory/domain/errors/inventory.errors';
 import { DiscountEngineService } from '../../discount/application/discount-engine.service';
 import type {
   CandidateDiscount,
@@ -79,8 +78,7 @@ export class CheckoutService {
     private readonly customerRepository: ICustomerRepository,
     @Inject(CUSTOMER_POINT_REPOSITORY)
     private readonly customerPointRepository: ICustomerPointRepository,
-    @Inject(INVENTORY_REPOSITORY)
-    private readonly inventoryRepository: IInventoryRepository,
+    private readonly inventoryDomainService: InventoryDomainService,
     @Inject(VOUCHER_REPOSITORY)
     private readonly voucherRepository: IVoucherRepository,
     private readonly discountEngine: DiscountEngineService,
@@ -236,17 +234,16 @@ export class CheckoutService {
         );
 
         for (const item of cart.items) {
-          await this.inventoryRepository.recordSaleMovement(
-            {
-              organizationId: actor.organizationId,
-              warehouseId: dto.warehouseId,
-              productId: item.productId,
-              quantity: Number(item.quantity),
-              referenceId: invoice.id,
-              createdBy: actor.userId,
-            },
-            tx,
-          );
+          await this.inventoryDomainService.decrease(tx, {
+            organizationId: actor.organizationId,
+            warehouseId: dto.warehouseId,
+            productId: item.productId,
+            quantity: Number(item.quantity),
+            movementType: 'SALE',
+            referenceType: 'POS',
+            referenceId: invoice.id,
+            createdBy: actor.userId,
+          });
         }
 
         const result: CheckoutOutcome = {

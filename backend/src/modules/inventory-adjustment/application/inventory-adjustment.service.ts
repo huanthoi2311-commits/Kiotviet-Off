@@ -1,10 +1,12 @@
 import {
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
 import { InventoryAdjustmentEntity } from '../domain/entities/inventory-adjustment.entity';
@@ -215,6 +217,14 @@ export class InventoryAdjustmentService {
         throw new UnprocessableEntityException(
           withCode(
             ErrorCode.INVENTORY_ADJUSTMENT_NEGATIVE_STOCK_NOT_ALLOWED,
+            error.message,
+          ),
+        );
+      }
+      if (error instanceof InventoryConcurrencyConflictError) {
+        throw new ConflictException(
+          withCode(
+            ErrorCode.INVENTORY_ADJUSTMENT_INVENTORY_CONFLICT,
             error.message,
           ),
         );

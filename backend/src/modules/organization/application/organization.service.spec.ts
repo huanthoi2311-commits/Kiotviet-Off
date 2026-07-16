@@ -9,7 +9,6 @@ import {
   OrganizationNotActiveError,
   OrganizationOwnerNotInOrganizationError,
   OrganizationSlugConflictError,
-  OrganizationTaxCodeConflictError,
 } from '../domain/repositories/organization.repository.interface';
 import type { IOrganizationRepository } from '../domain/repositories/organization.repository.interface';
 import type { IOrganizationCodeGenerator } from '../domain/services/organization-code-generator.interface';

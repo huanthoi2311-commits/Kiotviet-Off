@@ -12,7 +12,7 @@ export type InventoryMovementType =
 export type InventoryReferenceType =
   'PURCHASE' | 'POS' | 'TRANSFER' | 'COUNT' | 'RETURN' | 'SYSTEM';
 
-/** Snapshot đọc nhanh — không bao giờ được set trực tiếp, chỉ qua IInventoryRepository.recordMovement(). */
+/** Snapshot đọc nhanh — không bao giờ được set trực tiếp, chỉ qua InventoryDomainService. */
 export interface InventoryEntity {
   id: string;
   organizationId: string;

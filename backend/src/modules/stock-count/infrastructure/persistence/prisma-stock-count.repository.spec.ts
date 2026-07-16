@@ -1,6 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
 import {
   StockCountItemMismatchError,
   StockCountStatusConflictError,
@@ -54,6 +55,9 @@ describe('PrismaStockCountRepository', () => {
     };
     $transaction: jest.Mock;
   };
+  let inventoryDomainService: jest.Mocked<
+    Pick<InventoryDomainService, 'adjust'>
+  >;
 
   beforeEach(() => {
     prisma = {
@@ -67,8 +71,12 @@ describe('PrismaStockCountRepository', () => {
       },
       $transaction: jest.fn(),
     };
+    inventoryDomainService = {
+      adjust: jest.fn().mockResolvedValue({ movement: {}, avgCostAfter: '0' }),
+    };
     repository = new PrismaStockCountRepository(
       prisma as unknown as PrismaService,
+      inventoryDomainService as unknown as InventoryDomainService,
     );
   });
 
@@ -178,10 +186,7 @@ describe('PrismaStockCountRepository', () => {
   });
 
   describe('complete', () => {
-    function makeTx(overrides: {
-      currentStockCount?: unknown;
-      inventory?: unknown;
-    }) {
+    function makeTx(overrides: { currentStockCount?: unknown }) {
       const stockCountUpdate = jest.fn().mockResolvedValue(rawStockCount);
       const currentStockCount =
         'currentStockCount' in overrides
@@ -193,11 +198,6 @@ describe('PrismaStockCountRepository', () => {
           update: stockCountUpdate,
         },
         stockCountItem: { update: jest.fn().mockResolvedValue({}) },
-        inventory: {
-          findUnique: jest.fn().mockResolvedValue(overrides.inventory ?? null),
-          upsert: jest.fn().mockResolvedValue({}),
-        },
-        inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
       };
       prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
         Promise.resolve(fn(tx)),
@@ -242,18 +242,11 @@ describe('PrismaStockCountRepository', () => {
         where: { id: 'item-1' },
         data: expect.objectContaining({ updatedBy: 'user-1' }),
       });
-      expect(tx.inventory.upsert).not.toHaveBeenCalled();
-      expect(tx.inventoryMovement.create).not.toHaveBeenCalled();
+      expect(inventoryDomainService.adjust).not.toHaveBeenCalled();
     });
 
-    it('difference ≠ 0 ghi Movement COUNT và cập nhật Inventory đúng afterQuantity', async () => {
-      const tx = makeTx({
-        inventory: {
-          quantity: new Prisma.Decimal(100),
-          avgCost: new Prisma.Decimal(50),
-          lastCost: new Prisma.Decimal(50),
-        },
-      });
+    it('difference ≠ 0 gọi InventoryDomainService.adjust() với movementType=COUNT, delta đúng dấu', async () => {
+      const tx = makeTx({});
 
       await repository.complete(
         'sc-1',
@@ -266,16 +259,19 @@ describe('PrismaStockCountRepository', () => {
       expect(itemUpdateArg.difference.toString()).toBe('-5');
       expect(itemUpdateArg.actualQty.toString()).toBe('95');
 
-      const upsertArg = tx.inventory.upsert.mock.calls[0][0];
-      expect(upsertArg.update.quantity.toString()).toBe('95');
-      expect(upsertArg.update.avgCost.toString()).toBe('50');
-
-      const movementArg = tx.inventoryMovement.create.mock.calls[0][0].data;
-      expect(movementArg.movementType).toBe('COUNT');
-      expect(movementArg.referenceType).toBe('COUNT');
-      expect(movementArg.quantity.toString()).toBe('-5');
-      expect(movementArg.beforeQuantity.toString()).toBe('100');
-      expect(movementArg.afterQuantity.toString()).toBe('95');
+      expect(inventoryDomainService.adjust).toHaveBeenCalledWith(
+        tx,
+        expect.objectContaining({
+          organizationId: 'org-1',
+          warehouseId: 'wh-1',
+          productId: 'product-1',
+          delta: -5,
+          movementType: 'COUNT',
+          referenceType: 'COUNT',
+          referenceId: 'sc-1',
+          createdBy: 'user-1',
+        }),
+      );
 
       expect(tx.stockCount.update).toHaveBeenCalledWith(
         expect.objectContaining({

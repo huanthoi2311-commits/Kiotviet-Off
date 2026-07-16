@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { InventoryModule } from '../inventory/inventory.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { InventoryAdjustmentService } from './application/inventory-adjustment.service';
 import { INVENTORY_ADJUSTMENT_REPOSITORY } from './domain/repositories/inventory-adjustment.repository.interface';
@@ -8,7 +9,7 @@ import { PrismaInventoryAdjustmentRepository } from './infrastructure/persistenc
 import { InventoryAdjustmentController } from './presentation/inventory-adjustment.controller';
 
 @Module({
-  imports: [RbacModule],
+  imports: [RbacModule, InventoryModule],
   controllers: [InventoryAdjustmentController],
   providers: [
     InventoryAdjustmentService,

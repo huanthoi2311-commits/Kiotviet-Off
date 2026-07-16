@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { InventoryModule } from '../inventory/inventory.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { StockCountService } from './application/stock-count.service';
 import { STOCK_COUNT_REPOSITORY } from './domain/repositories/stock-count.repository.interface';
@@ -8,7 +9,7 @@ import { PrismaStockCountRepository } from './infrastructure/persistence/prisma-
 import { StockCountController } from './presentation/stock-count.controller';
 
 @Module({
-  imports: [RbacModule],
+  imports: [RbacModule, InventoryModule],
   controllers: [StockCountController],
   providers: [
     StockCountService,

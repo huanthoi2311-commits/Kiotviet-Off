@@ -1,6 +1,11 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
+import {
+  InventoryConcurrencyConflictError,
+  InventoryInsufficientStockError,
+} from '../../../inventory/domain/errors/inventory.errors';
 import {
   PurchaseReturnExceedsReceivedError,
   PurchaseReturnNegativeStockError,
@@ -58,6 +63,9 @@ describe('PrismaPurchaseReturnRepository', () => {
     };
     $transaction: jest.Mock;
   };
+  let inventoryDomainService: jest.Mocked<
+    Pick<InventoryDomainService, 'decrease'>
+  >;
 
   beforeEach(() => {
     prisma = {
@@ -70,8 +78,15 @@ describe('PrismaPurchaseReturnRepository', () => {
       },
       $transaction: jest.fn(),
     };
+    inventoryDomainService = {
+      decrease: jest.fn().mockResolvedValue({
+        movement: {},
+        avgCostAfter: '0',
+      }),
+    };
     repository = new PrismaPurchaseReturnRepository(
       prisma as unknown as PrismaService,
+      inventoryDomainService as unknown as InventoryDomainService,
     );
   });
 
@@ -244,11 +259,7 @@ describe('PrismaPurchaseReturnRepository', () => {
   });
 
   describe('complete', () => {
-    function makeTx(overrides: {
-      currentReturn?: unknown;
-      inventory?: unknown;
-      setting?: unknown;
-    }) {
+    function makeTx(overrides: { currentReturn?: unknown }) {
       const returnUpdate = jest.fn().mockResolvedValue(rawReturn);
       const currentReturn =
         'currentReturn' in overrides
@@ -259,14 +270,6 @@ describe('PrismaPurchaseReturnRepository', () => {
           findFirst: jest.fn().mockResolvedValue(currentReturn),
           update: returnUpdate,
         },
-        setting: {
-          findFirst: jest.fn().mockResolvedValue(overrides.setting ?? null),
-        },
-        inventory: {
-          findUnique: jest.fn().mockResolvedValue(overrides.inventory ?? null),
-          upsert: jest.fn().mockResolvedValue({}),
-        },
-        inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
         debt: { create: jest.fn().mockResolvedValue({}) },
       };
       prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
@@ -282,28 +285,24 @@ describe('PrismaPurchaseReturnRepository', () => {
       ).rejects.toThrow(PurchaseReturnStatusConflictError);
     });
 
-    it('ghi đúng Movement RETURN (số lượng âm), đồng bộ Inventory, ghi Debt PAYABLE âm', async () => {
-      const tx = makeTx({
-        inventory: {
-          quantity: new Prisma.Decimal(10),
-          avgCost: new Prisma.Decimal(8000),
-          lastCost: new Prisma.Decimal(8000),
-        },
-      });
+    it('gọi InventoryDomainService.decrease() đúng tham số, ghi Debt PAYABLE âm', async () => {
+      const tx = makeTx({});
 
       await repository.complete('pr-1', 'org-1', 'user-1');
 
-      const upsertArg = tx.inventory.upsert.mock.calls[0][0];
-      expect(upsertArg.update.quantity.toString()).toBe('5');
-      expect(upsertArg.update.avgCost.toString()).toBe('8000');
-
-      const movementArg = tx.inventoryMovement.create.mock.calls[0][0].data;
-      expect(movementArg.movementType).toBe('RETURN');
-      expect(movementArg.referenceType).toBe('RETURN');
-      expect(movementArg.referenceId).toBe('pr-1');
-      expect(movementArg.quantity.toString()).toBe('-5');
-      expect(movementArg.beforeQuantity.toString()).toBe('10');
-      expect(movementArg.afterQuantity.toString()).toBe('5');
+      expect(inventoryDomainService.decrease).toHaveBeenCalledWith(
+        tx,
+        expect.objectContaining({
+          organizationId: 'org-1',
+          warehouseId: 'wh-1',
+          productId: 'product-1',
+          quantity: 5,
+          movementType: 'RETURN',
+          referenceType: 'RETURN',
+          referenceId: 'pr-1',
+          createdBy: 'user-1',
+        }),
+      );
 
       const debtArg = tx.debt.create.mock.calls[0][0].data;
       expect(debtArg.type).toBe('PAYABLE');
@@ -321,39 +320,28 @@ describe('PrismaPurchaseReturnRepository', () => {
       );
     });
 
-    it('ném NegativeStockError khi sẽ âm tồn kho và Setting không cho phép', async () => {
-      const tx = makeTx({
-        inventory: {
-          quantity: new Prisma.Decimal(2),
-          avgCost: new Prisma.Decimal(8000),
-          lastCost: new Prisma.Decimal(8000),
-        },
-        setting: null,
-      });
+    it('dịch InventoryInsufficientStockError sang PurchaseReturnNegativeStockError', async () => {
+      const tx = makeTx({});
+      inventoryDomainService.decrease.mockRejectedValueOnce(
+        new InventoryInsufficientStockError('product-1', '2'),
+      );
 
       await expect(
         repository.complete('pr-1', 'org-1', 'user-1'),
       ).rejects.toThrow(PurchaseReturnNegativeStockError);
-      expect(tx.inventory.upsert).not.toHaveBeenCalled();
       expect(tx.debt.create).not.toHaveBeenCalled();
       expect(tx.purchaseReturn.update).not.toHaveBeenCalled();
     });
 
-    it('cho phép âm tồn kho khi Setting inventory.allowNegativeStock = true', async () => {
-      const tx = makeTx({
-        inventory: {
-          quantity: new Prisma.Decimal(2),
-          avgCost: new Prisma.Decimal(8000),
-          lastCost: new Prisma.Decimal(8000),
-        },
-        setting: { value: true },
-      });
+    it('lan truyền nguyên trạng InventoryConcurrencyConflictError (không dịch)', async () => {
+      makeTx({});
+      inventoryDomainService.decrease.mockRejectedValueOnce(
+        new InventoryConcurrencyConflictError('product-1'),
+      );
 
-      await repository.complete('pr-1', 'org-1', 'user-1');
-
-      const upsertArg = tx.inventory.upsert.mock.calls[0][0];
-      expect(upsertArg.update.quantity.toString()).toBe('-3');
-      expect(tx.purchaseReturn.update).toHaveBeenCalled();
+      await expect(
+        repository.complete('pr-1', 'org-1', 'user-1'),
+      ).rejects.toThrow(InventoryConcurrencyConflictError);
     });
   });
 });

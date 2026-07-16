@@ -1,8 +1,10 @@
 import {
+  ConflictException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { PurchaseOrderEntity } from '../domain/entities/purchase-order.entity';
 import {
   IPurchaseOrderRepository,
@@ -261,6 +263,16 @@ describe('PurchaseOrderService', () => {
       );
       await expect(service.receive('po-1', actor)).rejects.toThrow(
         UnprocessableEntityException,
+      );
+    });
+
+    it('dịch InventoryConcurrencyConflictError sang ConflictException (Optimistic Lock)', async () => {
+      purchaseOrderRepository.findById.mockResolvedValue(makeOrder());
+      purchaseOrderRepository.receive.mockRejectedValue(
+        new InventoryConcurrencyConflictError('product-1'),
+      );
+      await expect(service.receive('po-1', actor)).rejects.toThrow(
+        ConflictException,
       );
     });
   });

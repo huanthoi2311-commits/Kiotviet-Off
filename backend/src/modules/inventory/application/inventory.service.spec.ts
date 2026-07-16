@@ -51,7 +51,6 @@ describe('InventoryService', () => {
       getByProduct: jest.fn(),
       getHistory: jest.fn(),
       recordMovement: jest.fn(),
-      recordSaleMovement: jest.fn(),
     };
     service = new InventoryService(inventoryRepository);
   });

@@ -13,7 +13,7 @@
 | Model có module quản lý (CRUD/API) | **~40** |
 | Model tồn tại nhưng **chưa có module nào** | **~17** (mục 4) |
 | Circular dependency giữa các module (`forwardRef`) | **0** — không tìm thấy |
-| Module ghi trực tiếp vào bảng do module khác sở hữu | **5** (mục 5.1 — mức HIGH) |
+| Module ghi trực tiếp vào bảng do module khác sở hữu | **0** — đã khắc phục ở T004 (mục 5.1, ban đầu phát hiện 5, mức HIGH) |
 
 Toàn bộ 25 module đều tuân theo layering `domain/application/infrastructure/presentation` (Clean Architecture), trừ 2 ngoại lệ **có chủ đích, đã disclose khi xây**:
 - `discount/` — không có `presentation/` (Internal Service, Prompt 034, không public API).
@@ -70,11 +70,16 @@ graph LR
   Warehouse --> Rbac
   Inventory --> Rbac
   Transfer --> Rbac
+  Transfer --> Inventory
   StockCount[StockCountModule] --> Rbac
+  StockCount --> Inventory
   InventoryAdjustment --> Rbac
+  InventoryAdjustment --> Inventory
   PurchaseOrder --> Rbac
+  PurchaseOrder --> Inventory
   PurchaseReturn --> Rbac
   PurchaseReturn --> PurchaseOrder
+  PurchaseReturn --> Inventory
   Supplier --> Rbac
   SupplierDebt --> Rbac
   SupplierDebt --> Supplier
@@ -100,6 +105,7 @@ graph LR
 - `ProductModule` là "hub" cho Category/Brand/Unit/Barcode/Cart — cả 5 module này chỉ import để lấy `PRODUCT_REPOSITORY` (đọc), không có vòng lặp ngược.
 - `CheckoutModule` (Prompt 035) là module có **bậc phụ thuộc sâu nhất** (7 module con) — đúng vai trò orchestrator được giao, nhưng cũng là điểm cần chú ý nhất nếu sau này thêm phụ thuộc mới (rủi ro phình to "God Module").
 - `DiscountModule` và `PurchaseReportModule` không phụ thuộc `RbacModule`/module nghiệp vụ nào khác — đúng thiết kế (Discount: internal-only, không cần permission; PurchaseReport: chỉ đọc qua Prisma trực tiếp, không qua repository của module khác).
+- **Cập nhật T004**: `InventoryModule` nay là hub thứ hai của đồ thị (6 module phụ thuộc: `Checkout`, `Transfer`, `StockCount`, `InventoryAdjustment`, `PurchaseOrder`, `PurchaseReturn`) — hệ quả trực tiếp của việc tập trung hóa đường ghi tồn kho (mục 5.1). Vẫn là DAG thật, không có `forwardRef` mới nào phát sinh (`InventoryModule` chỉ phụ thuộc `RbacModule`, không phụ thuộc ngược lại bất kỳ module nào trong 6 module trên).
 
 ## 4. Module còn thiếu (bảng đã có, chưa có module)
 
@@ -145,6 +151,8 @@ Xác nhận bằng 2 nguồn độc lập: (a) model tồn tại trong `schema.p
 Có 1 hàm dùng chung `applyInventoryDelta()` (`common/utils/average-cost.util.ts`) để tránh trùng lặp CÔNG THỨC Average Cost — nhưng đây chỉ là 1 pure function, không phải cơ chế gate-kept qua repository interface. **Đối lập trực tiếp**: `checkout` module (Prompt 035, mới nhất) làm ĐÚNG theo doc-comment của `IInventoryRepository` — import `InventoryModule`, gọi `recordSaleMovement()` qua `INVENTORY_REPOSITORY`.
 
 **Vì sao đáng chú ý**: đây là lý do kỹ thuật thực sự khiến `recordSaleMovement()` (Optimistic Lock, Prompt 035) chỉ bảo vệ được các giao dịch đi qua Checkout — 5 module kia vẫn dùng cơ chế `upsert()` không khóa của `recordMovement()`/tự viết, nên vẫn còn nguyên rủi ro race condition nếu, ví dụ, một Purchase Order Receive và một Checkout cùng lúc động vào cùng 1 dòng Inventory.
+
+> **Đã khắc phục — T004 (Inventory Refactor, SPEC-INV-001).** Cả 5 module trên (cộng cả `checkout`, refactor tối thiểu tầng DI) nay gọi qua `InventoryDomainService` (cửa ngõ ghi duy nhất, export bởi `InventoryModule` — `IInventoryRepository` lùi thành chi tiết nội bộ, không còn export). Optimistic Lock đã tổng quát hóa cho MỌI `movementType`, không chỉ SALE. Xác nhận bằng grep toàn `backend/src`: đúng 1 file (`prisma-inventory.repository.ts`, trong chính `inventory` module) còn gọi `tx.inventory.upsert/update/create` hay `tx.inventoryMovement.create`. Chi tiết đầy đủ: `docs/implementation/sprint-00-t004-report.md`.
 
 ### 5.2 — Chấp nhận được (disclosed pattern, nhất quán): sổ cái dùng chung `Debt`/`Payment`
 
