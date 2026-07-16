@@ -1,6 +1,6 @@
 # Release Note — T007: Brand Implementation (Sprint-01)
 
-**Tag:** chưa gắn — chờ `AUTHORIZATION` tag/push riêng (xem "Release Review" cuối tài liệu này).
+**Tag:** `v0.4.0-brand-foundation`
 **Trạng thái:** Technical Complete = PASS · Operational Complete = PENDING (cùng mẫu T005/T006 — thiếu Docker/Postgres/Redis trong sandbox phát triển).
 **SPEC:** `SPEC-BRAND-001` · **Implementation Plan:** `docs/implementation/brand-implementation-plan.md`
 
@@ -60,14 +60,15 @@ Xem `docs/architecture/technical-debt.md` — Brand đã được gộp vào 3 m
 
 - Module `brand`: 64/64 test PASS (38 baseline + 26 mới cho Optimistic Lock/Restore/isActive/Sort/Validation/API Contract). Coverage ~97-100% statements (baseline trước đó 91.41%).
 - **Regression Baseline** (Decision T007-04.9): toàn bộ `npx jest` — **139/139 test suite PASS, 1318/1318 test PASS** — xác nhận Sprint-00, T005 (Product), T006 (Category), Auth, RBAC, Inventory, Organization, Branch đều không bị ảnh hưởng.
-- Coverage toàn backend: 87.47% statements (không phải mục tiêu của T007 — T007 không chạm module nào khác ngoài `brand`/`error-codes.ts`/`permission-catalog.ts`). Decision T007-04.8 yêu cầu "Coverage ≥ 90%" được diễn giải theo phạm vi module `brand` (khớp Acceptance Criteria #2 của SPEC-BRAND-001, đã đạt ~97-100%) — nếu ý Architect là toàn backend, cần xác nhận lại vì đây nằm ngoài phạm vi RFC-0003/SPEC-BRAND-001.
+- Coverage toàn backend: 87.47% statements (không phải mục tiêu của T007 — T007 không chạm module nào khác ngoài `brand`/`error-codes.ts`/`permission-catalog.ts`). **Xác nhận qua Decision R01**: "Coverage ≥ 90%" áp dụng theo phạm vi module đang triển khai (`brand`, đã đạt ~97-100%), không phải toàn Backend — cùng cách đã áp dụng cho T005/T006.
 
 ## Next Sprint
 
-- **T008 — Unit Domain**, theo đúng thứ tự roadmap đã cố định (Decision T007-03: Brand → Unit → Barcode → Attribute → Variant, "không được bỏ qua thứ tự").
+- Sprint-01 hoàn thành khoảng **30%** (Decision R07: T005/T006/T007 DONE trên tổng roadmap Master Data).
+- **T008 — Unit Domain**, theo đúng thứ tự roadmap đã cố định (Decision R08/T007-03: Brand → Unit → Barcode → Attribute → Variant, "không được bỏ qua thứ tự"). **Không chuyển sang Customer/Supplier/Inventory/Promotion/POS/ERP.** Bước bắt buộc kế tiếp là `RFC-0004 — Unit Domain` từ Architect — Claude Code không tự bắt đầu RFC/SPEC/code cho T008 khi chưa có chỉ đạo.
 - Từ T007 trở đi, Regression Baseline mở rộng thành **T005 + T006 + T007** (Decision T007-04.9).
 - Versioning giữ `v0.x.y` cho tới khi hoàn thành toàn bộ Master Data/CRM/Inventory/POS/ERP Core theo roadmap — chưa phát hành `v1.0.0` sớm.
 
-## Release Review (chưa thực hiện)
+## Release Review
 
-Theo đúng AUTHORIZATION gốc ("...→ Tests → Documentation → **Release Review**"), tài liệu này hoàn tất bước Documentation. **Tag (`v0.4.0-brand-foundation` dự kiến) và push chưa được thực hiện** — chờ Architect xác nhận qua 1 Architecture Review riêng cho toàn bộ T007 Implementation (đúng tiền lệ T006: tag/push chỉ thực hiện sau `ARCHITECTURE REVIEW – T006 Category Implementation` riêng biệt, không tự động đi kèm Commit Documentation).
+`ARCHITECTURE REVIEW – T007 Brand Implementation` — APPROVED WITH FINAL DECISIONS (Decision R01-R08). Toàn bộ Release Gate (Decision R04) xác nhận PASS: Build/TypeCheck/Lint/Unit Test/Architecture Test/Regression/Coverage/Release Note/PROJECT_STATUS/CHANGELOG. Decision R01 xác nhận cách diễn giải "Coverage ≥ 90%" theo phạm vi module `brand` (không phải toàn Backend) là đúng — cùng cách đã áp dụng cho T005/T006. Decision R02 xác nhận việc sửa CHANGELOG của T006 là Maintenance Fix hợp lệ. AUTHORIZATION cuối cùng cho phép tag `v0.4.0-brand-foundation`, push, cập nhật `PROJECT_STATUS.md`, đóng T007 — đã thực hiện đầy đủ.
