@@ -7,7 +7,10 @@ import { BrandController } from './brand.controller';
 describe('BrandController', () => {
   let controller: BrandController;
   let brandService: jest.Mocked<
-    Pick<BrandService, 'create' | 'search' | 'findOne' | 'update' | 'remove'>
+    Pick<
+      BrandService,
+      'create' | 'search' | 'findOne' | 'update' | 'remove' | 'restore'
+    >
   >;
   const reflector = new Reflector();
 
@@ -30,6 +33,7 @@ describe('BrandController', () => {
       findOne: jest.fn(),
       update: jest.fn(),
       remove: jest.fn(),
+      restore: jest.fn(),
     };
     controller = new BrandController(brandService as unknown as BrandService);
   });
@@ -41,6 +45,7 @@ describe('BrandController', () => {
       ['findOne', 'brand:view'],
       ['update', 'brand:update'],
       ['remove', 'brand:delete'],
+      ['restore', 'brand:restore'],
     ])('method %s yêu cầu permission %s', (method, expectedPermission) => {
       const permissions = reflector.get<string[]>(
         PERMISSIONS_KEY,
@@ -105,5 +110,18 @@ describe('BrandController', () => {
       'brand-1',
       expect.any(Object),
     );
+  });
+
+  it('restore ủy quyền cho service.restore kèm actor context', async () => {
+    brandService.restore.mockResolvedValue({
+      id: 'brand-1',
+      status: 'INACTIVE',
+    } as never);
+    const result = await controller.restore('brand-1', user as never, req);
+    expect(brandService.restore).toHaveBeenCalledWith(
+      'brand-1',
+      expect.any(Object),
+    );
+    expect(result).toEqual({ id: 'brand-1', status: 'INACTIVE' });
   });
 });

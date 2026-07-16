@@ -110,6 +110,22 @@ export class BrandController {
     await this.brandService.remove(id, this.toActor(user, req));
   }
 
+  @Post(':id/restore')
+  @RequirePermissions('brand:restore')
+  @ApiOperation({
+    summary:
+      'Khôi phục thương hiệu đã xóa mềm — status luôn trả về INACTIVE, không tự động ACTIVE',
+  })
+  @ApiResponse({ status: 201, type: BrandResponseDto })
+  @ApiWriteErrors()
+  restore(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: JwtAccessPayload,
+    @Req() req: Request,
+  ): Promise<BrandResponseDto> {
+    return this.brandService.restore(id, this.toActor(user, req));
+  }
+
   private toActor(user: JwtAccessPayload, req: Request): ActorContext {
     return {
       userId: user.sub,

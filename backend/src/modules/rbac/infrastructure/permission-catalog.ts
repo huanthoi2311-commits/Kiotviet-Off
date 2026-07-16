@@ -59,7 +59,7 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
   },
   ...crud('product', 'sản phẩm', ['restore']),
   ...crud('category', 'danh mục ngành hàng', ['restore']),
-  ...crud('brand', 'thương hiệu'),
+  ...crud('brand', 'thương hiệu', ['restore']),
   ...crud('unit', 'đơn vị tính'),
   ...crud('barcode', 'mã vạch'),
   ...crud('warehouse', 'kho', ['restore']),
