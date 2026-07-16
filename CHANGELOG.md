@@ -7,10 +7,15 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/lang/vi/) (`MAJOR.
 
 ## [Unreleased]
 
-**Sprint-01 (đang tiến hành) — T005: Product Refactor** (`SPEC-PRODUCT-001`), theo đúng
+## [0.2.0-product-foundation] - 2026-07-16
+
+**Sprint-01 — T005: Product Refactor** (`SPEC-PRODUCT-001`), theo đúng
 `RFC-0001 Revision 1` + `ARCHITECTURE REVIEW – SPEC-PRODUCT-001` (A01-A10) +
 `ARCHITECTURE REVIEW – T005.1` (A11-A18) + `ARCHITECT DECISION – T005 Implementation
-Clarification` (C01-C08).
+Clarification` (C01-C08) + `ARCHITECTURE REVIEW – T005 Product Refactor` (APPROVED,
+Decision T005-R01..R05). **Technical Complete = PASS, Operational Complete = PENDING**
+(cần môi trường Docker/Postgres/Redis thật — xem Known Limitations). Release note đầy đủ:
+`docs/release/t005-release-note.md`.
 
 ### Added
 - `ProductType` enum (`STANDARD`/`SERVICE`/`VARIANT_PARENT`/`VARIANT_CHILD`) thay thế
@@ -87,6 +92,7 @@ Clarification` (C01-C08).
 - Refresh token lưu dưới dạng HMAC-SHA256 hash trong DB, không lưu plaintext.
 - Refresh token reuse detection: phát hiện token đã bị thu hồi nhưng vẫn được dùng lại → thu hồi toàn bộ session của user.
 
-[Unreleased]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.1.0-foundation...HEAD
+[Unreleased]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.2.0-product-foundation...HEAD
+[0.2.0-product-foundation]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.1.0-foundation...v0.2.0-product-foundation
 [0.1.0-foundation]: https://github.com/huanthoi2311-commits/Kiotviet-Off/compare/v0.1.0...v0.1.0-foundation
 [0.1.0]: https://github.com/huanthoi2311-commits/Kiotviet-Off/releases/tag/v0.1.0
