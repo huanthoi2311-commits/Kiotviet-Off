@@ -704,6 +704,9 @@ model Category {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  /// Optimistic Lock (SPEC-CATEGORY-001 Decision Q9) - tang o moi UPDATE, khong bao gio reset.
+  version Int @default(1)
+
   children Category[] @relation("CategoryParent")
   products Product[]
 
