@@ -711,6 +711,7 @@ model Category {
   products Product[]
 
   @@unique([organizationId, code])
+  @@unique([organizationId, slug])
   @@index([organizationId])
   @@index([parentId])
   @@map("categories")
