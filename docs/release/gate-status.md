@@ -20,7 +20,7 @@
 | T002 | Organization Module (SPEC-ORG-001) | ✅ Hoàn thành — commit `d69b82a` |
 | T003 | Branch Module (SPEC-BRANCH-001) | ✅ Hoàn thành — commit `d69b82a` |
 | T003.5 | Inventory Architecture Specification & Review | ✅ Hoàn thành — 7 tài liệu `docs/architecture/inventory/*.md`, chưa commit riêng (gộp cùng T004) |
-| T004 | Inventory Refactor (SPEC-INV-001 + Revision 1 + T004.1/T004.5) | 🟡 Code xong, Gate PASS trừ Integration Test PENDING — **chưa commit**, chờ xác nhận |
+| T004 | Inventory Refactor (SPEC-INV-001 + Revision 1 + T004.1/T004.5) | ✅ **APPROVED & COMMITTED** — commit `fb8628d`, 10/11 Gate PASS (Integration Test PENDING do thiếu Docker) |
 | T005 | Domain Events | ⬜ Chưa bắt đầu |
 | T006 | Release Gates (Gate-00 tổng kết Sprint-00) | ⬜ Chưa bắt đầu |
 
@@ -44,9 +44,12 @@
 
 **Kết luận T004:** 10/11 Gate PASS, 1/11 PENDING (Integration Test — giới hạn hạ tầng, không phải lỗi code). Theo Decision 15 (SPEC-INV-001), chỉ commit khi "Build/Lint/TypeCheck/Test đạt yêu cầu và Architecture Verification PASS" — các điều kiện này đã đạt; Integration Test PENDING không nằm trong danh sách chặn commit tường minh của Decision 15/T004, nhưng vẫn được liệt kê minh bạch ở đây, không che giấu, để user tự quyết có chờ Docker hay không trước khi cho phép commit.
 
+**ARCHITECT APPROVAL nhận được — đã commit.** Commit `fb8628d` ("refactor(inventory): centralize inventory writes through InventoryDomainService"), 57 file thay đổi. Integration Test vẫn giữ nguyên trạng thái PENDING sau commit — sẽ chuyển PASS/FAIL khi có môi trường Docker chạy `npm run test:e2e` thật, không tự động coi là PASS chỉ vì đã commit.
+
 ## Nhật ký thay đổi trạng thái
 
 | Ngày | Sự kiện |
 |---|---|
 | 2026-07-16 | T004 code hoàn thành lần 1 — Unit Test 1213/1213, Coverage giảm nhẹ 0.06-0.07pp ở 2/4 chỉ số, Integration Test ghi "⚠️ không chạy được" (chưa phân biệt PENDING/FAIL) — user KHÔNG cho phép commit, ban hành ARCHITECT DECISION T004 yêu cầu T004.1 + T004.5 |
 | 2026-07-16 | T004.1 hoàn thành — thêm `single-writer.architecture.spec.ts` (đồng thời phục vụ T004.5), Coverage vượt baseline cả 4/4 chỉ số, Integration Test đổi thành PENDING rõ ràng, file này được tạo |
+| 2026-07-16 | ARCHITECT APPROVAL — T004 committed as `fb8628d` |

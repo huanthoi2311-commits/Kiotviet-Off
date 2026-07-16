@@ -7,6 +7,16 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/lang/vi/) (`MAJOR.
 
 ## [Unreleased]
 
+### Changed
+- **Sprint-00 T004 — Inventory Refactor** (`SPEC-INV-001`, commit `fb8628d`): tập trung hóa toàn bộ đường ghi tồn kho qua `InventoryDomainService` — cửa ngõ ghi duy nhất (Single Writer), public API `increase()`/`decrease()`/`adjust()`/`transfer()`/`recordMovement()`. `IInventoryRepository`/`INVENTORY_REPOSITORY` không còn export ra ngoài `InventoryModule`. Migrate 5 module (`purchase-order`, `purchase-return`, `transfer`, `inventory-adjustment`, `stock-count`) từ ghi trực tiếp `tx.inventory.*` sang gọi qua `InventoryDomainService`; refactor tối thiểu tầng DI của `checkout` (không đổi business logic/transaction).
+- Optimistic Lock (compare-and-swap) áp dụng cho toàn bộ 6 đường ghi tồn kho, không chỉ riêng Checkout như trước.
+- Transfer OUT (trừ kho nguồn) nay kiểm tra âm kho — hành vi mới, trước đây không có.
+
+### Added
+- `docs/architecture/inventory/*.md` (7 tài liệu, T003.5): Domain Model, Write Path, Event Flow, Transaction Boundary, Locking Strategy, Concurrency Test Cases, Migration Plan cho kiến trúc Inventory.
+- `backend/src/modules/inventory/single-writer.architecture.spec.ts` (T004.5): bộ test kiến trúc tự động xác minh bất biến "Single Writer" — không module nào ngoài `inventory` được inject `InventoryRepository` hay ghi trực tiếp bảng `Inventory`/`InventoryMovement`.
+- `docs/release/gate-status.md`: theo dõi trạng thái PASS/FAIL/PENDING cho từng hạng mục Sprint-00 (T001-T006).
+
 ## [0.1.0] - 2026-07-14
 
 ### Added
