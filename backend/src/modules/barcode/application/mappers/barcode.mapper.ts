@@ -10,6 +10,8 @@ export class BarcodeMapper {
       code: entity.code,
       type: entity.type,
       isDefault: entity.isDefault,
+      status: entity.status,
+      version: entity.version,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };

@@ -6,17 +6,17 @@
 
 ## Version
 
-**Version hiện tại:** `v0.5.0-unit-foundation`
+**Version hiện tại:** `v0.6.0-barcode-foundation`
 
 ## Sprint hiện tại
 
-Sprint-01 (Master Data). Tiến độ chi tiết từng module, roadmap, trạng thái Audit/RFC/SPEC/Plan: xem `docs/SPRINT_DASHBOARD.md`.
+Sprint-01 (Master Data). T009 (Barcode) đã đóng — module kế tiếp: **T010 — Attribute Domain**, chờ RFC từ Architect. Không tự bắt đầu code. Tiến độ chi tiết từng module, roadmap, trạng thái Audit/RFC/SPEC/Plan: xem `docs/SPRINT_DASHBOARD.md`.
 
 ## Release
 
-- **Tag mới nhất:** `v0.5.0-unit-foundation` — Release Note đầy đủ: `docs/release/t008-release-note.md`.
-- **Technical Complete = YES, Operational Complete = PENDING** (Docker Integration Test/Rollback Test/Manual Smoke Test/Performance Benchmark — theo dõi tập trung ở `docs/architecture/technical-debt.md`).
-- **Regression Baseline tại thời điểm release:** 142/142 test suite PASS, 1352/1352 test PASS (Sprint-00 + T005 Product + T006 Category + T007 Brand + T008 Unit).
+- **Tag mới nhất:** `v0.6.0-barcode-foundation` — Release Note đầy đủ: `docs/release/t009-release-note.md`.
+- **Technical Complete = YES, Operational Complete = PENDING** (Docker Integration Test/Rollback Test/Manual Smoke Test/Performance Benchmark/Branch Coverage Barcode ≥90% — theo dõi tập trung ở `docs/architecture/technical-debt.md`).
+- **Regression Baseline tại thời điểm release:** 148/148 test suite PASS, 1419/1419 test PASS (Sprint-00 + T005 Product + T006 Category + T007 Brand + T008 Unit + T009 Barcode).
 - **Versioning Policy** (Decision T006-R07): `v0.x.y` xuyên suốt Foundation + Master Data + CRM + Inventory + POS + ERP Core. Chỉ chuyển `v1.0.0` khi hoàn thành đầy đủ các domain trên theo roadmap — không phát hành sớm.
 
 ## Tài liệu tham chiếu nhanh

@@ -1,6 +1,6 @@
 # Sprint Dashboard
 
-**Cập nhật lần cuối:** sau khi đóng T008 (Unit), phát hành `v0.5.0-unit-foundation`. Cập nhật file này mỗi khi đóng 1 Sprint task hoặc phát hành version mới — cùng nhịp với `PROJECT_STATUS.md` (`PROJECT_STATUS.md` là nguồn chi tiết, file này là bảng tổng quan nhanh).
+**Cập nhật lần cuối:** đóng T009 (Barcode), phát hành `v0.6.0-barcode-foundation`. Cập nhật file này mỗi khi đóng 1 Sprint task hoặc phát hành version mới — cùng nhịp với `PROJECT_STATUS.md` (`PROJECT_STATUS.md` là nguồn chi tiết, file này là bảng tổng quan nhanh).
 
 **Trạng thái module dùng đúng 8 giá trị cố định:** `NOT STARTED` → `AUDIT` → `RFC` → `SPEC` → `PLAN` → `IMPLEMENTING` → `REVIEW` → `DONE`.
 
@@ -10,10 +10,10 @@
 
 | | |
 |---|---|
-| **Current Version** | `v0.5.0-unit-foundation` |
+| **Current Version** | `v0.6.0-barcode-foundation` |
 | **Current Sprint** | Sprint-01 (Master Data) |
-| **Overall Progress** | ~45% *(ước tính của Architect, bao gồm toàn bộ phạm vi sản phẩm thương mại — Master Data/CRM/Inventory/POS/ERP/triển khai/vận hành, không chỉ khối lượng code đã viết)* |
-| **Master Data Progress** | **4/7 module DONE** (Product, Category, Brand, Unit) |
+| **Overall Progress** | ~45% *(ước tính của Architect tại T008, chưa có ước tính mới từ Architect cho T009 — giữ nguyên, không tự suy diễn)* |
+| **Master Data Progress** | **5/7 module DONE** (Product, Category, Brand, Unit, Barcode) |
 | **CRM Progress** | 0/2+ module — chưa bắt đầu theo quy trình hiện hành |
 | **Inventory Progress** | 0 module đã qua Audit/RFC chính thức — có scaffold code từ Sprint-00, xem ghi chú cuối bảng |
 | **POS Progress** | 0 module đã qua Audit/RFC chính thức — có scaffold code từ Sprint-00, xem ghi chú cuối bảng |
@@ -35,8 +35,8 @@
 | Category | `DONE` | `SPEC-CATEGORY-001` | `v0.3.0-category-foundation` |
 | Brand | `DONE` | `SPEC-BRAND-001` | `v0.4.0-brand-foundation` |
 | Unit | `DONE` | `SPEC-UNIT-001` | `v0.5.0-unit-foundation` |
-| Barcode | `NOT STARTED` | — | WAITING `RFC-0005` |
-| Attribute | `NOT STARTED` | — | — |
+| Barcode | `DONE` | `SPEC-BARCODE-001` | `v0.6.0-barcode-foundation` |
+| Attribute | `NOT STARTED` | — | WAITING RFC từ Architect |
 | Variant | `NOT STARTED` | — | — |
 | Gate-01 (Master Data hoàn tất) | `NOT STARTED` | — | — |
 

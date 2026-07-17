@@ -2,12 +2,14 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -28,7 +30,12 @@ import { JwtAuthGuard } from '../../auth/presentation/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../rbac/presentation/permissions.guard';
 import { RequirePermissions } from '../../rbac/presentation/permissions.decorator';
 import { ActorContext, BarcodeService } from '../application/barcode.service';
-import { BarcodeResponseDto } from '../application/dto/barcode-response.dto';
+import { BarcodeQueryDto } from '../application/dto/barcode-query.dto';
+import {
+  BarcodeResponseDto,
+  PaginatedBarcodeResponseDto,
+} from '../application/dto/barcode-response.dto';
+import { BarcodeVersionDto } from '../application/dto/barcode-version.dto';
 import { UpdateBarcodeDto } from '../application/dto/update-barcode.dto';
 
 @ApiTags('Barcode')
@@ -38,6 +45,19 @@ import { UpdateBarcodeDto } from '../application/dto/update-barcode.dto';
 @Controller('barcodes')
 export class BarcodeController {
   constructor(private readonly barcodeService: BarcodeService) {}
+
+  @Get()
+  @RequirePermissions('barcode:view')
+  @ApiOperation({
+    summary: 'Tra cứu mã vạch toàn tổ chức — tìm kiếm, lọc, phân trang',
+  })
+  @ApiResponse({ status: 200, type: PaginatedBarcodeResponseDto })
+  search(
+    @Query() query: BarcodeQueryDto,
+    @CurrentUser() user: JwtAccessPayload,
+  ): Promise<PaginatedBarcodeResponseDto> {
+    return this.barcodeService.search(query, user.organizationId);
+  }
 
   @Patch(':id')
   @RequirePermissions('barcode:update')
@@ -56,14 +76,39 @@ export class BarcodeController {
   @Delete(':id')
   @RequirePermissions('barcode:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Xóa mềm mã vạch' })
+  @ApiOperation({
+    summary:
+      'Xóa mềm mã vạch — chặn nếu là mã mặc định và sản phẩm đang hoạt động',
+  })
   @ApiWriteErrors()
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: BarcodeVersionDto,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
   ): Promise<void> {
-    await this.barcodeService.remove(id, this.toActor(user, req));
+    await this.barcodeService.remove(id, dto.version, this.toActor(user, req));
+  }
+
+  @Post(':id/restore')
+  @RequirePermissions('barcode:restore')
+  @ApiOperation({
+    summary:
+      'Khôi phục mã vạch đã xóa mềm — status luôn trả về INACTIVE, không tự động ACTIVE',
+  })
+  @ApiResponse({ status: 201, type: BarcodeResponseDto })
+  @ApiWriteErrors()
+  restore(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: BarcodeVersionDto,
+    @CurrentUser() user: JwtAccessPayload,
+    @Req() req: Request,
+  ): Promise<BarcodeResponseDto> {
+    return this.barcodeService.restore(
+      id,
+      dto.version,
+      this.toActor(user, req),
+    );
   }
 
   @Post(':id/default')
@@ -73,10 +118,15 @@ export class BarcodeController {
   @ApiWriteErrors()
   setDefault(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: BarcodeVersionDto,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
   ): Promise<BarcodeResponseDto> {
-    return this.barcodeService.setDefault(id, this.toActor(user, req));
+    return this.barcodeService.setDefault(
+      id,
+      dto.version,
+      this.toActor(user, req),
+    );
   }
 
   private toActor(user: JwtAccessPayload, req: Request): ActorContext {

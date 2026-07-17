@@ -7,6 +7,45 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/lang/vi/) (`MAJOR.
 
 ## [Unreleased]
 
+**Sprint-01 — T009: Barcode Domain** (`SPEC-BARCODE-001`), theo đúng `RFC-0005` (Architect-authored)
+→ `ARCHITECT RESOLUTION – RFC-0005 Barcode Domain` (BQ1-BQ11) → `SPEC-BARCODE-001` →
+`ARCHITECTURE REVIEW – SPEC-BARCODE-001` (SB01-SB10) → `Barcode Implementation Plan` →
+`ARCHITECTURE REVIEW – Implementation Plan – Barcode Domain` (IP01-IP10). Chi tiết đầy đủ:
+`docs/release/t009-release-note.md`. **Chưa tag** — chờ Final Release Review riêng (Decision IP10).
+
+### Added
+- `BarcodeStatus` (`ACTIVE`/`INACTIVE`/`ARCHIVED`, enum riêng — Decision BQ3).
+- `Barcode.version` (Optimistic Lock, `DEFAULT 1`) — mở rộng sang **cả 4** thao tác ghi
+  (`PATCH`/Archive (`DELETE`)/Restore/SetDefault), không chỉ `PATCH` như chuẩn chung dự án
+  (Decision BQ10/SB02).
+- `GET /barcodes` — tra cứu org-wide mới (search/status/isActive/page/limit/sortBy/sortOrder),
+  cộng thêm vào route lồng sẵn có `GET /products/:productId/barcodes` (Decision BQ1/SB01, Hybrid
+  Route — Exception có chủ đích với `MASTER_DATA_TEMPLATE.md`). Default sort `createdAt desc`
+  (Decision SB08 — Barcode không có field `name`).
+- `POST /barcodes/:id/restore` — khôi phục Barcode đã xóa mềm, luôn trả `status` về `INACTIVE`
+  (Decision BQ3), bắt buộc `version` trong body.
+- `UnitDomainService` (module `unit`, mới) — đúng 1 method `findByIdForReference()`, phục vụ xác
+  nhận `unitId` của Barcode cùng tổ chức và chưa `ARCHIVED` (Decision BQ11).
+- `BarcodePersistenceModule`/`BarcodeReferenceModule` (module `barcode`, mới) — tách từ 1 module
+  thành 3 để xử lý circular dependency thật giữa `UnitModule` (T008) và `BarcodeModule` — xem
+  "Lịch sử quyết định" trong `SPEC-BARCODE-001` §9.5 (Decision CD01-CD12 rồi RPC01-RPC12).
+
+### Changed
+- **`DELETE /barcodes/:id`** nay bắt buộc body `{ version }` (trước không cần body) và chỉ chặn
+  Archive khi `isDefault=true` **VÀ** Product `status=ACTIVE` (Decision BQ2 — hẹp hơn Delete Guard
+  của Unit).
+- **`POST /barcodes/:id/default`** nay bắt buộc body `{ version }` (trước không cần body).
+- **`existsByCode()`** đổi chữ ký thêm `organizationId` — unique theo tổ chức (Decision BQ8,
+  `@@unique([organizationId, code])`), không phải toàn cục; gọi thật từ `BarcodeService` trước khi
+  ghi (Decision BQ6), giữ nguyên bắt `P2002` làm lớp bảo vệ cuối.
+- **`UnitModule.imports`** đổi từ `[RbacModule, ProductModule, BarcodeModule]` sang
+  `[RbacModule, ProductModule, BarcodeReferenceModule]` — không dùng `forwardRef()`.
+
+### Known Limitations
+- Integration Test (`test/barcode.e2e-spec.ts`), Rollback Test (2 migration), Manual API Smoke Test
+  — 🟡 PENDING: không có Docker/Postgres/Redis trong môi trường phát triển hiện tại. Xem
+  `docs/architecture/technical-debt.md`.
+
 ## [0.5.0-unit-foundation] - 2026-07-16
 
 **Sprint-01 — T008: Unit Domain** (`SPEC-UNIT-001`), theo đúng `RFC-0004` →

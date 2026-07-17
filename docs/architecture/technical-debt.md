@@ -10,23 +10,23 @@
 
 ### 1. Integration Test (e2e) — toàn dự án
 
-- **Phát sinh từ:** Sprint-00 (T004), tiếp tục ở T005, T006, T007, T008.
+- **Phát sinh từ:** Sprint-00 (T004), tiếp tục ở T005, T006, T007, T008, T009.
 - **Nguyên nhân:** Sandbox phát triển hiện tại không có Docker/Postgres/Redis — không thể chạy `npm run test:e2e` thật.
-- **Điều kiện để hoàn thành:** Có môi trường Docker (`docker-compose up`), chạy `npm run test:e2e`, xác nhận toàn bộ `test/*.e2e-spec.ts` PASS. `category`: cần tạo mới `test/category.e2e-spec.ts` (chưa tồn tại). `brand`/`unit`: `test/brand.e2e-spec.ts` và `test/unit.e2e-spec.ts` đã tồn tại và đã cập nhật đủ case CRUD/Restore/Optimistic Lock/isActive filter (T007/T008) — chỉ chờ môi trường để chạy thật.
+- **Điều kiện để hoàn thành:** Có môi trường Docker (`docker-compose up`), chạy `npm run test:e2e`, xác nhận toàn bộ `test/*.e2e-spec.ts` PASS. `category`: cần tạo mới `test/category.e2e-spec.ts` (chưa tồn tại). `brand`/`unit`/`barcode`: `test/brand.e2e-spec.ts`, `test/unit.e2e-spec.ts` và `test/barcode.e2e-spec.ts` đã tồn tại và đã cập nhật đủ case CRUD/Restore/Optimistic Lock (T009: cả 4 thao tác ghi)/Delete Guard/Unit Reference Guard/isActive filter — chỉ chờ môi trường để chạy thật.
 - **Mức độ ưu tiên:** Cao — chặn Operational Complete của mọi Task từ T004 trở đi.
 - **Sprint dự kiến xử lý:** Khi có môi trường CI/CD thật với Docker (ngoài phạm vi 1 Sprint task cụ thể — thuộc hạ tầng dự án).
 
-### 2. Rollback Test — migration của T005 (Product), T006 (Category), T007 (Brand) và T008 (Unit)
+### 2. Rollback Test — migration của T005 (Product), T006 (Category), T007 (Brand), T008 (Unit) và T009 (Barcode)
 
 - **Nguyên nhân:** Cùng lý do #1 — không có Postgres để chạy `up → rollback.sql → up` thật.
-- **Điều kiện để hoàn thành:** Chạy từng `rollback.sql` (10 file: 3 của T005 + 3 của T006 + 1 của T007 + 2 của T008, cộng 1 file gộp T005 Migration 1+2) trên Postgres thật, xác nhận schema về đúng trạng thái trước migration, chạy `up` lại lần 2 xác nhận idempotent.
+- **Điều kiện để hoàn thành:** Chạy từng `rollback.sql` (12 file: 3 của T005 + 3 của T006 + 1 của T007 + 2 của T008 + 2 của T009, cộng 1 file gộp T005 Migration 1+2) trên Postgres thật, xác nhận schema về đúng trạng thái trước migration, chạy `up` lại lần 2 xác nhận idempotent.
 - **Mức độ ưu tiên:** Cao — rollback chưa kiểm thử thật là rủi ro nếu cần rollback khẩn cấp trong tương lai.
 - **Sprint dự kiến xử lý:** Cùng với #1, khi có môi trường Docker.
 
-### 3. Manual API Smoke Test — Product (T005), Category (T006), Brand (T007) và Unit (T008)
+### 3. Manual API Smoke Test — Product (T005), Category (T006), Brand (T007), Unit (T008) và Barcode (T009)
 
 - **Nguyên nhân:** Cần app chạy thật (`npm run start:dev`, cần Postgres/Redis) để gọi HTTP endpoint qua Swagger UI/curl.
-- **Điều kiện để hoàn thành:** Khởi động app thật, gọi đủ route của `product` (6 route), `category` (7 route), `brand` (6 route) và `unit` (6 route, bao gồm `restore` mới), xác nhận response shape khớp DTO hiện tại.
+- **Điều kiện để hoàn thành:** Khởi động app thật, gọi đủ route của `product` (6 route), `category` (7 route), `brand` (6 route), `unit` (6 route, bao gồm `restore`) và `barcode` (7 route: `GET /barcodes` mới, `GET`/`POST /products/:productId/barcodes`, `PATCH`/`DELETE`/`POST .../restore`/`POST .../default`), xác nhận response shape khớp DTO hiện tại và body `{ version }` bắt buộc đúng ở 4 route ghi.
 - **Mức độ ưu tiên:** Trung bình — Unit Test đã bao phủ logic nghiệp vụ, Smoke Test xác nhận thêm wiring HTTP/Swagger/Validation Pipe thật.
 - **Sprint dự kiến xử lý:** Cùng với #1.
 
@@ -36,6 +36,20 @@
 - **Điều kiện để hoàn thành:** Seed ≥1000 category trong 1 Organization, đo thời gian phản hồi 2 route trên. Không có ngưỡng SLA cụ thể trong SPEC-CATEGORY-001 — chỉ cần có số đo thật thay vì chỉ dựa vào thiết kế lý thuyết (Adjacency List, 1 query + in-memory traversal, không N+1 — đã xác nhận qua code review, chưa xác nhận qua đo đạc thật).
 - **Mức độ ưu tiên:** Thấp — rủi ro thấp trong thực tế (catalog danh mục thường nhỏ hơn nhiều so với 1000), nhưng cần đóng lại để T006 đạt Operational Complete đầy đủ.
 - **Sprint dự kiến xử lý:** Cùng với #1, hoặc khi có nhu cầu thực tế về quy mô dữ liệu lớn.
+
+### 5. Tăng Branch Coverage của Barcode lên ≥90% (Decision FR01, T009 Final Release Review)
+
+- **Nguyên nhân:** Coverage module `barcode` đạt 98.1% statements/100% functions/98.25% lines nhưng chỉ 83.14% branch — một số nhánh điều kiện (chủ yếu no-op event hook, vài nhánh phụ trong `barcode.service.ts`/`prisma-barcode.repository.ts`) chưa có test riêng.
+- **Điều kiện để hoàn thành:** Bổ sung test case cho các nhánh chưa phủ (xem chi tiết `Uncovered Line #s` trong báo cáo coverage — `barcode.service.ts:129,155,214,264,314`, `prisma-barcode.repository.ts:24,303`), đưa branch coverage lên ≥90%.
+- **Mức độ ưu tiên:** Thấp — Decision FR01 xác nhận không chặn Release; statements/functions/lines đã vượt ngưỡng.
+- **Sprint dự kiến xử lý:** Khi có thời gian rảnh trong Sprint-01, không gấp — có thể gộp cùng lúc dọn nợ kỹ thuật khác.
+
+### 6. Tối ưu CI để giảm Flaky Test khi chạy song song (Decision FR02, T009 Final Release Review)
+
+- **Nguyên nhân:** `argon2-password-hasher.spec.ts` và `purchase-report-export.adapter.spec.ts` timeout (mặc định 5000ms) khi chạy `npx jest` toàn backend song song (nhiều worker tranh chấp CPU cho tác vụ nặng CPU — hash Argon2, sinh file `.xlsx` qua `exceljs`). Chạy lại độc lập cả 2 suite: PASS 8/8 — xác nhận là flake môi trường CI cục bộ, không phải Regression.
+- **Điều kiện để hoàn thành:** Khi có môi trường CI thật, cân nhắc: tăng `testTimeout` cho 2 spec này, hoặc giới hạn `--maxWorkers` phù hợp với số CPU thật của runner, hoặc tách 2 suite CPU-nặng này chạy riêng khỏi batch song song.
+- **Mức độ ưu tiên:** Thấp — Decision FR02 xác nhận không coi là Regression, chỉ cần theo dõi để tối ưu CI về sau.
+- **Sprint dự kiến xử lý:** Khi thiết lập môi trường CI/CD thật (cùng nhóm hạ tầng với #1).
 
 ---
 

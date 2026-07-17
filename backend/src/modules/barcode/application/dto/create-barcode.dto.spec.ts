@@ -38,7 +38,17 @@ describe('CreateBarcodeDto validation', () => {
       type: 'EAN13',
       unitId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
       isDefault: true,
+      status: 'ACTIVE',
     });
     expect(errors).toHaveLength(0);
+  });
+
+  it('từ chối status ARCHIVED khi tạo (Decision BQ — không tạo trực tiếp ở ARCHIVED)', async () => {
+    const errors = await validateDto({
+      code: '123',
+      type: 'CUSTOM',
+      status: 'ARCHIVED',
+    });
+    expect(errors.some((e) => e.property === 'status')).toBe(true);
   });
 });

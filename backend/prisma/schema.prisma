@@ -976,6 +976,12 @@ model Barcode {
   type      BarcodeType @default(CUSTOM)
   isDefault Boolean     @default(false)
 
+  /// BarcodeStatus rieng (SPEC-BARCODE-001 Decision BQ3) - 3 gia tri hop le, KHONG tuan tu bat buoc.
+  status BarcodeStatus @default(ACTIVE)
+
+  /// Optimistic Lock (SPEC-BARCODE-001 Decision BQ10/SB02) - ap dung ca PATCH/Archive/Restore/SetDefault.
+  version Int @default(1)
+
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
   createdAt DateTime  @default(now())
@@ -986,6 +992,12 @@ model Barcode {
   @@index([productId])
   @@index([organizationId])
   @@map("barcodes")
+}
+
+enum BarcodeStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
 }
 
 model PriceHistory {
