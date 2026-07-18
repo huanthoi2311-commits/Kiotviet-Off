@@ -18,6 +18,7 @@ export class SupplierResponseDto {
   @ApiProperty({ nullable: true }) paymentTerm: number | null;
   @ApiProperty({ nullable: true }) creditLimit: string | null;
   @ApiProperty() status: string;
+  @ApiProperty() version: number;
   @ApiProperty({ nullable: true }) note: string | null;
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;

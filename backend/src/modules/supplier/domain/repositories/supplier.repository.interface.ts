@@ -16,6 +16,11 @@ export interface SupplierFieldsInput {
   bankAccount?: string | null;
   paymentTerm?: number | null;
   creditLimit?: number | null;
+  /**
+   * CHỈ có tác dụng trong `importBatch()` (Excel Import, Decision SR04 — giữ nguyên 100%).
+   * `create()`/`update()` (API thường) KHÔNG đọc field này — status luôn `ACTIVE` khi tạo qua
+   * API, đổi qua route Activate/Deactivate/Archive/Restore riêng (SPEC-T012-SUPPLIER-001 §5).
+   */
   status?: SupplierStatus;
   note?: string | null;
 }
@@ -64,13 +69,40 @@ export interface ImportSupplierResult {
 export interface ISupplierRepository {
   create(input: CreateSupplierInput): Promise<SupplierEntity>;
   findById(id: string, organizationId: string): Promise<SupplierEntity | null>;
+  findByCode(
+    organizationId: string,
+    code: string,
+  ): Promise<SupplierEntity | null>;
   findByIdIncludingDeleted(
     id: string,
     organizationId: string,
   ): Promise<SupplierEntity | null>;
-  update(id: string, input: UpdateSupplierInput): Promise<SupplierEntity>;
-  softDelete(id: string, deletedBy: string): Promise<void>;
-  restore(id: string, restoredBy: string): Promise<void>;
+  update(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    input: UpdateSupplierInput,
+  ): Promise<SupplierEntity>;
+  /** Dùng chung Activate/Deactivate (SPEC §4.2) — set `status` + tăng `version`. */
+  changeStatusWithVersion(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    status: SupplierStatus,
+    updatedBy: string,
+  ): Promise<SupplierEntity>;
+  softDelete(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    deletedBy: string,
+  ): Promise<void>;
+  restore(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    restoredBy: string,
+  ): Promise<void>;
   search(params: SupplierSearchParams): Promise<SupplierSearchResult>;
   /** Không phân trang — dùng cho Export Excel (áp cùng bộ lọc với search, không giới hạn số dòng). */
   findAllForExport(

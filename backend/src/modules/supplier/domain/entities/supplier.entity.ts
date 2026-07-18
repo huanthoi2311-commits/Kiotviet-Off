@@ -1,4 +1,5 @@
-export type SupplierStatus = 'ACTIVE' | 'INACTIVE';
+/** T012 — 3 giá trị, thay `CommonStatus` cũ (`ACTIVE`|`INACTIVE`, dùng chung 5 model khác). */
+export type SupplierStatus = 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
 
 export interface SupplierEntity {
   id: string;
@@ -19,6 +20,8 @@ export interface SupplierEntity {
   paymentTerm: number | null;
   creditLimit: string | null;
   status: SupplierStatus;
+  /** Optimistic Lock (T012 SPEC BR09) — áp dụng Update/Activate/Deactivate/Archive/Restore. */
+  version: number;
   note: string | null;
   createdAt: Date;
   updatedAt: Date;

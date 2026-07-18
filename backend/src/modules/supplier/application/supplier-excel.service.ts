@@ -94,18 +94,25 @@ export class SupplierExcelService {
         excludeExtraneousValues: false,
       });
       const errors = await validate(dto, { whitelist: true });
+      const messages = errors.flatMap((e) =>
+        Object.values(e.constraints ?? {}),
+      );
 
-      if (errors.length > 0) {
-        rowErrors.push({
-          row: rowNumber,
-          errors: errors.flatMap((e) => Object.values(e.constraints ?? {})),
-        });
+      // T012 (Decision SR04/§0.8) — Import Excel tiếp tục yêu cầu `code` bắt buộc dù
+      // `CreateSupplierDto.code` đã đổi thành optional cho API tạo thường (Decision SR07).
+      if (!dto.code) {
+        messages.push('code là bắt buộc khi nhập từ Excel');
+      }
+
+      if (messages.length > 0) {
+        rowErrors.push({ row: rowNumber, errors: messages });
         continue;
       }
 
       validRows.push({
         rowNumber,
-        code: dto.code,
+        // dto.code đã được xác nhận không rỗng ở check phía trên (continue nếu thiếu).
+        code: dto.code as string,
         taxCode: dto.taxCode ?? null,
         companyName: dto.companyName,
         contactName: dto.contactName ?? null,

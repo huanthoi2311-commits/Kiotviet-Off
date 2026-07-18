@@ -25,6 +25,7 @@ export class SupplierMapper {
       paymentTerm: entity.paymentTerm,
       creditLimit: entity.creditLimit,
       status: entity.status,
+      version: entity.version,
       note: entity.note,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,

@@ -7,12 +7,62 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/lang/vi/) (`MAJOR.
 
 ## [Unreleased]
 
+**Sprint-01 — T012: Supplier Domain** (`SPEC-T012-SUPPLIER-001`), module Type B / Fast Track thứ hai
+sau Customer — theo `RFC-T012` v1 (Architect) → Architecture Review → `ARCHITECT RESOLUTION`
+(SR01-SR14, APPROVED WITH DECISIONS, một vòng duy nhất) → `RFC-T012` v2 (Claude Code cập nhật theo
+SR01-SR14, ủy quyền tường minh) → `ARCHITECTURE REVIEW – SPEC-T012-SUPPLIER-001` (SP01-SP13,
+APPROVED WITH DECISIONS) → SPEC cập nhật theo SP05/SP10/SP11/SP12 → Implementation. Chi tiết đầy
+đủ: `docs/release/t012-release-note.md`. **Chưa tag** — chờ Final Release Review riêng.
+
+### Added
+- `SupplierStatus` (`ACTIVE`/`INACTIVE`/`ARCHIVED`, enum riêng) — thay `CommonStatus` 2 giá trị,
+  thống nhất trạng thái + soft-delete.
+- `Supplier.version` (Optimistic Lock, mới hoàn toàn) — áp dụng Update/Activate/Deactivate/
+  Archive/Restore (5 route ghi).
+- `POST /suppliers/:id/activate`, `POST /suppliers/:id/deactivate` — tách lifecycle transition
+  khỏi `PATCH` chung, transition table giống Customer.
+- `SequenceSupplierCodeGenerator` (module `supplier`, mới hoàn toàn — Supplier chưa từng có
+  generator) — sinh mã `NCC000001`.
+- `SequenceCodeGeneratorService` (module `prisma`, `@Global()`, mới — Decision SP05) — abstraction
+  dùng chung cho generator dạng "Sequence table", tránh Supplier sao chép logic Customer.
+- `SupplierDomainService` (module `supplier`, mới) — 6 method, sửa Repository Boundary violation
+  tồn tại từ trước T012 (`supplier-debt` từng inject thẳng `SUPPLIER_REPOSITORY`).
+
+### Changed
+- **Supplier code** — chuyển từ luôn bắt buộc client cung cấp sang **optional input, mandatory
+  stored value** (Decision SR07): client có thể tự cung cấp (validate + unique, `existsByCode()`
+  nay được wiring thật trước khi ghi) hoặc để hệ thống tự sinh.
+- **`SequenceCustomerCodeGenerator`** (module `customer`, T011) — refactor thành adapter mỏng gọi
+  `SequenceCodeGeneratorService` dùng chung (Decision SP05); KHÔNG đổi giá trị sinh ra (Regression
+  Test riêng xác nhận).
+- **`PATCH /suppliers/:id`** nay bắt buộc `version`, không còn nhận `status` trực tiếp.
+- **`DELETE /suppliers/:id`**, **`POST /suppliers/:id/restore`** nay bắt buộc body `{ version }`.
+- **`supplier-debt.service.ts`** dùng `SupplierDomainService.findById()` thay vì inject thẳng
+  `SUPPLIER_REPOSITORY` — hành vi không đổi, chỉ đổi nguồn (Repository Boundary — ADR-0010).
+
+### Unchanged (chủ đích, Decision SR04)
+- `POST /suppliers/import`, `GET /suppliers/export` — giữ nguyên 100% API/DTO/behavior, kể cả
+  `code` vẫn bắt buộc trong file Import dù `CreateSupplierDto.code` đã đổi optional cho API tạo
+  thường.
+- `hasPurchaseOrders()` Archive Guard (BR08) — giữ nguyên 100% logic nghiệp vụ đã có từ Sprint-00,
+  chỉ bọc thêm version check (Decision SR02/SR03 — "chuẩn hóa", không viết lại).
+
+### Known Limitations
+- Integration Test (`test/supplier.e2e-spec.ts` — chưa tồn tại), Rollback Test (2 migration),
+  Manual API Smoke Test, End-to-End Acceptance Scenario (Decision SP12) — 🟡 PENDING: không có
+  Docker/Postgres trong môi trường phát triển hiện tại. Xem `docs/architecture/technical-debt.md`.
+- 8 generator `Sequence*Generator` khác trong dự án (branch, inventory-adjustment, invoice,
+  organization, product/sku, purchase-order, purchase-return, stock-count, transfer) chưa hợp nhất
+  vào `SequenceCodeGeneratorService` — Decision SP05 chỉ nêu tên Customer+Supplier, ngoài phạm vi
+  T012. Ghi nhận Technical Debt.
+
+## [0.7.0-customer-domain] - 2026-07-18
+
 **Sprint-01 — T011: Customer Domain** (`SPEC-T011-CUSTOMER-001`), brownfield refactor đầu tiên của
 dự án (Decision CR01) — theo `RFC-T011` v1 (Architect) → Architecture Review → `ARCHITECT
 RESOLUTION` lần 1 (AR-T011-01~08, RFC REVISION REQUIRED) → `RFC-T011` v2 (Claude Code cập nhật
 theo CR01-CR13, ủy quyền tường minh) → `ARCHITECTURE REVIEW – SPEC-T011-CUSTOMER-001` (SR01-SR15,
-APPROVED, Fast Track Workflow). Chi tiết đầy đủ: `docs/release/t011-release-note.md`. **Chưa tag**
-— chờ Final Release Review riêng.
+APPROVED, Fast Track Workflow). Chi tiết đầy đủ: `docs/release/t011-release-note.md`.
 
 ### Added
 - `CustomerStatus` (`ACTIVE`/`INACTIVE`/`ARCHIVED`, enum riêng) — thay `CommonStatus` 2 giá trị,

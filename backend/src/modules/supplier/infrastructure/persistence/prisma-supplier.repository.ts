@@ -3,7 +3,11 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
-import { SupplierEntity } from '../../domain/entities/supplier.entity';
+import {
+  SupplierEntity,
+  SupplierStatus,
+} from '../../domain/entities/supplier.entity';
+import { SupplierConcurrencyConflictError } from '../../domain/errors/supplier.errors';
 import {
   CreateSupplierInput,
   ImportSupplierResult,
@@ -40,7 +44,9 @@ export class PrismaSupplierRepository implements ISupplierRepository {
           bankAccount: input.bankAccount ?? null,
           paymentTerm: input.paymentTerm ?? null,
           creditLimit: input.creditLimit ?? null,
-          status: input.status ?? 'ACTIVE',
+          // Luôn ACTIVE khi tạo qua API thường — bỏ qua input.status nếu có
+          // (SPEC-T012-SUPPLIER-001 §5; field này chỉ có tác dụng ở importBatch()).
+          status: 'ACTIVE',
           note: input.note ?? null,
           createdBy: input.createdBy,
           updatedBy: input.createdBy,
@@ -62,6 +68,16 @@ export class PrismaSupplierRepository implements ISupplierRepository {
     return supplier ? this.toEntity(supplier) : null;
   }
 
+  async findByCode(
+    organizationId: string,
+    code: string,
+  ): Promise<SupplierEntity | null> {
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { organizationId, code, deletedAt: null },
+    });
+    return supplier ? this.toEntity(supplier) : null;
+  }
+
   async findByIdIncludingDeleted(
     id: string,
     organizationId: string,
@@ -74,13 +90,14 @@ export class PrismaSupplierRepository implements ISupplierRepository {
 
   async update(
     id: string,
+    organizationId: string,
+    expectedVersion: number,
     input: UpdateSupplierInput,
   ): Promise<SupplierEntity> {
     try {
-      const supplier = await this.prisma.supplier.update({
-        where: { id },
+      const result = await this.prisma.supplier.updateMany({
+        where: { id, organizationId, version: expectedVersion },
         data: {
-          code: input.code,
           taxCode: input.taxCode,
           companyName: input.companyName,
           contactName: input.contactName,
@@ -95,29 +112,82 @@ export class PrismaSupplierRepository implements ISupplierRepository {
           bankAccount: input.bankAccount,
           paymentTerm: input.paymentTerm,
           creditLimit: input.creditLimit,
-          status: input.status,
           note: input.note,
           updatedBy: input.updatedBy,
+          version: { increment: 1 },
         },
       });
-      return this.toEntity(supplier);
+      if (result.count === 0) {
+        throw new SupplierConcurrencyConflictError(id);
+      }
+      const updated = await this.prisma.supplier.findUniqueOrThrow({
+        where: { id },
+      });
+      return this.toEntity(updated);
     } catch (error) {
+      if (error instanceof SupplierConcurrencyConflictError) throw error;
       throw this.translateWriteError(error);
     }
   }
 
-  async softDelete(id: string, deletedBy: string): Promise<void> {
-    await this.prisma.supplier.update({
-      where: { id },
-      data: { deletedAt: new Date(), updatedBy: deletedBy },
+  async changeStatusWithVersion(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    status: SupplierStatus,
+    updatedBy: string,
+  ): Promise<SupplierEntity> {
+    const result = await this.prisma.supplier.updateMany({
+      where: { id, organizationId, version: expectedVersion },
+      data: { status, updatedBy, version: { increment: 1 } },
     });
+    if (result.count === 0) {
+      throw new SupplierConcurrencyConflictError(id);
+    }
+    const updated = await this.prisma.supplier.findUniqueOrThrow({
+      where: { id },
+    });
+    return this.toEntity(updated);
   }
 
-  async restore(id: string, restoredBy: string): Promise<void> {
-    await this.prisma.supplier.update({
-      where: { id },
-      data: { deletedAt: null, updatedBy: restoredBy },
+  async softDelete(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    deletedBy: string,
+  ): Promise<void> {
+    const result = await this.prisma.supplier.updateMany({
+      where: { id, organizationId, version: expectedVersion },
+      data: {
+        deletedAt: new Date(),
+        status: 'ARCHIVED',
+        updatedBy: deletedBy,
+        version: { increment: 1 },
+      },
     });
+    if (result.count === 0) {
+      throw new SupplierConcurrencyConflictError(id);
+    }
+  }
+
+  async restore(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    restoredBy: string,
+  ): Promise<void> {
+    const result = await this.prisma.supplier.updateMany({
+      where: { id, organizationId, version: expectedVersion },
+      data: {
+        deletedAt: null,
+        status: 'INACTIVE',
+        updatedBy: restoredBy,
+        version: { increment: 1 },
+      },
+    });
+    if (result.count === 0) {
+      throw new SupplierConcurrencyConflictError(id);
+    }
   }
 
   async search(params: SupplierSearchParams): Promise<SupplierSearchResult> {
@@ -297,6 +367,7 @@ export class PrismaSupplierRepository implements ISupplierRepository {
       paymentTerm: supplier.paymentTerm,
       creditLimit: supplier.creditLimit?.toString() ?? null,
       status: supplier.status,
+      version: supplier.version,
       note: supplier.note,
       createdAt: supplier.createdAt,
       updatedAt: supplier.updatedAt,

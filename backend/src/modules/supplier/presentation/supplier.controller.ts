@@ -50,6 +50,7 @@ import {
   PaginatedSupplierResponseDto,
   SupplierResponseDto,
 } from '../application/dto/supplier-response.dto';
+import { SupplierVersionDto } from '../application/dto/supplier-version.dto';
 import { UpdateSupplierDto } from '../application/dto/update-supplier.dto';
 
 @ApiTags('Supplier')
@@ -65,7 +66,10 @@ export class SupplierController {
 
   @Post()
   @RequirePermissions('supplier:create')
-  @ApiOperation({ summary: 'Tạo nhà cung cấp mới' })
+  @ApiOperation({
+    summary:
+      'Tạo nhà cung cấp mới (mã tùy chọn — không gửi sẽ tự sinh NCCxxxxxx)',
+  })
   @ApiResponse({ status: 201, type: SupplierResponseDto })
   @ApiWriteErrors()
   create(
@@ -173,32 +177,77 @@ export class SupplierController {
     return this.supplierService.update(id, dto, this.toActor(user, req));
   }
 
+  @Post(':id/activate')
+  @RequirePermissions('supplier:activate')
+  @ApiOperation({ summary: 'Kích hoạt nhà cung cấp (INACTIVE → ACTIVE)' })
+  @ApiResponse({ status: 201, type: SupplierResponseDto })
+  @ApiWriteErrors()
+  activate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SupplierVersionDto,
+    @CurrentUser() user: JwtAccessPayload,
+    @Req() req: Request,
+  ): Promise<SupplierResponseDto> {
+    return this.supplierService.activate(
+      id,
+      dto.version,
+      this.toActor(user, req),
+    );
+  }
+
+  @Post(':id/deactivate')
+  @RequirePermissions('supplier:deactivate')
+  @ApiOperation({ summary: 'Ngừng hoạt động nhà cung cấp (ACTIVE → INACTIVE)' })
+  @ApiResponse({ status: 201, type: SupplierResponseDto })
+  @ApiWriteErrors()
+  deactivate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SupplierVersionDto,
+    @CurrentUser() user: JwtAccessPayload,
+    @Req() req: Request,
+  ): Promise<SupplierResponseDto> {
+    return this.supplierService.deactivate(
+      id,
+      dto.version,
+      this.toActor(user, req),
+    );
+  }
+
   @Delete(':id')
   @RequirePermissions('supplier:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
-    summary: 'Xóa mềm nhà cung cấp (chặn nếu đã có đơn nhập hàng)',
+    summary: 'Lưu trữ (Archive) nhà cung cấp — chặn nếu đã có đơn nhập hàng',
   })
   @ApiWriteErrors()
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SupplierVersionDto,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
   ): Promise<void> {
-    await this.supplierService.remove(id, this.toActor(user, req));
+    await this.supplierService.remove(id, dto.version, this.toActor(user, req));
   }
 
   @Post(':id/restore')
   @RequirePermissions('supplier:restore')
-  @ApiOperation({ summary: 'Khôi phục nhà cung cấp đã xóa mềm' })
+  @ApiOperation({
+    summary:
+      'Khôi phục nhà cung cấp đã lưu trữ — status luôn trả về INACTIVE, không tự động ACTIVE',
+  })
   @ApiResponse({ status: 201, type: SupplierResponseDto })
   @ApiWriteErrors()
   restore(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SupplierVersionDto,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
   ): Promise<SupplierResponseDto> {
-    return this.supplierService.restore(id, this.toActor(user, req));
+    return this.supplierService.restore(
+      id,
+      dto.version,
+      this.toActor(user, req),
+    );
   }
 
   private toActor(user: JwtAccessPayload, req: Request): ActorContext {

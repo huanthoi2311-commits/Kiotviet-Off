@@ -11,7 +11,14 @@ describe('SupplierController', () => {
   let supplierService: jest.Mocked<
     Pick<
       SupplierService,
-      'create' | 'search' | 'findOne' | 'update' | 'remove' | 'restore'
+      | 'create'
+      | 'search'
+      | 'findOne'
+      | 'update'
+      | 'activate'
+      | 'deactivate'
+      | 'remove'
+      | 'restore'
     >
   >;
   let supplierExcelService: jest.Mocked<
@@ -37,6 +44,8 @@ describe('SupplierController', () => {
       search: jest.fn(),
       findOne: jest.fn(),
       update: jest.fn(),
+      activate: jest.fn(),
+      deactivate: jest.fn(),
       remove: jest.fn(),
       restore: jest.fn(),
     };
@@ -50,7 +59,7 @@ describe('SupplierController', () => {
     );
   });
 
-  describe('permission metadata (Prompt 026)', () => {
+  describe('permission metadata (T012, cập nhật activate/deactivate)', () => {
     it.each([
       ['create', 'supplier:create'],
       ['import', 'supplier:import'],
@@ -58,6 +67,8 @@ describe('SupplierController', () => {
       ['search', 'supplier:view'],
       ['findOne', 'supplier:view'],
       ['update', 'supplier:update'],
+      ['activate', 'supplier:activate'],
+      ['deactivate', 'supplier:deactivate'],
       ['remove', 'supplier:delete'],
       ['restore', 'supplier:restore'],
     ])('method %s yêu cầu permission %s', (method, expectedPermission) => {
@@ -71,7 +82,7 @@ describe('SupplierController', () => {
 
   it('create ủy quyền cho service kèm actor context', async () => {
     supplierService.create.mockResolvedValue({ id: 'sup-1' } as never);
-    const dto = { code: 'NCC001', companyName: 'A' } as never;
+    const dto = { companyName: 'A' } as never;
     await controller.create(dto, user as never, req);
 
     const actor: ActorContext = supplierService.create.mock.calls[0][1];
@@ -147,7 +158,7 @@ describe('SupplierController', () => {
       id: 'sup-1',
       companyName: 'x',
     } as never);
-    const dto = { companyName: 'x' } as never;
+    const dto = { version: 1, companyName: 'x' } as never;
     await controller.update('sup-1', dto, user as never, req);
     expect(supplierService.update).toHaveBeenCalledWith(
       'sup-1',
@@ -156,23 +167,63 @@ describe('SupplierController', () => {
     );
   });
 
-  it('remove gọi service.remove, không trả nội dung', async () => {
-    supplierService.remove.mockResolvedValue(undefined);
-    await expect(
-      controller.remove('sup-1', user as never, req),
-    ).resolves.toBeUndefined();
+  it('activate ủy quyền cho service.activate kèm version từ body', async () => {
+    supplierService.activate.mockResolvedValue({
+      id: 'sup-1',
+      status: 'ACTIVE',
+    } as never);
+    const dto = { version: 1 } as never;
+    const result = await controller.activate('sup-1', dto, user as never, req);
+    expect(supplierService.activate).toHaveBeenCalledWith(
+      'sup-1',
+      1,
+      expect.any(Object),
+    );
+    expect(result).toEqual({ id: 'sup-1', status: 'ACTIVE' });
+  });
+
+  it('deactivate ủy quyền cho service.deactivate kèm version từ body', async () => {
+    supplierService.deactivate.mockResolvedValue({
+      id: 'sup-1',
+      status: 'INACTIVE',
+    } as never);
+    const dto = { version: 1 } as never;
+    const result = await controller.deactivate(
+      'sup-1',
+      dto,
+      user as never,
+      req,
+    );
+    expect(supplierService.deactivate).toHaveBeenCalledWith(
+      'sup-1',
+      1,
+      expect.any(Object),
+    );
+    expect(result).toEqual({ id: 'sup-1', status: 'INACTIVE' });
+  });
+
+  it('remove ủy quyền cho service.remove kèm version từ body', async () => {
+    const dto = { version: 1 } as never;
+    await controller.remove('sup-1', dto, user as never, req);
     expect(supplierService.remove).toHaveBeenCalledWith(
       'sup-1',
+      1,
       expect.any(Object),
     );
   });
 
-  it('restore ủy quyền cho service.restore', async () => {
+  it('restore ủy quyền cho service.restore kèm version từ body', async () => {
     supplierService.restore.mockResolvedValue({
       id: 'sup-1',
       deletedAt: null,
     } as never);
-    const result = await controller.restore('sup-1', user as never, req);
+    const dto = { version: 2 } as never;
+    const result = await controller.restore('sup-1', dto, user as never, req);
+    expect(supplierService.restore).toHaveBeenCalledWith(
+      'sup-1',
+      2,
+      expect.any(Object),
+    );
     expect(result).toEqual({ id: 'sup-1', deletedAt: null });
   });
 });

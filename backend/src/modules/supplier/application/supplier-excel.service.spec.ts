@@ -86,6 +86,17 @@ describe('SupplierExcelService', () => {
       expect(supplierRepository.importBatch).not.toHaveBeenCalled();
     });
 
+    it('từ chối dòng thiếu code hoàn toàn (Decision SR04/§0.8 — Import vẫn bắt buộc code dù CreateSupplierDto.code đã optional)', async () => {
+      excelPort.parseRows.mockResolvedValue([
+        { __rowNumber: 2, companyName: 'Không có mã' },
+      ]);
+
+      await expect(
+        service.importFromExcel(Buffer.from('x'), actor),
+      ).rejects.toThrow(UnprocessableEntityException);
+      expect(supplierRepository.importBatch).not.toHaveBeenCalled();
+    });
+
     it('gọi importBatch khi toàn bộ dòng hợp lệ, ghi audit log', async () => {
       excelPort.parseRows.mockResolvedValue([
         { __rowNumber: 2, code: 'NCC001', companyName: 'Công ty A' },

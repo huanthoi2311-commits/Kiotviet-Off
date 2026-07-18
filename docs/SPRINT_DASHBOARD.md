@@ -1,6 +1,6 @@
 # Sprint Dashboard
 
-**Cập nhật lần cuối:** T011 (Customer Domain) — **DONE**, `FINAL RELEASE REVIEW` FR01-FR10 APPROVED, phát hành `v0.7.0-customer-domain`. Sau T011, dự án áp dụng Decision AD05 (phân loại module Type A/Type B — xem `docs/project-governance/AI_WORKFLOW.md`). Module kế tiếp: T012 — Supplier Domain (Type B), WAITING Short RFC. Cập nhật file này mỗi khi đóng 1 Sprint task hoặc phát hành version mới — cùng nhịp với `PROJECT_STATUS.md` (`PROJECT_STATUS.md` là nguồn chi tiết, file này là bảng tổng quan nhanh).
+**Cập nhật lần cuối:** T012 (Supplier Domain) — **IMPLEMENTING**, IMPLEMENTATION REPORT đã nộp, chờ `FINAL RELEASE REVIEW` từ Architect (chưa commit/push/tag, chưa có version mới). T011 (Customer Domain) — `DONE`, phát hành `v0.7.0-customer-domain`. Sau T011, dự án áp dụng Decision AD05 (phân loại module Type A/Type B — xem `docs/project-governance/AI_WORKFLOW.md`). Cập nhật file này mỗi khi đóng 1 Sprint task hoặc phát hành version mới — cùng nhịp với `PROJECT_STATUS.md` (`PROJECT_STATUS.md` là nguồn chi tiết, file này là bảng tổng quan nhanh).
 
 **Trạng thái module dùng đúng 8 giá trị cố định:** `NOT STARTED` → `AUDIT` → `RFC` → `SPEC` → `PLAN` → `IMPLEMENTING` → `REVIEW` → `DONE`.
 
@@ -11,10 +11,10 @@
 | | |
 |---|---|
 | **Current Version** | `v0.7.0-customer-domain` |
-| **Current Task** | T011 `DONE` (PASS) → **T012 — Supplier Domain (Type B), WAITING Short RFC** — xem "Roadmap chốt lại" bên dưới, thay thế khái niệm "Sprint-01/CRM/Inventory/POS/ERP" cũ |
+| **Current Task** | T011 `DONE` (PASS) → **T012 — Supplier Domain (Type B): IMPLEMENTING, IMPLEMENTATION REPORT đã nộp, chờ Final Release Review** — xem "Roadmap chốt lại" bên dưới, thay thế khái niệm "Sprint-01/CRM/Inventory/POS/ERP" cũ |
 | **Overall Progress** | ~45% *(ước tính của Architect tại T008, chưa có ước tính mới sau Decision SC01-SC13 — giữ nguyên, không tự suy diễn)* |
 | **Master Data Progress** | **5/5 module đã lên kế hoạch DONE** (Product, Category, Brand, Unit, Barcode) — Attribute/Variant không còn trong roadmap mới, trạng thái chưa rõ |
-| **CRM Progress** | 0/2+ module — chưa bắt đầu theo quy trình hiện hành |
+| **CRM Progress** | 1/2+ module DONE (Customer), 1 IMPLEMENTING (Supplier, chờ Final Release Review) |
 | **Inventory Progress** | 0 module đã qua Audit/RFC chính thức — có scaffold code từ Sprint-00, xem ghi chú cuối bảng |
 | **POS Progress** | 0 module đã qua Audit/RFC chính thức — có scaffold code từ Sprint-00, xem ghi chú cuối bảng |
 | **ERP Progress** | 0 module đã qua Audit/RFC chính thức |
@@ -44,8 +44,8 @@
 
 | Module | Trạng thái | Ghi chú |
 |---|---|---|
-| Customer | `NOT STARTED` | Có scaffold code (`modules/customer`, `modules/customer-point`) từ Sprint-00 — chưa qua Audit/RFC theo quy trình hiện hành |
-| Supplier | `NOT STARTED` | Có scaffold code (`modules/supplier`, `modules/supplier-debt`) từ Sprint-00 — chưa qua Audit/RFC theo quy trình hiện hành |
+| Customer | `DONE` | `SPEC-T011-CUSTOMER-001`, tag `v0.7.0-customer-domain` |
+| Supplier | `IMPLEMENTING` | `SPEC-T012-SUPPLIER-001`, Implementation Report đã nộp, chờ Final Release Review — chưa tag |
 
 ## Inventory
 
@@ -86,7 +86,7 @@ Không còn chia theo Sprint (Master Data/CRM/Inventory/POS/ERP) như cấu trú
 | T009 | Barcode Release | `DONE` — tag `v0.6.0-barcode-foundation` |
 | T010 | Offline Single-Computer Scope Freeze | `DONE` — PASS, AR01-AR07 APPROVED, Decision AD01-AD04 (`docs/architecture/offline-single-computer-readiness-audit.md`) |
 | T011 | Customer | `DONE` — tag `v0.7.0-customer-domain`, FR01-FR10 APPROVED (`docs/release/t011-release-note.md`) |
-| T012 | Supplier | `NOT STARTED` — WAITING Short RFC từ Architect (Type B, Fast Track Workflow) |
+| T012 | Supplier | `IMPLEMENTING` — Implementation Report đã nộp, chờ Final Release Review (Type B, Fast Track Workflow) |
 | T013 | Sales Foundation | `NOT STARTED` |
 | T014 | Sales Return | `NOT STARTED` |
 | T015 | Purchase Foundation | `NOT STARTED` |

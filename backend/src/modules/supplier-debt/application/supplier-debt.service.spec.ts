@@ -3,8 +3,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { SupplierDomainService } from '../../supplier/application/supplier-domain.service';
 import { SupplierEntity } from '../../supplier/domain/entities/supplier.entity';
-import { ISupplierRepository } from '../../supplier/domain/repositories/supplier.repository.interface';
 import { SupplierPaymentEntity } from '../domain/entities/supplier-debt.entity';
 import {
   ISupplierDebtRepository,
@@ -15,7 +15,9 @@ import { ActorContext, SupplierDebtService } from './supplier-debt.service';
 describe('SupplierDebtService', () => {
   let service: SupplierDebtService;
   let supplierDebtRepository: jest.Mocked<ISupplierDebtRepository>;
-  let supplierRepository: jest.Mocked<Pick<ISupplierRepository, 'findById'>>;
+  let supplierDomainService: jest.Mocked<
+    Pick<SupplierDomainService, 'findById'>
+  >;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
 
   const actor: ActorContext = { userId: 'user-1', organizationId: 'org-1' };
@@ -52,12 +54,12 @@ describe('SupplierDebtService', () => {
       getBalance: jest.fn(),
       createPayment: jest.fn(),
     };
-    supplierRepository = { findById: jest.fn() };
+    supplierDomainService = { findById: jest.fn() };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     service = new SupplierDebtService(
       supplierDebtRepository,
-      supplierRepository as unknown as ISupplierRepository,
+      supplierDomainService as unknown as SupplierDomainService,
       auditLogService as unknown as AuditLogService,
     );
   });
@@ -96,7 +98,7 @@ describe('SupplierDebtService', () => {
 
   describe('createPayment', () => {
     it('ném NotFoundException khi supplier không tồn tại', async () => {
-      supplierRepository.findById.mockResolvedValue(null);
+      supplierDomainService.findById.mockResolvedValue(null);
       await expect(
         service.createPayment(
           {
@@ -112,7 +114,7 @@ describe('SupplierDebtService', () => {
     });
 
     it('tạo payment thành công và ghi audit log', async () => {
-      supplierRepository.findById.mockResolvedValue(makeSupplier());
+      supplierDomainService.findById.mockResolvedValue(makeSupplier());
       supplierDebtRepository.createPayment.mockResolvedValue(makePayment());
 
       const result = await service.createPayment(
@@ -142,7 +144,7 @@ describe('SupplierDebtService', () => {
     });
 
     it('dịch SupplierPaymentExceedsBalanceError sang UnprocessableEntityException', async () => {
-      supplierRepository.findById.mockResolvedValue(makeSupplier());
+      supplierDomainService.findById.mockResolvedValue(makeSupplier());
       supplierDebtRepository.createPayment.mockRejectedValue(
         new SupplierPaymentExceedsBalanceError('supplier-1', '100000'),
       );

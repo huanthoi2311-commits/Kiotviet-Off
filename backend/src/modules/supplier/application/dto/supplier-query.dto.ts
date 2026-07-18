@@ -14,7 +14,7 @@ import type {
   SupplierSortField,
 } from '../../domain/repositories/supplier.repository.interface';
 
-const SUPPLIER_STATUSES = ['ACTIVE', 'INACTIVE'] as const;
+const SUPPLIER_STATUSES = ['ACTIVE', 'INACTIVE', 'ARCHIVED'] as const;
 const SORT_FIELDS: SupplierSortField[] = [
   'code',
   'companyName',

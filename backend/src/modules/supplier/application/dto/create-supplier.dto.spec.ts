@@ -16,7 +16,12 @@ describe('CreateSupplierDto validation', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('từ chối code rỗng', async () => {
+  it('hợp lệ khi không gửi code (tùy chọn — Decision SR07)', async () => {
+    const errors = await validateDto({ companyName: 'Công ty Đức An' });
+    expect(errors).toHaveLength(0);
+  });
+
+  it('từ chối code rỗng (nếu gửi thì không được rỗng)', async () => {
     const errors = await validateDto({
       code: '',
       companyName: 'Công ty Đức An',

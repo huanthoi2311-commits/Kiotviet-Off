@@ -10,7 +10,7 @@
 
 ## Sprint hiện tại
 
-**Roadmap toàn dự án được chốt lại** (`ARCHITECT SCOPE CORRECTION`, Decision SC01-SC13) — hệ thống chuyển hẳn sang mô hình **Offline Single-Computer** (chi tiết đầy đủ ở `docs/SPRINT_DASHBOARD.md`). **T011 — Customer Domain: DONE** (`FINAL RELEASE REVIEW`, FR01-FR10 APPROVED — Repository Boundary fix `checkout`/`customer-point` là điểm nổi bật nhất, chi tiết `docs/release/t011-release-note.md`). Sau T011, dự án chính thức áp dụng **Decision AD05 — phân loại module Type A (Business-Critical, đủ 7 bước + Implementation Plan) / Type B (Standard Master Data, Fast Track 5 bước không Implementation Plan)** — xem `docs/project-governance/AI_WORKFLOW.md`. Module kế tiếp: **T012 — Supplier Domain** (Type B), WAITING Short RFC từ Architect. Không tự bắt đầu code.
+**Roadmap toàn dự án được chốt lại** (`ARCHITECT SCOPE CORRECTION`, Decision SC01-SC13) — hệ thống chuyển hẳn sang mô hình **Offline Single-Computer** (chi tiết đầy đủ ở `docs/SPRINT_DASHBOARD.md`). **T011 — Customer Domain: DONE** (`FINAL RELEASE REVIEW`, FR01-FR10 APPROVED — Repository Boundary fix `checkout`/`customer-point` là điểm nổi bật nhất, chi tiết `docs/release/t011-release-note.md`). Sau T011, dự án chính thức áp dụng **Decision AD05 — phân loại module Type A (Business-Critical, đủ 7 bước + Implementation Plan) / Type B (Standard Master Data, Fast Track 5 bước không Implementation Plan)** — xem `docs/project-governance/AI_WORKFLOW.md`. **T012 — Supplier Domain (Type B): IMPLEMENTATION REPORT đã nộp, chờ `FINAL RELEASE REVIEW` từ Architect** (RFC v2 → SPEC-T012-SUPPLIER-001 → Architecture Review SP01-SP13 → Implementation — chưa commit/push/tag, chi tiết `docs/release/t012-release-note.md`). Không tự commit/push/tag khi chưa có Final Release Review.
 
 ## Release
 

@@ -1,40 +1,34 @@
-import { PrismaService } from '../../../../prisma/prisma.service';
+import { SequenceCodeGeneratorService } from '../../../../prisma/sequence-code-generator.service';
 import { SequenceCustomerCodeGenerator } from './sequence-customer-code.generator';
 
-describe('SequenceCustomerCodeGenerator', () => {
+/**
+ * T012 (Decision SP05/SP11 điểm 7) — Regression Test: sau khi refactor thành adapter mỏng trên
+ * `SequenceCodeGeneratorService` dùng chung, kết quả sinh mã Customer (CUS000001, prefix/pad
+ * length) phải giữ nguyên hành vi như trước T012 — không đổi giá trị sinh ra.
+ */
+describe('SequenceCustomerCodeGenerator (adapter mỏng — T012 SP05)', () => {
   let generator: SequenceCustomerCodeGenerator;
-  let prisma: { sequence: { upsert: jest.Mock } };
+  let sharedGenerator: jest.Mocked<
+    Pick<SequenceCodeGeneratorService, 'generate'>
+  >;
 
   beforeEach(() => {
-    prisma = { sequence: { upsert: jest.fn() } };
+    sharedGenerator = { generate: jest.fn() };
     generator = new SequenceCustomerCodeGenerator(
-      prisma as unknown as PrismaService,
+      sharedGenerator as unknown as SequenceCodeGeneratorService,
     );
   });
 
-  it('sinh mã với prefix CUS và đệm 6 chữ số', async () => {
-    prisma.sequence.upsert.mockResolvedValue({ value: 1 });
-    await expect(generator.generate('org-1')).resolves.toBe('CUS000001');
-  });
+  it('ủy quyền cho SequenceCodeGeneratorService với đúng sequenceName/prefix/padLength cố định', async () => {
+    sharedGenerator.generate.mockResolvedValue('CUS000001');
+    const result = await generator.generate('org-1');
 
-  it('tăng dần theo lần gọi tiếp theo (dựa vào giá trị Sequence trả về)', async () => {
-    prisma.sequence.upsert.mockResolvedValue({ value: 42 });
-    await expect(generator.generate('org-1')).resolves.toBe('CUS000042');
-  });
-
-  it('gọi upsert đúng theo organizationId + tên sequence cố định', async () => {
-    prisma.sequence.upsert.mockResolvedValue({ value: 1 });
-    await generator.generate('org-42');
-
-    expect(prisma.sequence.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          organizationId_name: {
-            organizationId: 'org-42',
-            name: 'customer_code',
-          },
-        },
-      }),
+    expect(result).toBe('CUS000001');
+    expect(sharedGenerator.generate).toHaveBeenCalledWith(
+      'org-1',
+      'customer_code',
+      'CUS',
+      6,
     );
   });
 });

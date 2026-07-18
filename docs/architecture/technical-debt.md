@@ -10,23 +10,23 @@
 
 ### 1. Integration Test (e2e) — toàn dự án
 
-- **Phát sinh từ:** Sprint-00 (T004), tiếp tục ở T005, T006, T007, T008, T009, T011.
+- **Phát sinh từ:** Sprint-00 (T004), tiếp tục ở T005, T006, T007, T008, T009, T011, T012.
 - **Nguyên nhân:** Sandbox phát triển hiện tại không có Docker/Postgres/Redis — không thể chạy `npm run test:e2e` thật.
-- **Điều kiện để hoàn thành:** Có môi trường Docker (`docker-compose up`), chạy `npm run test:e2e`, xác nhận toàn bộ `test/*.e2e-spec.ts` PASS. `category`: cần tạo mới `test/category.e2e-spec.ts` (chưa tồn tại). `customer`: cần tạo mới `test/customer.e2e-spec.ts` (chưa tồn tại — T011 chỉ có Unit Test, chưa có Integration Test riêng). `brand`/`unit`/`barcode`: `test/brand.e2e-spec.ts`, `test/unit.e2e-spec.ts` và `test/barcode.e2e-spec.ts` đã tồn tại và đã cập nhật đủ case CRUD/Restore/Optimistic Lock (T009: cả 4 thao tác ghi)/Delete Guard/Unit Reference Guard/isActive filter — chỉ chờ môi trường để chạy thật.
+- **Điều kiện để hoàn thành:** Có môi trường Docker (`docker-compose up`), chạy `npm run test:e2e`, xác nhận toàn bộ `test/*.e2e-spec.ts` PASS. `category`: cần tạo mới `test/category.e2e-spec.ts` (chưa tồn tại). `customer`: cần tạo mới `test/customer.e2e-spec.ts` (chưa tồn tại — T011 chỉ có Unit Test, chưa có Integration Test riêng). `supplier`: cần tạo mới `test/supplier.e2e-spec.ts` (chưa tồn tại — T012 chỉ có Unit Test + Architecture Test). `brand`/`unit`/`barcode`: `test/brand.e2e-spec.ts`, `test/unit.e2e-spec.ts` và `test/barcode.e2e-spec.ts` đã tồn tại và đã cập nhật đủ case CRUD/Restore/Optimistic Lock (T009: cả 4 thao tác ghi)/Delete Guard/Unit Reference Guard/isActive filter — chỉ chờ môi trường để chạy thật.
 - **Mức độ ưu tiên:** Cao — chặn Operational Complete của mọi Task từ T004 trở đi.
 - **Sprint dự kiến xử lý:** Khi có môi trường CI/CD thật với Docker (ngoài phạm vi 1 Sprint task cụ thể — thuộc hạ tầng dự án).
 
-### 2. Rollback Test — migration của T005 (Product), T006 (Category), T007 (Brand), T008 (Unit), T009 (Barcode) và T011 (Customer)
+### 2. Rollback Test — migration của T005 (Product), T006 (Category), T007 (Brand), T008 (Unit), T009 (Barcode), T011 (Customer) và T012 (Supplier)
 
 - **Nguyên nhân:** Cùng lý do #1 — không có Postgres để chạy `up → rollback.sql → up` thật.
-- **Điều kiện để hoàn thành:** Chạy từng `rollback.sql` (15 file: 3 của T005 + 3 của T006 + 1 của T007 + 2 của T008 + 2 của T009 + 3 của T011, cộng 1 file gộp T005 Migration 1+2) trên Postgres thật, xác nhận schema về đúng trạng thái trước migration, chạy `up` lại lần 2 xác nhận idempotent.
+- **Điều kiện để hoàn thành:** Chạy từng `rollback.sql` (17 file: 3 của T005 + 3 của T006 + 1 của T007 + 2 của T008 + 2 của T009 + 3 của T011 + 2 của T012, cộng 1 file gộp T005 Migration 1+2) trên Postgres thật, xác nhận schema về đúng trạng thái trước migration, chạy `up` lại lần 2 xác nhận idempotent.
 - **Mức độ ưu tiên:** Cao — rollback chưa kiểm thử thật là rủi ro nếu cần rollback khẩn cấp trong tương lai.
 - **Sprint dự kiến xử lý:** Cùng với #1, khi có môi trường Docker.
 
-### 3. Manual API Smoke Test — Product (T005), Category (T006), Brand (T007), Unit (T008), Barcode (T009) và Customer (T011)
+### 3. Manual API Smoke Test — Product (T005), Category (T006), Brand (T007), Unit (T008), Barcode (T009), Customer (T011) và Supplier (T012)
 
 - **Nguyên nhân:** Cần app chạy thật (`npm run start:dev`, cần Postgres/Redis) để gọi HTTP endpoint qua Swagger UI/curl.
-- **Điều kiện để hoàn thành:** Khởi động app thật, gọi đủ route của `product` (6 route), `category` (7 route), `brand` (6 route), `unit` (6 route, bao gồm `restore`), `barcode` (7 route: `GET /barcodes` mới, `GET`/`POST /products/:productId/barcodes`, `PATCH`/`DELETE`/`POST .../restore`/`POST .../default`) và `customer` (8 route: `POST`/`GET`/`GET :id`/`PATCH`/`POST :id/activate`/`POST :id/deactivate`/`DELETE`/`POST :id/restore`), xác nhận response shape khớp DTO hiện tại và body `{ version }` bắt buộc đúng ở các route ghi.
+- **Điều kiện để hoàn thành:** Khởi động app thật, gọi đủ route của `product` (6 route), `category` (7 route), `brand` (6 route), `unit` (6 route, bao gồm `restore`), `barcode` (7 route: `GET /barcodes` mới, `GET`/`POST /products/:productId/barcodes`, `PATCH`/`DELETE`/`POST .../restore`/`POST .../default`), `customer` (8 route: `POST`/`GET`/`GET :id`/`PATCH`/`POST :id/activate`/`POST :id/deactivate`/`DELETE`/`POST :id/restore`) và `supplier` (10 route: `POST`/`GET`/`GET :id`/`PATCH`/`POST :id/activate`/`POST :id/deactivate`/`DELETE`/`POST :id/restore`/`POST /import`/`GET /export`), xác nhận response shape khớp DTO hiện tại và body `{ version }` bắt buộc đúng ở các route ghi.
 - **Mức độ ưu tiên:** Trung bình — Unit Test đã bao phủ logic nghiệp vụ, Smoke Test xác nhận thêm wiring HTTP/Swagger/Validation Pipe thật.
 - **Sprint dự kiến xử lý:** Cùng với #1.
 
@@ -64,6 +64,27 @@
 - **Điều kiện để hoàn thành:** Bổ sung test case cho các nhánh chưa phủ (`customer.service.ts:432`, `customer.controller.ts:48-167`, `sequence-customer-code.generator.ts:12`, `prisma-customer.repository.ts:23,33,86,270`, `customer-point.subscriber.ts:27-44`), đưa branch coverage lên ≥90%.
 - **Mức độ ưu tiên:** Thấp — thống kê statements/functions/lines đã vượt ngưỡng, đúng tiền lệ Decision FR01 (T009) không chặn Release. Chờ Final Release Review xác nhận chính thức.
 - **Sprint dự kiến xử lý:** Khi có thời gian rảnh trong Sprint-01, có thể gộp cùng #5 (Barcode).
+
+### 9. End-to-End Acceptance Scenario — Supplier (T012, Decision SP12)
+
+- **Nguyên nhân:** Cần Postgres thật với dữ liệu Supplier trước-migration để xác nhận toàn bộ chuỗi 10 bước: migration A/B → build → regression → tạo Supplier mới (client cung cấp code + tự sinh) → generator đúng (không trùng dãy `customer_code`) → Archive Guard đúng (cả 2 chiều) → Import đúng → Export đúng → `supplier-debt` hoạt động (chi tiết `SPEC-T012-SUPPLIER-001.md` §13.1).
+- **Điều kiện để hoàn thành:** Chạy đúng chuỗi trên với môi trường Docker + dữ liệu Supplier mẫu trước-migration.
+- **Mức độ ưu tiên:** Cao — xác nhận migration brownfield không phá vỡ dữ liệu/consumer thật, cùng nhóm với #7 (Customer).
+- **Sprint dự kiến xử lý:** Cùng với #1, khi có môi trường Docker.
+
+### 10. Tăng Branch Coverage của Supplier + Supplier-Debt lên ≥90%
+
+- **Nguyên nhân:** Coverage tổng hợp module `supplier`+`supplier-debt` đạt 94.7% statements/96.03% functions/96.44% lines nhưng chỉ 80.6% branch — cùng tình huống Barcode (#5)/Customer (#8) — một số nhánh điều kiện (decorator route, Excel adapter cell-parsing edge case) chưa có test riêng.
+- **Điều kiện để hoàn thành:** Bổ sung test case cho các nhánh chưa phủ (`supplier.controller.ts:63-103,130-245`, `supplier-product.controller.ts:43-90`, `exceljs-supplier-excel.adapter.ts:104-126`, `supplier-debt.controller.ts:25-37`, `supplier-payment.controller.ts:32-46`), đưa branch coverage lên ≥90%.
+- **Mức độ ưu tiên:** Thấp — thống kê statements/functions/lines đã vượt ngưỡng, đúng tiền lệ Decision FR01/FR06 (T009/T011) không chặn Release. Chờ Final Release Review xác nhận chính thức.
+- **Sprint dự kiến xử lý:** Khi có thời gian rảnh trong Sprint-01, có thể gộp cùng #5/#8.
+
+### 11. Hợp nhất 8 generator `Sequence*Generator` còn lại vào `SequenceCodeGeneratorService` (phát hiện khi triển khai T012, Decision SP05)
+
+- **Nguyên nhân:** Khi triển khai `SequenceCodeGeneratorService` dùng chung theo yêu cầu SP05 ("Supplier không được sao chép logic generator của Customer"), khảo sát phát hiện đây là pattern trùng lặp có hệ thống trên toàn dự án — 10 class `Sequence*Generator` độc lập tồn tại từ trước khi T012 bắt đầu (branch, customer, inventory-adjustment, invoice, organization, product/sku, purchase-order, purchase-return, stock-count, transfer), mỗi class tự lặp lại đúng logic `prisma.sequence.upsert()`. T012 chỉ hợp nhất đúng 2 module SP05 nêu tên (Customer, Supplier) — 8 generator còn lại (branch, inventory-adjustment, invoice, organization, product/sku, purchase-order, purchase-return, stock-count, transfer) chưa refactor.
+- **Điều kiện để hoàn thành:** Một task hạ tầng riêng (không thuộc phạm vi bất kỳ module nghiệp vụ nào) — refactor từng generator còn lại thành adapter mỏng trên `SequenceCodeGeneratorService`, kèm Regression Test xác nhận không đổi giá trị sinh ra (đúng mẫu đã làm với Customer ở T012).
+- **Mức độ ưu tiên:** Thấp — không phải bug, chỉ là trùng lặp code; mỗi generator hiện tại vẫn hoạt động đúng độc lập.
+- **Sprint dự kiến xử lý:** Khi Architect quyết định ưu tiên một Sprint dọn dẹp hạ tầng — không tự đề xuất chèn vào roadmap hiện tại.
 
 ---
 

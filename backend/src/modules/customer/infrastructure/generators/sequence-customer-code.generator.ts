@@ -1,28 +1,26 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import { SequenceCodeGeneratorService } from '../../../../prisma/sequence-code-generator.service';
 import { ICustomerCodeGenerator } from '../../domain/services/customer-code-generator.interface';
 
 const CUSTOMER_CODE_SEQUENCE_NAME = 'customer_code';
 const CUSTOMER_CODE_PREFIX = 'CUS';
 const CUSTOMER_CODE_PAD_LENGTH = 6;
 
-/** Sinh mã khách hàng (CUS000001) nguyên tử qua bảng Sequence — cùng cơ chế SequenceSkuGenerator (Prompt 016). */
+/**
+ * Sinh mã khách hàng (CUS000001) — adapter mỏng trên `SequenceCodeGeneratorService` dùng chung
+ * (T012 SPEC-T012-SUPPLIER-001 §9.3b, Decision SP05). Refactor từ T011 chỉ đổi CÁCH sinh code
+ * (gọi qua service dùng chung), KHÔNG đổi giá trị sinh ra (cùng sequence name/prefix/pad length).
+ */
 @Injectable()
 export class SequenceCustomerCodeGenerator implements ICustomerCodeGenerator {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly generator: SequenceCodeGeneratorService) {}
 
-  async generate(organizationId: string): Promise<string> {
-    const sequence = await this.prisma.sequence.upsert({
-      where: {
-        organizationId_name: {
-          organizationId,
-          name: CUSTOMER_CODE_SEQUENCE_NAME,
-        },
-      },
-      create: { organizationId, name: CUSTOMER_CODE_SEQUENCE_NAME, value: 1 },
-      update: { value: { increment: 1 } },
-    });
-
-    return `${CUSTOMER_CODE_PREFIX}${sequence.value.toString().padStart(CUSTOMER_CODE_PAD_LENGTH, '0')}`;
+  generate(organizationId: string): Promise<string> {
+    return this.generator.generate(
+      organizationId,
+      CUSTOMER_CODE_SEQUENCE_NAME,
+      CUSTOMER_CODE_PREFIX,
+      CUSTOMER_CODE_PAD_LENGTH,
+    );
   }
 }

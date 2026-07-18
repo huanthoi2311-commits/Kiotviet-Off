@@ -1,7 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsEmail,
-  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -11,14 +10,16 @@ import {
   Min,
 } from 'class-validator';
 
-const SUPPLIER_STATUSES = ['ACTIVE', 'INACTIVE'] as const;
-
+/**
+ * Không có `code` — bất biến sau khi tạo. Không có `status` — chuyển hẳn sang route
+ * Activate/Deactivate/Archive/Restore riêng (T012 SPEC-T012-SUPPLIER-001 §5).
+ */
 export class UpdateSupplierDto {
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  @Length(1, 50)
-  code?: string;
+  @ApiProperty({
+    description: 'Version hiện tại — Optimistic Lock, bắt buộc (BR09)',
+  })
+  @IsInt()
+  version: number;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -92,11 +93,6 @@ export class UpdateSupplierDto {
   @IsNumber()
   @Min(0)
   creditLimit?: number;
-
-  @ApiProperty({ required: false, enum: SUPPLIER_STATUSES })
-  @IsOptional()
-  @IsEnum(SUPPLIER_STATUSES)
-  status?: (typeof SUPPLIER_STATUSES)[number];
 
   @ApiProperty({ required: false })
   @IsOptional()

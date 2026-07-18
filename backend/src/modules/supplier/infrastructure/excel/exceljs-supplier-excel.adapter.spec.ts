@@ -26,6 +26,7 @@ describe('ExceljsSupplierExcelAdapter', () => {
     paymentTerm: 30,
     creditLimit: '50000000',
     status: 'ACTIVE',
+    version: 1,
     note: 'Nhà cung cấp lâu năm',
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),

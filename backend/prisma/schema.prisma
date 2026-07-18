@@ -1137,9 +1137,13 @@ model Supplier {
   bankAccount String?
   /// Số ngày công nợ cho phép (vd: 30 = NET 30).
   paymentTerm Int?
-  creditLimit Decimal?     @db.Decimal(18, 2)
-  status      CommonStatus @default(ACTIVE)
+  creditLimit Decimal?       @db.Decimal(18, 2)
+  /// SupplierStatus rieng (T012 SPEC SS0.3), thay CommonStatus 2 gia tri.
+  status      SupplierStatus @default(ACTIVE)
   note        String?
+
+  /// Optimistic Lock (T012 SPEC BR09) - ap dung Update/Activate/Deactivate/Archive/Restore.
+  version Int @default(1)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -1156,6 +1160,12 @@ model Supplier {
   @@unique([organizationId, code])
   @@index([organizationId])
   @@map("suppliers")
+}
+
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
 }
 
 model SupplierProduct {

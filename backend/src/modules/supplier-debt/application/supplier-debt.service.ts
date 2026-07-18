@@ -7,8 +7,7 @@ import {
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
-import { SUPPLIER_REPOSITORY } from '../../supplier/domain/repositories/supplier.repository.interface';
-import type { ISupplierRepository } from '../../supplier/domain/repositories/supplier.repository.interface';
+import { SupplierDomainService } from '../../supplier/application/supplier-domain.service';
 import { SupplierPaymentEntity } from '../domain/entities/supplier-debt.entity';
 import {
   SUPPLIER_DEBT_REPOSITORY,
@@ -33,8 +32,7 @@ export class SupplierDebtService {
   constructor(
     @Inject(SUPPLIER_DEBT_REPOSITORY)
     private readonly supplierDebtRepository: ISupplierDebtRepository,
-    @Inject(SUPPLIER_REPOSITORY)
-    private readonly supplierRepository: ISupplierRepository,
+    private readonly supplierDomainService: SupplierDomainService,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -65,9 +63,9 @@ export class SupplierDebtService {
     dto: CreateSupplierPaymentDto,
     actor: ActorContext,
   ): Promise<SupplierPaymentResponseDto> {
-    const supplier = await this.supplierRepository.findById(
-      dto.supplierId,
+    const supplier = await this.supplierDomainService.findById(
       actor.organizationId,
+      dto.supplierId,
     );
     if (!supplier) {
       throw new NotFoundException(
