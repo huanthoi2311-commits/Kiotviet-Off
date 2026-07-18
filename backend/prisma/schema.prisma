@@ -68,6 +68,13 @@ enum CustomerType {
   COMPANY
 }
 
+/// T011 (RFC-T011 SS8) - rieng cho Customer, KHONG dung CommonStatus (dung chung 5 model khac).
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
 enum ProductStatus {
   DRAFT
   ACTIVE
@@ -1718,13 +1725,16 @@ model Customer {
   code         String
   customerType CustomerType @default(RETAIL)
   fullName     String
-  phone        String
+  /// T011 (RFC-T011 SS6.5/Decision CR06/SR09) - tuy chon, KHONG con unique trong Organization.
+  phone        String?
   email        String?
   birthday     DateTime?
   gender       Gender?
   /// Chỉ có ý nghĩa với customerType DEALER/COMPANY — không bắt buộc ở tầng schema.
   taxCode      String?
   companyName  String?
+  /// T011 (RFC-T011 SS6.9) - nguoi lien he chinh, cot moi.
+  contactName  String?
   address      String?
   province     String?
   district     String?
@@ -1732,14 +1742,23 @@ model Customer {
   avatar       String?
   note         String?
   creditLimit  Decimal?     @db.Decimal(18, 2)
+  /// T011 (RFC-T011 SS6.12) - han thanh toan (so ngay), cot moi, chi luu thong tin.
+  paymentTermDays Int?
+  /// @deprecated T011 Decision CR02/AR-T011-01 - khong con la du lieu nghiep vu, KHONG cho Create/Update ghi.
   /// Do hệ thống duy trì (Customer Debt — Prompt tương lai), không cho client sửa trực tiếp.
   currentDebt  Decimal      @default(0) @db.Decimal(18, 2)
+  /// @deprecated T011 Decision CR03 - system-maintained projection, khong expose trong Create/Update DTO input.
   /// Do hệ thống duy trì (Order module — Volume 11), không cho client sửa trực tiếp.
   totalRevenue Decimal      @default(0) @db.Decimal(18, 2)
+  /// @deprecated T011 Decision CR03 - system-maintained projection, khong expose trong Create/Update DTO input.
   totalOrder   Int          @default(0)
+  /// system-maintained projection (T011 Decision CR04) - CHI Customer Point workflow duoc cap nhat.
   /// Do hệ thống duy trì (Customer Point Ledger — Prompt 032), không cho client sửa trực tiếp.
   totalPoint   Int          @default(0)
-  status       CommonStatus @default(ACTIVE)
+  /// T011 - CustomerStatus rieng (3 gia tri), thay CommonStatus (2 gia tri, dung chung 5 model khac).
+  status       CustomerStatus @default(ACTIVE)
+  /// T011 (BR09) - Optimistic Lock.
+  version      Int          @default(1)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -1754,7 +1773,6 @@ model Customer {
   invoices     Invoice[]
 
   @@unique([organizationId, code])
-  @@unique([organizationId, phone])
   @@index([organizationId])
   @@index([fullName])
   @@map("customers")

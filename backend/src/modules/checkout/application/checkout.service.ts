@@ -14,8 +14,7 @@ import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { DomainEventPublisher } from '../../platform/events/domain-event-publisher.service';
 import { CART_REPOSITORY } from '../../cart/domain/repositories/cart.repository.interface';
 import type { ICartRepository } from '../../cart/domain/repositories/cart.repository.interface';
-import { CUSTOMER_REPOSITORY } from '../../customer/domain/repositories/customer.repository.interface';
-import type { ICustomerRepository } from '../../customer/domain/repositories/customer.repository.interface';
+import { CustomerDomainService } from '../../customer/application/customer-domain.service';
 import { POINT_USED_EVENT } from '../../customer-point/domain/events/customer-point.events';
 import type { CustomerPointDomainEvent } from '../../customer-point/domain/events/customer-point.events';
 import { CUSTOMER_POINT_REPOSITORY } from '../../customer-point/domain/repositories/customer-point.repository.interface';
@@ -74,8 +73,7 @@ export class CheckoutService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CART_REPOSITORY) private readonly cartRepository: ICartRepository,
-    @Inject(CUSTOMER_REPOSITORY)
-    private readonly customerRepository: ICustomerRepository,
+    private readonly customerDomainService: CustomerDomainService,
     @Inject(CUSTOMER_POINT_REPOSITORY)
     private readonly customerPointRepository: ICustomerPointRepository,
     private readonly inventoryDomainService: InventoryDomainService,
@@ -103,9 +101,11 @@ export class CheckoutService {
     }
 
     if (dto.customerId) {
-      const customer = await this.customerRepository.findById(
-        dto.customerId,
+      // T011 (SPEC-T011-CUSTOMER-001 §9.4) — findActiveById() thay findById() trực tiếp:
+      // đúng BR04 ("Archived Customer không được sử dụng cho giao dịch bán hàng mới").
+      const customer = await this.customerDomainService.findActiveById(
         actor.organizationId,
+        dto.customerId,
       );
       if (!customer) {
         throw new NotFoundException(

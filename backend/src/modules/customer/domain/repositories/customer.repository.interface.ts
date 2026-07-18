@@ -9,12 +9,13 @@ export interface CustomerFieldsInput {
   code: string;
   customerType?: CustomerType;
   fullName: string;
-  phone: string;
+  phone?: string | null;
   email?: string | null;
   birthday?: Date | null;
   gender?: Gender | null;
   taxCode?: string | null;
   companyName?: string | null;
+  contactName?: string | null;
   address?: string | null;
   province?: string | null;
   district?: string | null;
@@ -22,7 +23,7 @@ export interface CustomerFieldsInput {
   avatar?: string | null;
   note?: string | null;
   creditLimit?: number | null;
-  status?: CustomerStatus;
+  paymentTermDays?: number | null;
 }
 
 export interface CreateCustomerInput extends CustomerFieldsInput {
@@ -59,17 +60,44 @@ export interface CustomerSearchResult {
 export interface ICustomerRepository {
   create(input: CreateCustomerInput): Promise<CustomerEntity>;
   findById(id: string, organizationId: string): Promise<CustomerEntity | null>;
+  findByCode(
+    organizationId: string,
+    code: string,
+  ): Promise<CustomerEntity | null>;
   findByIdIncludingDeleted(
     id: string,
     organizationId: string,
   ): Promise<CustomerEntity | null>;
-  update(id: string, input: UpdateCustomerInput): Promise<CustomerEntity>;
-  softDelete(id: string, deletedBy: string): Promise<void>;
-  restore(id: string, restoredBy: string): Promise<void>;
-  search(params: CustomerSearchParams): Promise<CustomerSearchResult>;
-  existsByPhone(
+  update(
+    id: string,
     organizationId: string,
-    phone: string,
+    expectedVersion: number,
+    input: UpdateCustomerInput,
+  ): Promise<CustomerEntity>;
+  /** Dùng chung Activate/Deactivate (SPEC §4.2) — set `status` + tăng `version`. */
+  changeStatusWithVersion(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    status: CustomerStatus,
+    updatedBy: string,
+  ): Promise<CustomerEntity>;
+  softDelete(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    deletedBy: string,
+  ): Promise<void>;
+  restore(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    restoredBy: string,
+  ): Promise<void>;
+  search(params: CustomerSearchParams): Promise<CustomerSearchResult>;
+  existsByCode(
+    organizationId: string,
+    code: string,
     excludeId?: string,
   ): Promise<boolean>;
   /**

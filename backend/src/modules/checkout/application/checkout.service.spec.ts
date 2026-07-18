@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { ICartRepository } from '../../cart/domain/repositories/cart.repository.interface';
 import { CartEntity } from '../../cart/domain/entities/cart.entity';
-import type { ICustomerRepository } from '../../customer/domain/repositories/customer.repository.interface';
+import { CustomerDomainService } from '../../customer/application/customer-domain.service';
 import { CustomerPointInsufficientBalanceError } from '../../customer-point/domain/repositories/customer-point.repository.interface';
 import type { ICustomerPointRepository } from '../../customer-point/domain/repositories/customer-point.repository.interface';
 import { InventoryDomainService } from '../../inventory/application/inventory-domain.service';
@@ -37,7 +37,9 @@ import { CheckoutDto } from './dto/checkout.dto';
 describe('CheckoutService', () => {
   let service: CheckoutService;
   let cartRepository: jest.Mocked<ICartRepository>;
-  let customerRepository: jest.Mocked<Pick<ICustomerRepository, 'findById'>>;
+  let customerDomainService: jest.Mocked<
+    Pick<CustomerDomainService, 'findActiveById'>
+  >;
   let customerPointRepository: jest.Mocked<ICustomerPointRepository>;
   let inventoryDomainService: jest.Mocked<
     Pick<InventoryDomainService, 'decrease'>
@@ -129,7 +131,7 @@ describe('CheckoutService', () => {
       save: jest.fn(),
       delete: jest.fn(),
     };
-    customerRepository = { findById: jest.fn() };
+    customerDomainService = { findActiveById: jest.fn() };
     customerPointRepository = {
       addPoint: jest.fn(),
       usePoint: jest.fn(),
@@ -167,7 +169,7 @@ describe('CheckoutService', () => {
     service = new CheckoutService(
       prisma as unknown as PrismaService,
       cartRepository,
-      customerRepository as unknown as ICustomerRepository,
+      customerDomainService as unknown as CustomerDomainService,
       customerPointRepository,
       inventoryDomainService as unknown as InventoryDomainService,
       voucherRepository,
@@ -196,7 +198,7 @@ describe('CheckoutService', () => {
     });
 
     it('ném NotFoundException khi customerId không tồn tại', async () => {
-      customerRepository.findById.mockResolvedValue(null);
+      customerDomainService.findActiveById.mockResolvedValue(null);
       await expect(
         service.checkout({ ...baseDto, customerId: 'cus-x' }, actor),
       ).rejects.toThrow(NotFoundException);
@@ -293,7 +295,9 @@ describe('CheckoutService', () => {
     });
 
     it('dùng điểm tích lũy — trừ đúng vào phần còn lại, publish POINT_USED_EVENT', async () => {
-      customerRepository.findById.mockResolvedValue({ id: 'cus-1' } as never);
+      customerDomainService.findActiveById.mockResolvedValue({
+        id: 'cus-1',
+      } as never);
       customerPointRepository.usePoint.mockResolvedValue({
         id: 'ledger-1',
         organizationId: 'org-1',
@@ -323,7 +327,9 @@ describe('CheckoutService', () => {
     });
 
     it('ném UnprocessableEntityException khi pointsToUse vượt quá giá trị đơn hàng còn lại', async () => {
-      customerRepository.findById.mockResolvedValue({ id: 'cus-1' } as never);
+      customerDomainService.findActiveById.mockResolvedValue({
+        id: 'cus-1',
+      } as never);
       await expect(
         service.checkout(
           { ...baseDto, customerId: 'cus-1', pointsToUse: 999999 },
@@ -382,7 +388,9 @@ describe('CheckoutService', () => {
     });
 
     it('map CustomerPointInsufficientBalanceError -> 422', async () => {
-      customerRepository.findById.mockResolvedValue({ id: 'cus-1' } as never);
+      customerDomainService.findActiveById.mockResolvedValue({
+        id: 'cus-1',
+      } as never);
       customerPointRepository.usePoint.mockRejectedValue(
         new CustomerPointInsufficientBalanceError('cus-1', 10),
       );

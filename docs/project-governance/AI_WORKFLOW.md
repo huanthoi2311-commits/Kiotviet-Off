@@ -69,6 +69,37 @@ Chỉ tới bước này khi bước 5 xác nhận đủ điều kiện. Trong l
 - Nếu GIỮA CHỪNG code phát hiện 1 xung đột MỚI (khác với những gì đã kiểm tra ở bước 1-4) — dừng lại ngay, quay lại bước 5, không "code tạm cho xong rồi hỏi sau".
 - Sau khi code xong, chạy đầy đủ checklist self-review (`REVIEW_RULES.md` §1) trước khi báo cáo hoàn thành.
 
+## Phân loại Module — Type A / Type B (Decision AD05, sau khi T009 Barcode + T011 Customer hoàn thành)
+
+Từ sau T011, mỗi module mới trước khi bắt đầu RFC phải được xếp vào đúng 1 trong 2 loại — quyết định quy trình áp dụng (đủ 7 bước hay Fast Track 5 bước):
+
+### TYPE A — Business-Critical Modules
+
+Gồm: Sales, Purchase, Inventory, Debt Ledger, Cashbook, Reports (và tương tự — nghiệp vụ lõi ảnh hưởng trực tiếp tiền/tồn kho/sổ sách).
+
+```
+RFC → Architecture Review → SPEC → Architecture Review → Implementation Plan → Architecture Review → Implementation → Release Review
+```
+
+Đầy đủ 7 bước, **có** Implementation Plan riêng — đúng quy trình đã áp dụng cho T005-T010.
+
+### TYPE B — Standard Master Data Modules
+
+Gồm: Customer, Supplier, Brand, Category, Unit, Barcode và Master Data tương tự.
+
+```
+Short RFC → Architecture Review → SPEC → SPEC Review → Implementation → Release Review
+```
+
+**Không** có Implementation Plan riêng (Fast Track Workflow — đã áp dụng cho T011).
+
+**Điều kiện để 1 module được xếp Type B** (cả 3 phải đúng, thiếu 1 → coi là Type A):
+1. Không có thay đổi kiến trúc lớn.
+2. Không có dependency phức tạp.
+3. Không có migration rủi ro cao.
+
+Nếu khi Audit/Architecture Review phát hiện 1 module ban đầu tưởng Type B nhưng thực ra vi phạm 1 trong 3 điều kiện trên (vd phát hiện circular dependency thật như Barcode↔Unit ở T009, hoặc brownfield phức tạp như Customer ở T011) — báo cáo rõ, chờ Architect xác nhận có chuyển sang quy trình Type A hay tiếp tục Type B với Resolution bổ sung (như đã xảy ra ở cả 2 module trên, đều vẫn giữ Type B sau khi Resolution xử lý xong phát hiện mới).
+
 ## Ví dụ cụ thể từ chính dự án này (tham khảo khi áp dụng)
 
 - **RFC/SPEC mâu thuẫn với code thực tế**: `SPEC-ORG-001` giả định `Organization.plan` là SSOT duy nhất cho gói dịch vụ, nhưng code đã có sẵn ý tưởng tách `OrganizationSubscription` — dừng lại hỏi, nhận `ARCHITECT DECISION` xác nhận hướng đi trước khi code T002.

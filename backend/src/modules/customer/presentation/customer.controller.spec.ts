@@ -9,7 +9,14 @@ describe('CustomerController', () => {
   let customerService: jest.Mocked<
     Pick<
       CustomerService,
-      'create' | 'search' | 'findOne' | 'update' | 'remove' | 'restore'
+      | 'create'
+      | 'search'
+      | 'findOne'
+      | 'update'
+      | 'activate'
+      | 'deactivate'
+      | 'remove'
+      | 'restore'
     >
   >;
   const reflector = new Reflector();
@@ -32,6 +39,8 @@ describe('CustomerController', () => {
       search: jest.fn(),
       findOne: jest.fn(),
       update: jest.fn(),
+      activate: jest.fn(),
+      deactivate: jest.fn(),
       remove: jest.fn(),
       restore: jest.fn(),
     };
@@ -40,12 +49,14 @@ describe('CustomerController', () => {
     );
   });
 
-  describe('permission metadata (Prompt 031)', () => {
+  describe('permission metadata (Prompt 031, cập nhật T011)', () => {
     it.each([
       ['create', 'customer:create'],
       ['search', 'customer:view'],
       ['findOne', 'customer:view'],
       ['update', 'customer:update'],
+      ['activate', 'customer:activate'],
+      ['deactivate', 'customer:deactivate'],
       ['remove', 'customer:delete'],
       ['restore', 'customer:restore'],
     ])('method %s yêu cầu permission %s', (method, expectedPermission) => {
@@ -95,7 +106,7 @@ describe('CustomerController', () => {
       id: 'cus-1',
       fullName: 'B',
     } as never);
-    const dto = { fullName: 'B' } as never;
+    const dto = { version: 1, fullName: 'B' } as never;
     await controller.update('cus-1', dto, user as never, req);
     expect(customerService.update).toHaveBeenCalledWith(
       'cus-1',
@@ -104,19 +115,58 @@ describe('CustomerController', () => {
     );
   });
 
-  it('remove ủy quyền cho service.remove kèm actor context', async () => {
-    await controller.remove('cus-1', user as never, req);
+  it('activate ủy quyền cho service.activate kèm version từ body', async () => {
+    customerService.activate.mockResolvedValue({
+      id: 'cus-1',
+      status: 'ACTIVE',
+    } as never);
+    const dto = { version: 1 } as never;
+    const result = await controller.activate('cus-1', dto, user as never, req);
+    expect(customerService.activate).toHaveBeenCalledWith(
+      'cus-1',
+      1,
+      expect.any(Object),
+    );
+    expect(result).toEqual({ id: 'cus-1', status: 'ACTIVE' });
+  });
+
+  it('deactivate ủy quyền cho service.deactivate kèm version từ body', async () => {
+    customerService.deactivate.mockResolvedValue({
+      id: 'cus-1',
+      status: 'INACTIVE',
+    } as never);
+    const dto = { version: 1 } as never;
+    const result = await controller.deactivate(
+      'cus-1',
+      dto,
+      user as never,
+      req,
+    );
+    expect(customerService.deactivate).toHaveBeenCalledWith(
+      'cus-1',
+      1,
+      expect.any(Object),
+    );
+    expect(result).toEqual({ id: 'cus-1', status: 'INACTIVE' });
+  });
+
+  it('remove ủy quyền cho service.remove kèm version từ body', async () => {
+    const dto = { version: 1 } as never;
+    await controller.remove('cus-1', dto, user as never, req);
     expect(customerService.remove).toHaveBeenCalledWith(
       'cus-1',
+      1,
       expect.any(Object),
     );
   });
 
-  it('restore ủy quyền cho service.restore kèm actor context', async () => {
+  it('restore ủy quyền cho service.restore kèm version từ body', async () => {
     customerService.restore.mockResolvedValue({ id: 'cus-1' } as never);
-    await controller.restore('cus-1', user as never, req);
+    const dto = { version: 2 } as never;
+    await controller.restore('cus-1', dto, user as never, req);
     expect(customerService.restore).toHaveBeenCalledWith(
       'cus-1',
+      2,
       expect.any(Object),
     );
   });

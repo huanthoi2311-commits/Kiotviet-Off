@@ -4,8 +4,8 @@ import {
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { DomainEventPublisher } from '../../platform/events/domain-event-publisher.service';
+import { CustomerDomainService } from '../../customer/application/customer-domain.service';
 import { CustomerEntity } from '../../customer/domain/entities/customer.entity';
-import { ICustomerRepository } from '../../customer/domain/repositories/customer.repository.interface';
 import { CustomerPointLedgerEntity } from '../domain/entities/customer-point-ledger.entity';
 import {
   POINT_ADDED_EVENT,
@@ -20,7 +20,9 @@ import { ActorContext, CustomerPointService } from './customer-point.service';
 describe('CustomerPointService', () => {
   let service: CustomerPointService;
   let customerPointRepository: jest.Mocked<ICustomerPointRepository>;
-  let customerRepository: jest.Mocked<Pick<ICustomerRepository, 'findById'>>;
+  let customerDomainService: jest.Mocked<
+    Pick<CustomerDomainService, 'findById'>
+  >;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
   let eventPublisher: jest.Mocked<Pick<DomainEventPublisher, 'publish'>>;
 
@@ -51,13 +53,13 @@ describe('CustomerPointService', () => {
       getHistory: jest.fn(),
       getBalance: jest.fn(),
     };
-    customerRepository = { findById: jest.fn() };
+    customerDomainService = { findById: jest.fn() };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
     eventPublisher = { publish: jest.fn() };
 
     service = new CustomerPointService(
       customerPointRepository,
-      customerRepository as unknown as ICustomerRepository,
+      customerDomainService as unknown as CustomerDomainService,
       auditLogService as unknown as AuditLogService,
       eventPublisher as unknown as DomainEventPublisher,
     );
@@ -65,14 +67,14 @@ describe('CustomerPointService', () => {
 
   describe('addPoint', () => {
     it('ném NotFoundException khi customer không tồn tại', async () => {
-      customerRepository.findById.mockResolvedValue(null);
+      customerDomainService.findById.mockResolvedValue(null);
       await expect(
         service.addPoint({ customerId: 'cus-1', point: 100 }, actor),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('cộng điểm thành công, ghi audit log và publish PointAdded', async () => {
-      customerRepository.findById.mockResolvedValue(makeCustomer());
+      customerDomainService.findById.mockResolvedValue(makeCustomer());
       customerPointRepository.addPoint.mockResolvedValue(makeLedgerEntry());
 
       const result = await service.addPoint(
@@ -96,14 +98,14 @@ describe('CustomerPointService', () => {
 
   describe('usePoint', () => {
     it('ném NotFoundException khi customer không tồn tại', async () => {
-      customerRepository.findById.mockResolvedValue(null);
+      customerDomainService.findById.mockResolvedValue(null);
       await expect(
         service.usePoint({ customerId: 'cus-1', point: 30 }, actor),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('dùng điểm thành công, ghi audit log và publish PointUsed', async () => {
-      customerRepository.findById.mockResolvedValue(makeCustomer());
+      customerDomainService.findById.mockResolvedValue(makeCustomer());
       customerPointRepository.usePoint.mockResolvedValue(
         makeLedgerEntry({ point: -30, balance: 70 }),
       );
@@ -121,7 +123,7 @@ describe('CustomerPointService', () => {
     });
 
     it('dịch CustomerPointInsufficientBalanceError sang UnprocessableEntityException', async () => {
-      customerRepository.findById.mockResolvedValue(makeCustomer());
+      customerDomainService.findById.mockResolvedValue(makeCustomer());
       customerPointRepository.usePoint.mockRejectedValue(
         new CustomerPointInsufficientBalanceError('cus-1', 10),
       );
@@ -134,14 +136,14 @@ describe('CustomerPointService', () => {
 
   describe('getHistory', () => {
     it('ném NotFoundException khi customer không tồn tại', async () => {
-      customerRepository.findById.mockResolvedValue(null);
+      customerDomainService.findById.mockResolvedValue(null);
       await expect(
         service.getHistory({ customerId: 'cus-1' }, 'org-1'),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('trả về lịch sử phân trang với page/limit mặc định', async () => {
-      customerRepository.findById.mockResolvedValue(makeCustomer());
+      customerDomainService.findById.mockResolvedValue(makeCustomer());
       customerPointRepository.getHistory.mockResolvedValue({
         items: [makeLedgerEntry()],
         total: 1,

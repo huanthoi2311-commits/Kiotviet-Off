@@ -152,7 +152,7 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
     description: 'Hủy phiếu trả hàng nhà cung cấp',
   },
   ...crud('supplier', 'nhà cung cấp', ['restore', 'import', 'export']),
-  ...crud('customer', 'khách hàng', ['restore']),
+  ...crud('customer', 'khách hàng', ['restore', 'activate', 'deactivate']),
   { code: 'order:view', group: 'order', description: 'Xem đơn hàng' },
   { code: 'order:create', group: 'order', description: 'Tạo đơn hàng' },
   { code: 'order:update', group: 'order', description: 'Sửa đơn hàng' },

@@ -8,8 +8,7 @@ import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { DomainEventPublisher } from '../../platform/events/domain-event-publisher.service';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
-import { CUSTOMER_REPOSITORY } from '../../customer/domain/repositories/customer.repository.interface';
-import type { ICustomerRepository } from '../../customer/domain/repositories/customer.repository.interface';
+import { CustomerDomainService } from '../../customer/application/customer-domain.service';
 import { CustomerPointLedgerEntity } from '../domain/entities/customer-point-ledger.entity';
 import {
   POINT_ADDED_EVENT,
@@ -41,8 +40,7 @@ export class CustomerPointService {
   constructor(
     @Inject(CUSTOMER_POINT_REPOSITORY)
     private readonly customerPointRepository: ICustomerPointRepository,
-    @Inject(CUSTOMER_REPOSITORY)
-    private readonly customerRepository: ICustomerRepository,
+    private readonly customerDomainService: CustomerDomainService,
     private readonly auditLogService: AuditLogService,
     private readonly eventPublisher: DomainEventPublisher,
   ) {}
@@ -164,9 +162,11 @@ export class CustomerPointService {
     customerId: string,
     organizationId: string,
   ): Promise<void> {
-    const customer = await this.customerRepository.findById(
-      customerId,
+    // T011 (SPEC-T011-CUSTOMER-001 §9.4) — findById() giữ nguyên (không findActiveById()):
+    // đồng bộ điểm không phải giao dịch bán hàng mới, không áp dụng ràng buộc BR04.
+    const customer = await this.customerDomainService.findById(
       organizationId,
+      customerId,
     );
     if (!customer) {
       throw new NotFoundException(

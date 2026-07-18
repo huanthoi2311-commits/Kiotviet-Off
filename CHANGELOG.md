@@ -7,11 +7,52 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/lang/vi/) (`MAJOR.
 
 ## [Unreleased]
 
+**Sprint-01 — T011: Customer Domain** (`SPEC-T011-CUSTOMER-001`), brownfield refactor đầu tiên của
+dự án (Decision CR01) — theo `RFC-T011` v1 (Architect) → Architecture Review → `ARCHITECT
+RESOLUTION` lần 1 (AR-T011-01~08, RFC REVISION REQUIRED) → `RFC-T011` v2 (Claude Code cập nhật
+theo CR01-CR13, ủy quyền tường minh) → `ARCHITECTURE REVIEW – SPEC-T011-CUSTOMER-001` (SR01-SR15,
+APPROVED, Fast Track Workflow). Chi tiết đầy đủ: `docs/release/t011-release-note.md`. **Chưa tag**
+— chờ Final Release Review riêng.
+
+### Added
+- `CustomerStatus` (`ACTIVE`/`INACTIVE`/`ARCHIVED`, enum riêng) — thay `CommonStatus` 2 giá trị,
+  thống nhất trạng thái + soft-delete.
+- `Customer.version` (Optimistic Lock, mới hoàn toàn) — áp dụng Update/Activate/Deactivate/
+  Archive/Restore (5 route ghi).
+- `POST /customers/:id/activate`, `POST /customers/:id/deactivate` — tách lifecycle transition
+  khỏi `PATCH` chung, đúng transition table RFC §8.
+- `contactName`, `paymentTermDays` — field mới (RFC §6.9/§6.12).
+- `CustomerDomainService` (module `customer`, mới) — 6 method, sửa Repository Boundary violation
+  tồn tại từ trước T011 (`checkout`/`customer-point` từng inject thẳng `CUSTOMER_REPOSITORY`).
+
+### Changed
+- **Customer code** — chuyển từ luôn tự sinh sang **optional input, mandatory stored value**
+  (Decision CR05/SR08): client có thể tự cung cấp (validate + unique) hoặc để hệ thống tự sinh
+  (giữ nguyên generator hiện có).
+- **`phone`** — không còn unique trong Organization (Decision CR06/SR09), chuyển sang nullable.
+  Gỡ `CUSTOMER_PHONE_DUPLICATE` khỏi luồng Create/Update.
+- **`PATCH /customers/:id`** nay bắt buộc `version`, không còn nhận `status` trực tiếp.
+- **`DELETE /customers/:id`**, **`POST /customers/:id/restore`** nay bắt buộc body `{ version }`.
+- **`checkout.service.ts`** dùng `CustomerDomainService.findActiveById()` — Customer đã `ARCHIVED`
+  không còn chọn được cho giao dịch mới (đúng BR04, thay đổi hành vi có chủ đích).
+
+### Deprecated
+- `currentDebt`, `totalRevenue`, `totalOrder` (Decision CR02/CR03) — không xóa cột, vẫn trả về
+  trong response (Backward Compatibility — Decision CR12), nhưng không nhận input từ Create/Update
+  DTO nào. `totalPoint` giữ nguyên làm system-maintained projection (Decision CR04).
+
+### Known Limitations
+- Integration Test (`test/customer.e2e-spec.ts` — chưa tồn tại), Rollback Test (3 migration),
+  Manual API Smoke Test, End-to-End Migration Scenario (Decision SR14) — 🟡 PENDING: không có
+  Docker/Postgres trong môi trường phát triển hiện tại. Xem `docs/architecture/technical-debt.md`.
+
+## [0.6.0-barcode-foundation] - 2026-07-17
+
 **Sprint-01 — T009: Barcode Domain** (`SPEC-BARCODE-001`), theo đúng `RFC-0005` (Architect-authored)
 → `ARCHITECT RESOLUTION – RFC-0005 Barcode Domain` (BQ1-BQ11) → `SPEC-BARCODE-001` →
 `ARCHITECTURE REVIEW – SPEC-BARCODE-001` (SB01-SB10) → `Barcode Implementation Plan` →
 `ARCHITECTURE REVIEW – Implementation Plan – Barcode Domain` (IP01-IP10). Chi tiết đầy đủ:
-`docs/release/t009-release-note.md`. **Chưa tag** — chờ Final Release Review riêng (Decision IP10).
+`docs/release/t009-release-note.md`.
 
 ### Added
 - `BarcodeStatus` (`ACTIVE`/`INACTIVE`/`ARCHIVED`, enum riêng — Decision BQ3).

@@ -21,7 +21,7 @@ const CUSTOMER_TYPES = [
   'DEALER',
   'COMPANY',
 ] as const;
-const CUSTOMER_STATUSES = ['ACTIVE', 'INACTIVE'] as const;
+const CUSTOMER_STATUSES = ['ACTIVE', 'INACTIVE', 'ARCHIVED'] as const;
 const SORT_FIELDS: CustomerSortField[] = [
   'code',
   'fullName',
@@ -65,13 +65,18 @@ export class CustomerQueryDto {
   @Max(100)
   limit?: number = 20;
 
-  @ApiProperty({ required: false, enum: SORT_FIELDS, default: 'createdAt' })
+  @ApiProperty({
+    required: false,
+    enum: SORT_FIELDS,
+    default: 'fullName',
+    description: 'Mặc định fullName (RFC-T011 §12 — "name ASC")',
+  })
   @IsOptional()
   @IsIn(SORT_FIELDS)
-  sortBy?: CustomerSortField = 'createdAt';
+  sortBy?: CustomerSortField = 'fullName';
 
-  @ApiProperty({ required: false, enum: SORT_ORDERS, default: 'desc' })
+  @ApiProperty({ required: false, enum: SORT_ORDERS, default: 'asc' })
   @IsOptional()
   @IsIn(SORT_ORDERS)
-  sortOrder?: SortOrder = 'desc';
+  sortOrder?: SortOrder = 'asc';
 }

@@ -6,17 +6,17 @@
 
 ## Version
 
-**Version hiện tại:** `v0.6.0-barcode-foundation`
+**Version hiện tại:** `v0.7.0-customer-domain`
 
 ## Sprint hiện tại
 
-Sprint-01 (Master Data). T009 (Barcode) đã đóng — module kế tiếp: **T010 — Attribute Domain**, chờ RFC từ Architect. Không tự bắt đầu code. Tiến độ chi tiết từng module, roadmap, trạng thái Audit/RFC/SPEC/Plan: xem `docs/SPRINT_DASHBOARD.md`.
+**Roadmap toàn dự án được chốt lại** (`ARCHITECT SCOPE CORRECTION`, Decision SC01-SC13) — hệ thống chuyển hẳn sang mô hình **Offline Single-Computer** (chi tiết đầy đủ ở `docs/SPRINT_DASHBOARD.md`). **T011 — Customer Domain: DONE** (`FINAL RELEASE REVIEW`, FR01-FR10 APPROVED — Repository Boundary fix `checkout`/`customer-point` là điểm nổi bật nhất, chi tiết `docs/release/t011-release-note.md`). Sau T011, dự án chính thức áp dụng **Decision AD05 — phân loại module Type A (Business-Critical, đủ 7 bước + Implementation Plan) / Type B (Standard Master Data, Fast Track 5 bước không Implementation Plan)** — xem `docs/project-governance/AI_WORKFLOW.md`. Module kế tiếp: **T012 — Supplier Domain** (Type B), WAITING Short RFC từ Architect. Không tự bắt đầu code.
 
 ## Release
 
-- **Tag mới nhất:** `v0.6.0-barcode-foundation` — Release Note đầy đủ: `docs/release/t009-release-note.md`.
-- **Technical Complete = YES, Operational Complete = PENDING** (Docker Integration Test/Rollback Test/Manual Smoke Test/Performance Benchmark/Branch Coverage Barcode ≥90% — theo dõi tập trung ở `docs/architecture/technical-debt.md`).
-- **Regression Baseline tại thời điểm release:** 148/148 test suite PASS, 1419/1419 test PASS (Sprint-00 + T005 Product + T006 Category + T007 Brand + T008 Unit + T009 Barcode).
+- **Tag mới nhất:** `v0.7.0-customer-domain` — Release Note đầy đủ: `docs/release/t011-release-note.md`.
+- **Technical Complete = YES, Operational Complete = PENDING** (Docker Integration Test/Rollback Test/Manual Smoke Test/Performance Benchmark/End-to-End Migration Scenario/Branch Coverage Barcode+Customer ≥90% — theo dõi tập trung ở `docs/architecture/technical-debt.md`).
+- **Regression Baseline tại thời điểm release:** 153/153 test suite PASS, 1478/1478 test PASS (Sprint-00 + T005 Product + T006 Category + T007 Brand + T008 Unit + T009 Barcode + T011 Customer).
 - **Versioning Policy** (Decision T006-R07): `v0.x.y` xuyên suốt Foundation + Master Data + CRM + Inventory + POS + ERP Core. Chỉ chuyển `v1.0.0` khi hoàn thành đầy đủ các domain trên theo roadmap — không phát hành sớm.
 
 ## Tài liệu tham chiếu nhanh

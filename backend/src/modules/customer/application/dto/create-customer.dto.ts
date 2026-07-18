@@ -3,6 +3,7 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -18,9 +19,19 @@ const CUSTOMER_TYPES = [
   'COMPANY',
 ] as const;
 const GENDERS = ['MALE', 'FEMALE', 'OTHER'] as const;
-const CUSTOMER_STATUSES = ['ACTIVE', 'INACTIVE'] as const;
 
+/** T011 (Decision CR05/SR08/SR11) — không nhận `status`: luôn `ACTIVE` khi tạo, không cho client set. */
 export class CreateCustomerDto {
+  @ApiProperty({
+    required: false,
+    description:
+      'Tùy chọn — nếu không gửi, hệ thống tự sinh (CUS000001...). Nếu gửi: phải duy nhất trong Organization.',
+  })
+  @IsOptional()
+  @IsString()
+  @Length(1, 50)
+  code?: string;
+
   @ApiProperty({
     required: false,
     enum: CUSTOMER_TYPES,
@@ -35,10 +46,15 @@ export class CreateCustomerDto {
   @Length(2, 255)
   fullName: string;
 
-  @ApiProperty({ example: '0987654321' })
+  @ApiProperty({
+    required: false,
+    example: '0987654321',
+    description: 'Tùy chọn — không còn bắt buộc duy nhất (Decision CR06/SR09).',
+  })
+  @IsOptional()
   @IsString()
   @Length(8, 20)
-  phone: string;
+  phone?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -64,6 +80,11 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsString()
   companyName?: string;
+
+  @ApiProperty({ required: false, description: 'Người liên hệ chính.' })
+  @IsOptional()
+  @IsString()
+  contactName?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -101,8 +122,13 @@ export class CreateCustomerDto {
   @Min(0)
   creditLimit?: number;
 
-  @ApiProperty({ required: false, enum: CUSTOMER_STATUSES, default: 'ACTIVE' })
+  @ApiProperty({
+    required: false,
+    description:
+      'Hạn thanh toán (số ngày) — chỉ lưu thông tin, T011 chưa tự tính hạn.',
+  })
   @IsOptional()
-  @IsEnum(CUSTOMER_STATUSES)
-  status?: (typeof CUSTOMER_STATUSES)[number];
+  @IsInt()
+  @Min(0)
+  paymentTermDays?: number;
 }

@@ -1,6 +1,6 @@
 # Sprint Dashboard
 
-**Cập nhật lần cuối:** đóng T009 (Barcode), phát hành `v0.6.0-barcode-foundation`. Cập nhật file này mỗi khi đóng 1 Sprint task hoặc phát hành version mới — cùng nhịp với `PROJECT_STATUS.md` (`PROJECT_STATUS.md` là nguồn chi tiết, file này là bảng tổng quan nhanh).
+**Cập nhật lần cuối:** T011 (Customer Domain) — **DONE**, `FINAL RELEASE REVIEW` FR01-FR10 APPROVED, phát hành `v0.7.0-customer-domain`. Sau T011, dự án áp dụng Decision AD05 (phân loại module Type A/Type B — xem `docs/project-governance/AI_WORKFLOW.md`). Module kế tiếp: T012 — Supplier Domain (Type B), WAITING Short RFC. Cập nhật file này mỗi khi đóng 1 Sprint task hoặc phát hành version mới — cùng nhịp với `PROJECT_STATUS.md` (`PROJECT_STATUS.md` là nguồn chi tiết, file này là bảng tổng quan nhanh).
 
 **Trạng thái module dùng đúng 8 giá trị cố định:** `NOT STARTED` → `AUDIT` → `RFC` → `SPEC` → `PLAN` → `IMPLEMENTING` → `REVIEW` → `DONE`.
 
@@ -10,10 +10,10 @@
 
 | | |
 |---|---|
-| **Current Version** | `v0.6.0-barcode-foundation` |
-| **Current Sprint** | Sprint-01 (Master Data) |
-| **Overall Progress** | ~45% *(ước tính của Architect tại T008, chưa có ước tính mới từ Architect cho T009 — giữ nguyên, không tự suy diễn)* |
-| **Master Data Progress** | **5/7 module DONE** (Product, Category, Brand, Unit, Barcode) |
+| **Current Version** | `v0.7.0-customer-domain` |
+| **Current Task** | T011 `DONE` (PASS) → **T012 — Supplier Domain (Type B), WAITING Short RFC** — xem "Roadmap chốt lại" bên dưới, thay thế khái niệm "Sprint-01/CRM/Inventory/POS/ERP" cũ |
+| **Overall Progress** | ~45% *(ước tính của Architect tại T008, chưa có ước tính mới sau Decision SC01-SC13 — giữ nguyên, không tự suy diễn)* |
+| **Master Data Progress** | **5/5 module đã lên kế hoạch DONE** (Product, Category, Brand, Unit, Barcode) — Attribute/Variant không còn trong roadmap mới, trạng thái chưa rõ |
 | **CRM Progress** | 0/2+ module — chưa bắt đầu theo quy trình hiện hành |
 | **Inventory Progress** | 0 module đã qua Audit/RFC chính thức — có scaffold code từ Sprint-00, xem ghi chú cuối bảng |
 | **POS Progress** | 0 module đã qua Audit/RFC chính thức — có scaffold code từ Sprint-00, xem ghi chú cuối bảng |
@@ -71,10 +71,34 @@
 
 Nhiều module ngoài Master Data (Customer/Supplier/Inventory/Cart/Checkout/...) đã có code tồn tại trong repo từ Sprint-00 (trước khi quy trình `Dependency Audit → RFC → Architecture Review → SPEC → Implementation Plan → Code → Release` chính thức hóa từ T006 trở đi). Bảng này đánh dấu các module đó là `NOT STARTED` **theo nghĩa "chưa qua quy trình Specification First hiện hành"** — không có nghĩa là chưa có dòng code nào. Khi tới lượt module nào trong roadmap, bước đầu tiên vẫn là Dependency Audit đầy đủ (khảo sát code hiện có, không phải viết mới từ đầu).
 
-## Roadmap cố định Sprint-01 (không đổi — Decision RC01)
+## Roadmap Sprint-01 cũ (Decision RC01) — ĐÃ SUPERSEDED bởi Decision SC13
 
-```
-Product → Category → Brand → Unit → Barcode → Attribute → Variant → Gate-01
-```
+~~Product → Category → Brand → Unit → Barcode → Attribute → Variant → Gate-01~~
 
-Không bỏ qua thứ tự. Customer/Supplier thuộc Sprint CRM, triển khai sau khi Gate-01 (Master Data hoàn tất) — không xen giữa Sprint-01.
+Giữ lại để tham chiếu lịch sử (không xóa — đúng nguyên tắc "không xóa lịch sử phát hiện/quyết định" đã áp dụng xuyên suốt dự án). 5 module đầu (Product/Category/Brand/Unit/Barcode) đã thực hiện xong theo đúng roadmap này trước khi bị thay thế. **Attribute và Variant không xuất hiện trong roadmap mới (Decision SC13)** — trạng thái chưa rõ (hoãn, gộp vào task khác, hay vẫn cần làm sau T025) — đây là điểm cần Architect xác nhận, Claude Code không tự suy diễn.
+
+## Roadmap chốt lại (ARCHITECT SCOPE CORRECTION — Decision SC13, thay thế roadmap Sprint-01 cũ)
+
+Không còn chia theo Sprint (Master Data/CRM/Inventory/POS/ERP) như cấu trúc cũ — chuỗi T-number phẳng, tuần tự, không bỏ qua thứ tự:
+
+| Task | Nội dung | Trạng thái |
+|---|---|---|
+| T009 | Barcode Release | `DONE` — tag `v0.6.0-barcode-foundation` |
+| T010 | Offline Single-Computer Scope Freeze | `DONE` — PASS, AR01-AR07 APPROVED, Decision AD01-AD04 (`docs/architecture/offline-single-computer-readiness-audit.md`) |
+| T011 | Customer | `DONE` — tag `v0.7.0-customer-domain`, FR01-FR10 APPROVED (`docs/release/t011-release-note.md`) |
+| T012 | Supplier | `NOT STARTED` — WAITING Short RFC từ Architect (Type B, Fast Track Workflow) |
+| T013 | Sales Foundation | `NOT STARTED` |
+| T014 | Sales Return | `NOT STARTED` |
+| T015 | Purchase Foundation | `NOT STARTED` |
+| T016 | Purchase Return | `NOT STARTED` |
+| T017 | Debt Ledger | `NOT STARTED` |
+| T018 | Cashbook | `NOT STARTED` |
+| T019 | Inventory Completion | `NOT STARTED` |
+| T020 | Essential Reports | `NOT STARTED` |
+| T021 | Invoice Printing | `NOT STARTED` |
+| T022 | Offline Single-Computer Deployment | `NOT STARTED` |
+| T023 | Backup and Restore | `NOT STARTED` |
+| T024 | Desktop Frontend Completion | `NOT STARTED` |
+| T025 | Acceptance Test and Release Candidate | `NOT STARTED` |
+
+Không bỏ qua thứ tự. T010 PASS. Đề xuất T010.5 (Offline Infrastructure Alignment — Docker Compose mặc định, cấu hình `127.0.0.1`, thiết kế `bootstrap-offline`) đã được Architect xác nhận **bỏ qua, không chèn vào giữa** — đi thẳng T011, xử lý hạ tầng khi cần thiết ở Task tương ứng (T022 Offline Single-Computer Deployment) hoặc khi có chỉ đạo riêng.

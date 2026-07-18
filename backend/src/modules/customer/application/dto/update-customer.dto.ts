@@ -3,6 +3,7 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -18,10 +19,18 @@ const CUSTOMER_TYPES = [
   'COMPANY',
 ] as const;
 const GENDERS = ['MALE', 'FEMALE', 'OTHER'] as const;
-const CUSTOMER_STATUSES = ['ACTIVE', 'INACTIVE'] as const;
 
-/** Không có `code` — mã khách hàng do hệ thống sinh tự động, không cho sửa. */
+/**
+ * Không có `code` — bất biến sau khi tạo (BR03), không có nhánh sửa code ở T011 (Decision SR11).
+ * Không có `status` — chuyển hẳn sang route Activate/Deactivate/Archive/Restore riêng.
+ */
 export class UpdateCustomerDto {
+  @ApiProperty({
+    description: 'Version hiện tại — Optimistic Lock, bắt buộc (BR09)',
+  })
+  @IsInt()
+  version: number;
+
   @ApiProperty({ required: false, enum: CUSTOMER_TYPES })
   @IsOptional()
   @IsEnum(CUSTOMER_TYPES)
@@ -64,6 +73,11 @@ export class UpdateCustomerDto {
   @IsString()
   companyName?: string;
 
+  @ApiProperty({ required: false, description: 'Người liên hệ chính.' })
+  @IsOptional()
+  @IsString()
+  contactName?: string;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
@@ -100,8 +114,12 @@ export class UpdateCustomerDto {
   @Min(0)
   creditLimit?: number;
 
-  @ApiProperty({ required: false, enum: CUSTOMER_STATUSES })
+  @ApiProperty({
+    required: false,
+    description: 'Hạn thanh toán (số ngày) — chỉ lưu thông tin.',
+  })
   @IsOptional()
-  @IsEnum(CUSTOMER_STATUSES)
-  status?: (typeof CUSTOMER_STATUSES)[number];
+  @IsInt()
+  @Min(0)
+  paymentTermDays?: number;
 }

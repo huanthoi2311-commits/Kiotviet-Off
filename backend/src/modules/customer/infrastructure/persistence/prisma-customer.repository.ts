@@ -3,7 +3,11 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
-import { CustomerEntity } from '../../domain/entities/customer.entity';
+import {
+  CustomerEntity,
+  CustomerStatus,
+} from '../../domain/entities/customer.entity';
+import { CustomerConcurrencyConflictError } from '../../domain/errors/customer.errors';
 import {
   CreateCustomerInput,
   CustomerSearchParams,
@@ -26,12 +30,13 @@ export class PrismaCustomerRepository implements ICustomerRepository {
           code: input.code,
           customerType: input.customerType ?? 'RETAIL',
           fullName: input.fullName,
-          phone: input.phone,
+          phone: input.phone ?? null,
           email: input.email ?? null,
           birthday: input.birthday ?? null,
           gender: input.gender ?? null,
           taxCode: input.taxCode ?? null,
           companyName: input.companyName ?? null,
+          contactName: input.contactName ?? null,
           address: input.address ?? null,
           province: input.province ?? null,
           district: input.district ?? null,
@@ -39,7 +44,8 @@ export class PrismaCustomerRepository implements ICustomerRepository {
           avatar: input.avatar ?? null,
           note: input.note ?? null,
           creditLimit: input.creditLimit ?? null,
-          status: input.status ?? 'ACTIVE',
+          paymentTermDays: input.paymentTermDays ?? null,
+          status: 'ACTIVE',
           createdBy: input.createdBy,
           updatedBy: input.createdBy,
         },
@@ -60,6 +66,16 @@ export class PrismaCustomerRepository implements ICustomerRepository {
     return customer ? this.toEntity(customer) : null;
   }
 
+  async findByCode(
+    organizationId: string,
+    code: string,
+  ): Promise<CustomerEntity | null> {
+    const customer = await this.prisma.customer.findFirst({
+      where: { organizationId, code, deletedAt: null },
+    });
+    return customer ? this.toEntity(customer) : null;
+  }
+
   async findByIdIncludingDeleted(
     id: string,
     organizationId: string,
@@ -72,13 +88,14 @@ export class PrismaCustomerRepository implements ICustomerRepository {
 
   async update(
     id: string,
+    organizationId: string,
+    expectedVersion: number,
     input: UpdateCustomerInput,
   ): Promise<CustomerEntity> {
     try {
-      const customer = await this.prisma.customer.update({
-        where: { id },
+      const result = await this.prisma.customer.updateMany({
+        where: { id, organizationId, version: expectedVersion },
         data: {
-          code: input.code,
           customerType: input.customerType,
           fullName: input.fullName,
           phone: input.phone,
@@ -87,6 +104,7 @@ export class PrismaCustomerRepository implements ICustomerRepository {
           gender: input.gender,
           taxCode: input.taxCode,
           companyName: input.companyName,
+          contactName: input.contactName,
           address: input.address,
           province: input.province,
           district: input.district,
@@ -94,28 +112,82 @@ export class PrismaCustomerRepository implements ICustomerRepository {
           avatar: input.avatar,
           note: input.note,
           creditLimit: input.creditLimit,
-          status: input.status,
+          paymentTermDays: input.paymentTermDays,
           updatedBy: input.updatedBy,
+          version: { increment: 1 },
         },
       });
-      return this.toEntity(customer);
+      if (result.count === 0) {
+        throw new CustomerConcurrencyConflictError(id);
+      }
+      const updated = await this.prisma.customer.findUniqueOrThrow({
+        where: { id },
+      });
+      return this.toEntity(updated);
     } catch (error) {
+      if (error instanceof CustomerConcurrencyConflictError) throw error;
       throw this.translateWriteError(error);
     }
   }
 
-  async softDelete(id: string, deletedBy: string): Promise<void> {
-    await this.prisma.customer.update({
-      where: { id },
-      data: { deletedAt: new Date(), updatedBy: deletedBy },
+  async changeStatusWithVersion(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    status: CustomerStatus,
+    updatedBy: string,
+  ): Promise<CustomerEntity> {
+    const result = await this.prisma.customer.updateMany({
+      where: { id, organizationId, version: expectedVersion },
+      data: { status, updatedBy, version: { increment: 1 } },
     });
+    if (result.count === 0) {
+      throw new CustomerConcurrencyConflictError(id);
+    }
+    const updated = await this.prisma.customer.findUniqueOrThrow({
+      where: { id },
+    });
+    return this.toEntity(updated);
   }
 
-  async restore(id: string, restoredBy: string): Promise<void> {
-    await this.prisma.customer.update({
-      where: { id },
-      data: { deletedAt: null, updatedBy: restoredBy },
+  async softDelete(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    deletedBy: string,
+  ): Promise<void> {
+    const result = await this.prisma.customer.updateMany({
+      where: { id, organizationId, version: expectedVersion },
+      data: {
+        deletedAt: new Date(),
+        status: 'ARCHIVED',
+        updatedBy: deletedBy,
+        version: { increment: 1 },
+      },
     });
+    if (result.count === 0) {
+      throw new CustomerConcurrencyConflictError(id);
+    }
+  }
+
+  async restore(
+    id: string,
+    organizationId: string,
+    expectedVersion: number,
+    restoredBy: string,
+  ): Promise<void> {
+    const result = await this.prisma.customer.updateMany({
+      where: { id, organizationId, version: expectedVersion },
+      data: {
+        deletedAt: null,
+        status: 'INACTIVE',
+        updatedBy: restoredBy,
+        version: { increment: 1 },
+      },
+    });
+    if (result.count === 0) {
+      throw new CustomerConcurrencyConflictError(id);
+    }
   }
 
   async search(params: CustomerSearchParams): Promise<CustomerSearchResult> {
@@ -139,15 +211,15 @@ export class PrismaCustomerRepository implements ICustomerRepository {
     };
   }
 
-  async existsByPhone(
+  async existsByCode(
     organizationId: string,
-    phone: string,
+    code: string,
     excludeId?: string,
   ): Promise<boolean> {
     const found = await this.prisma.customer.findFirst({
       where: {
         organizationId,
-        phone,
+        code,
         ...(excludeId ? { id: { not: excludeId } } : {}),
       },
       select: { id: true },
@@ -197,11 +269,11 @@ export class PrismaCustomerRepository implements ICustomerRepository {
       const target =
         (error.meta?.target as string[] | undefined)?.join(', ') ??
         'trường dữ liệu';
-      const errorCode = target.includes('phone')
-        ? ErrorCode.CUSTOMER_PHONE_DUPLICATE
-        : ErrorCode.CUSTOMER_DUPLICATE;
       return new ConflictException(
-        withCode(errorCode, `Giá trị của "${target}" đã tồn tại`),
+        withCode(
+          ErrorCode.CUSTOMER_DUPLICATE,
+          `Giá trị của "${target}" đã tồn tại`,
+        ),
       );
     }
     return error as Error;
@@ -220,6 +292,7 @@ export class PrismaCustomerRepository implements ICustomerRepository {
       gender: customer.gender,
       taxCode: customer.taxCode,
       companyName: customer.companyName,
+      contactName: customer.contactName,
       address: customer.address,
       province: customer.province,
       district: customer.district,
@@ -227,11 +300,13 @@ export class PrismaCustomerRepository implements ICustomerRepository {
       avatar: customer.avatar,
       note: customer.note,
       creditLimit: customer.creditLimit?.toString() ?? null,
+      paymentTermDays: customer.paymentTermDays,
       currentDebt: customer.currentDebt.toString(),
       totalRevenue: customer.totalRevenue.toString(),
       totalOrder: customer.totalOrder,
       totalPoint: customer.totalPoint,
       status: customer.status,
+      version: customer.version,
       createdAt: customer.createdAt,
       updatedAt: customer.updatedAt,
       deletedAt: customer.deletedAt,
