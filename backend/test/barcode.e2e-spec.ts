@@ -46,7 +46,10 @@ describe('Barcode Module (e2e, integration)', () => {
 
     const role = await prisma.role.upsert({
       where: {
-        organizationId_code: { organizationId: organization.id, code: `${slug}_role` },
+        organizationId_code: {
+          organizationId: organization.id,
+          code: `${slug}_role`,
+        },
       },
       create: {
         organizationId: organization.id,
@@ -152,7 +155,10 @@ describe('Barcode Module (e2e, integration)', () => {
 
     const otherOrgUnit = await prisma.unit.upsert({
       where: {
-        organizationId_code: { organizationId: organizationId2, code: 'E2E-UNIT-2' },
+        organizationId_code: {
+          organizationId: organizationId2,
+          code: 'E2E-UNIT-2',
+        },
       },
       create: {
         organizationId: organizationId2,
@@ -228,7 +234,12 @@ describe('Barcode Module (e2e, integration)', () => {
 
   it('DUPLICATE-DIFFERENT-ORG: cho phép trùng code giữa 2 tổ chức khác nhau (Decision BQ8, unique theo tổ chức, không còn toàn cục)', async () => {
     const category2 = await prisma.category.upsert({
-      where: { organizationId_code: { organizationId: organizationId2, code: 'E2E-CAT-2' } },
+      where: {
+        organizationId_code: {
+          organizationId: organizationId2,
+          code: 'E2E-CAT-2',
+        },
+      },
       create: {
         organizationId: organizationId2,
         code: 'E2E-CAT-2',
@@ -427,7 +438,11 @@ describe('Barcode Module (e2e, integration)', () => {
     const defaultBarcode = await request(app.getHttpServer())
       .post(`/api/v1/products/${guardProductId}/barcodes`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ code: `GUARD-DEFAULT-${Date.now()}`, type: 'CUSTOM', isDefault: true })
+      .send({
+        code: `GUARD-DEFAULT-${Date.now()}`,
+        type: 'CUSTOM',
+        isDefault: true,
+      })
       .expect(201);
     const otherBarcode = await request(app.getHttpServer())
       .post(`/api/v1/products/${guardProductId}/barcodes`)
@@ -479,7 +494,11 @@ describe('Barcode Module (e2e, integration)', () => {
     const archivedUnitRes = await request(app.getHttpServer())
       .post('/api/v1/units')
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ code: `UNIT-ARCHIVE-${Date.now()}`, name: 'Đơn vị sẽ Archive', symbol: 'dv' })
+      .send({
+        code: `UNIT-ARCHIVE-${Date.now()}`,
+        name: 'Đơn vị sẽ Archive',
+        symbol: 'dv',
+      })
       .expect(201);
 
     await request(app.getHttpServer())
