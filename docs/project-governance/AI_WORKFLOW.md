@@ -69,7 +69,7 @@ Chỉ tới bước này khi bước 5 xác nhận đủ điều kiện. Trong l
 - Nếu GIỮA CHỪNG code phát hiện 1 xung đột MỚI (khác với những gì đã kiểm tra ở bước 1-4) — dừng lại ngay, quay lại bước 5, không "code tạm cho xong rồi hỏi sau".
 - Sau khi code xong, chạy đầy đủ checklist self-review (`REVIEW_RULES.md` §1) trước khi báo cáo hoàn thành.
 
-## Phân loại Module — Type A / Type B (Decision AD05, sau khi T009 Barcode + T011 Customer hoàn thành)
+## Phân loại Module — Type A / Type B (Decision AD05, sau khi T009 Barcode + T011 Customer hoàn thành; quy trình Type A cụ thể hóa bởi Decision AD06 sau T012 Supplier)
 
 Từ sau T011, mỗi module mới trước khi bắt đầu RFC phải được xếp vào đúng 1 trong 2 loại — quyết định quy trình áp dụng (đủ 7 bước hay Fast Track 5 bước):
 
@@ -77,11 +77,41 @@ Từ sau T011, mỗi module mới trước khi bắt đầu RFC phải được 
 
 Gồm: Sales, Purchase, Inventory, Debt Ledger, Cashbook, Reports (và tương tự — nghiệp vụ lõi ảnh hưởng trực tiếp tiền/tồn kho/sổ sách).
 
-```
+~~```
 RFC → Architecture Review → SPEC → Architecture Review → Implementation Plan → Architecture Review → Implementation → Release Review
+```~~
+
+**[AD06] Quy trình chi tiết (thay thế sơ đồ rút gọn ở trên, sau khi T012 Supplier hoàn thành):**
+
+```
+RFC
+  ↓
+Architecture Review
+  ↓
+Architect Resolution
+  ↓
+RFC Revision
+  ↓
+SPEC
+  ↓
+SPEC Review
+  ↓
+Implementation Plan
+  ↓
+Plan Review
+  ↓
+Implementation
+  ↓
+Implementation Report
+  ↓
+Final Release Review
+  ↓
+Commit
+  ↓
+Tag
 ```
 
-Đầy đủ 7 bước, **có** Implementation Plan riêng — đúng quy trình đã áp dụng cho T005-T010.
+13 bước đầy đủ, **có** Implementation Plan riêng, **không áp dụng Fast Track**. Áp dụng cho mọi module Type A kể từ T013 (Sales Foundation) trở đi.
 
 ### TYPE B — Standard Master Data Modules
 

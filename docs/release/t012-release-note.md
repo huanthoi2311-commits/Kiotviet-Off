@@ -1,7 +1,7 @@
 # Release Note — T012: Supplier Domain
 
-**Tag:** _chưa gắn — chờ Final Release Review._
-**Trạng thái:** Technical Complete = PASS · Operational Complete = PENDING (Integration Test + End-to-End Acceptance Scenario §13.1 — thiếu Docker/Postgres trong sandbox phát triển) · **Release = PENDING Final Release Review từ Architect** (chưa commit/push/tag).
+**Tag:** `v0.8.0-supplier-domain` (commit `9419ca9`)
+**Trạng thái:** Technical Complete = PASS · Operational Complete = PENDING (Integration Test + End-to-End Acceptance Scenario §13.1 — thiếu Docker/Postgres trong sandbox phát triển) · **Release = APPROVED, đã commit/push/tag** (`FINAL RELEASE REVIEW — T012 SUPPLIER DOMAIN`).
 **RFC:** `RFC-T012` v2 (`docs/rfc/RFC-T012-supplier-domain.md`) · **SPEC:** `SPEC-T012-SUPPLIER-001` (`docs/specifications/SPEC-T012-SUPPLIER-001.md`, đã qua Architecture Review SP01-SP13) · **Quy trình:** Fast Track Workflow (không Implementation Plan riêng — `SPEC Review → Implementation → Implementation Report → Release Review → Commit → Tag`).
 
 ---
@@ -100,8 +100,29 @@ Khi triển khai `SequenceCodeGeneratorService` dùng chung theo yêu cầu SP05
 
 ## Next Sprint
 
-- **T013 — Sales Foundation** (Type A, Business-Critical, full 7-bước kể cả Implementation Plan), WAITING RFC từ Architect.
+- **T013 — Sales Foundation** (Type A, Business-Critical, full quy trình kể cả Implementation Plan — Decision AD06), WAITING RFC từ Architect.
 
 ## Release Review
 
-_Chưa có `FINAL RELEASE REVIEW` — mục này sẽ được điền sau khi Architect gửi quyết định. Working tree hiện chưa `add`/`commit`/`push`/`tag`, đúng quy trình Fast Track (`Không được: commit/push/tag trước Final Release Review`)._
+`FINAL RELEASE REVIEW — T012 Supplier Domain` — **APPROVED FOR RELEASE**. Toàn bộ tiêu chí PASS:
+
+| # | Tiêu chí | Kết quả |
+|---|---|---|
+| 1 | RFC/SPEC Compliance | PASS — khớp RFC-T012 v2, SPEC-T012-SUPPLIER-001, SR01-SR14, SP01-SP13, không tự mở rộng phạm vi |
+| 2 | Archive Guard | PASS — bảo toàn đúng hiện trạng (`hasPurchaseOrders()`), chỉ bọc thêm version check |
+| 3 | Repository Boundary | PASS — sửa đúng ADR-0010, `supplier-debt` chuyển sang `SupplierDomainService`, Architecture Test xác nhận |
+| 4 | SequenceCodeGeneratorService | PASS — thiết kế theo hướng tái sử dụng (Decision SP05), phạm vi giới hạn Customer+Supplier, công khai minh bạch phần chưa hợp nhất |
+| 5 | Circular Dependency | PASS — không phát sinh |
+| 6 | Migration | PASS — 2 migration độc lập, có rollback, chưa chạy do thiếu Docker (đúng quy trình) |
+| 7 | Build/TypeCheck/Lint | PASS — 0 lỗi |
+| 8 | Regression | PASS — 156/157 suite, 1523/1525 test; flake Argon2 xác nhận không phải regression |
+| 9 | Documentation | PASS — đầy đủ |
+| 10 | Working Tree | PASS — đúng quy trình, chưa commit trước khi có Final Release Review |
+
+**Branch coverage vẫn dưới mục tiêu** nhưng đã ghi vào Technical Debt (#10), không chặn Release — nhất quán với T009 và T011.
+
+**FINAL RELEASE DECISION:** APPROVED. Commit/Push/Tag đều AUTHORIZED. Commit: `feat(supplier): complete supplier domain refactor` (`9419ca9`). Tag: `v0.8.0-supplier-domain`.
+
+**Quyết định mới sau T012 (Decision AD06):** Type A (Business-Critical: Sales/Purchase/Inventory/Debt Ledger/Cashbook/Reports) nay có quy trình chi tiết đầy đủ 13 bước (RFC → Architecture Review → Architect Resolution → RFC Revision → SPEC → SPEC Review → Implementation Plan → Plan Review → Implementation → Implementation Report → Final Release Review → Commit → Tag), **không áp dụng Fast Track**. Chi tiết: `docs/project-governance/AI_WORKFLOW.md`.
+
+**Module kế tiếp:** T013 — Sales Foundation (Type A, đầy đủ quy trình), WAITING RFC từ Architect.
