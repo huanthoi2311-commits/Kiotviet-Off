@@ -1,8 +1,8 @@
 # Release Notes — T013: Sales Foundation
 
 **Audience:** Developers · QA · Operations
-**Status:** Architect APPROVED at architecture level (7/7 Phases). Tag/commit/release still pending a dedicated Final Release Review (Decision AD16).
-**References:** `RFC-T013` v2, `SPEC-T013-SALES-FOUNDATION-001` v2, `docs/implementation/T013-CLOSEOUT.md`, `docs/implementation/IMPLEMENTATION-PLAN-T013-SALES-FOUNDATION.md`, Architect Decisions AD07-AD16 (`docs/project-governance/AI_WORKFLOW.md`).
+**Status:** RELEASED — tagged `v0.9.0-sales-foundation`, committed and pushed to `origin/main` (Release Workflow Steps 1-4 approved).
+**References:** `RFC-T013` v2, `SPEC-T013-SALES-FOUNDATION-001` v2, `docs/implementation/T013-CLOSEOUT.md`, `docs/implementation/IMPLEMENTATION-PLAN-T013-SALES-FOUNDATION.md`, Architect Decisions AD07-AD23 (`docs/project-governance/AI_WORKFLOW.md`).
 
 ---
 
