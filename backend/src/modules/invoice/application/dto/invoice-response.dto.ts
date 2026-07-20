@@ -8,6 +8,11 @@ export class InvoiceItemResponseDto {
   @ApiProperty() discount: string;
   @ApiProperty() taxAmount: string;
   @ApiProperty() totalAmount: string;
+  @ApiProperty({ nullable: true }) productCodeSnapshot: string | null;
+  @ApiProperty({ nullable: true }) productNameSnapshot: string | null;
+  @ApiProperty({ nullable: true }) unitNameSnapshot: string | null;
+  @ApiProperty({ nullable: true }) barcodeId: string | null;
+  @ApiProperty({ nullable: true }) barcodeSnapshot: string | null;
 }
 
 export class InvoiceResponseDto {
@@ -21,6 +26,9 @@ export class InvoiceResponseDto {
   @ApiProperty() paidAmount: string;
   @ApiProperty() dueAmount: string;
   @ApiProperty({ nullable: true }) dueDate: Date | null;
+  @ApiProperty({ nullable: true }) customerCodeSnapshot: string | null;
+  @ApiProperty({ nullable: true }) customerNameSnapshot: string | null;
+  @ApiProperty({ nullable: true }) customerPhoneSnapshot: string | null;
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
   @ApiProperty({ type: [InvoiceItemResponseDto] })

@@ -316,6 +316,7 @@ model Organization {
   stockCounts          StockCount[]
   inventoryAdjustments InventoryAdjustment[]
   sequences            Sequence[]
+  checkoutOperations   CheckoutOperation[]
 
   @@map("organizations")
 }
@@ -417,6 +418,7 @@ model Branch {
   expenses              Expense[]
   promotions            Promotion[]
   organizationDefaultOf OrganizationSettings[] @relation("OrganizationDefaultBranch")
+  checkoutOperations    CheckoutOperation[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, invoicePrefix])
@@ -994,6 +996,9 @@ model Barcode {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
+
+  /// T013 Phase 5 — reverse relation cho InvoiceItem.barcodeId (Conditional Snapshot).
+  invoiceItems InvoiceItem[]
 
   @@unique([organizationId, code])
   @@index([productId])
@@ -1617,6 +1622,12 @@ model Invoice {
   dueAmount   Decimal       @default(0) @db.Decimal(18, 2)
   dueDate     DateTime?
 
+  /// T013 Phase 5 (SPEC-T013-SALES-FOUNDATION-001 §1.3, Decision SP07) — Mandatory Snapshot,
+  /// null nếu Invoice không gắn Customer (khách lẻ). Không backfill Invoice cũ (nullable).
+  customerCodeSnapshot  String?
+  customerNameSnapshot  String?
+  customerPhoneSnapshot String?
+
   createdBy String?  @db.Uuid
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1639,6 +1650,10 @@ model InvoiceItem {
   invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   productId String  @db.Uuid
   product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  /// T013 Phase 5 (SPEC-T013-SALES-FOUNDATION-001 §1.3, Decision SP07) — Conditional Snapshot,
+  /// null nếu dòng hàng không gắn Barcode cụ thể.
+  barcodeId String? @db.Uuid
+  barcode   Barcode? @relation(fields: [barcodeId], references: [id], onDelete: SetNull)
 
   quantity    Decimal @db.Decimal(18, 3)
   unitPrice   Decimal @db.Decimal(18, 2)
@@ -1646,10 +1661,18 @@ model InvoiceItem {
   taxAmount   Decimal @default(0) @db.Decimal(18, 2)
   totalAmount Decimal @db.Decimal(18, 2)
 
+  /// Mandatory Snapshot — ghi ở mọi lần checkout thành công (không backfill Invoice cũ).
+  productCodeSnapshot String?
+  productNameSnapshot String?
+  unitNameSnapshot    String?
+  /// Conditional Snapshot — null hợp lệ nếu Cart item không gắn Barcode.
+  barcodeSnapshot     String?
+
   createdAt DateTime @default(now())
 
   @@index([invoiceId])
   @@index([productId])
+  @@index([barcodeId])
   @@map("invoice_items")
 }
 
@@ -1883,6 +1906,47 @@ model Payment {
   @@index([purchaseOrderId])
   @@index([direction])
   @@map("payments")
+}
+
+// =========================================================================
+// CHECKOUT — IDEMPOTENCY (T013, Decision AR11/SP01/SP02)
+// =========================================================================
+
+enum CheckoutOperationStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+/// Ho tro Idempotency cho POST /checkout (SPEC-T013-SALES-FOUNDATION-001 SS13) - tach biet
+/// hoan toan khoi Invoice/Payment de "reserve" (PROCESSING) co the durable/quan sat duoc TRUOC
+/// khi Business Transaction chinh tao Invoice. Khong phai aggregate nghiep vu, chi la bang ho
+/// tro ky thuat.
+model CheckoutOperation {
+  id             String                  @id @default(uuid()) @db.Uuid
+  organizationId String                  @db.Uuid
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branchId       String                  @db.Uuid
+  branch         Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  idempotencyKey String
+  requestHash    String
+  status         CheckoutOperationStatus @default(PROCESSING)
+  /// NULL khi PROCESSING/FAILED - chi co gia tri sau khi chuyen COMPLETED.
+  invoiceId      String?                 @db.Uuid
+  paymentId      String?                 @db.Uuid
+
+  createdBy   String?   @db.Uuid
+  createdAt   DateTime  @default(now())
+  /// Set khi chuyen sang COMPLETED hoac FAILED - NULL khi con PROCESSING.
+  completedAt DateTime?
+  /// = createdAt + 48h (Retention Policy) - dung cho Cleanup Job.
+  expiresAt   DateTime
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([status, createdAt])
+  @@index([expiresAt])
+  @@map("checkout_operations")
 }
 
 model CashBook {

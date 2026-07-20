@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { PERMISSIONS_KEY } from '../../rbac/presentation/permissions.decorator';
@@ -21,6 +22,12 @@ describe('CheckoutController', () => {
     headers: { 'user-agent': 'jest' },
   } as unknown as Request;
 
+  const dto = {
+    branchId: 'branch-1',
+    warehouseId: 'wh-1',
+    paymentMethod: 'CASH',
+  } as never;
+
   beforeEach(() => {
     checkoutService = { checkout: jest.fn() };
     controller = new CheckoutController(
@@ -36,18 +43,26 @@ describe('CheckoutController', () => {
     expect(permissions).toEqual(['pos:access']);
   });
 
-  it('checkout ủy quyền cho service kèm dto + actor context (ip/userAgent)', async () => {
+  it('[T013] ném BadRequestException khi thiếu header Idempotency-Key', async () => {
+    await expect(
+      controller.checkout(dto, '', user as never, req),
+    ).rejects.toThrow(BadRequestException);
+    expect(checkoutService.checkout).not.toHaveBeenCalled();
+  });
+
+  it('[T013] ném BadRequestException khi header Idempotency-Key là undefined', async () => {
+    await expect(
+      controller.checkout(dto, undefined as never, user as never, req),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('checkout ủy quyền cho service kèm dto + idempotencyKey + actor context (ip/userAgent)', async () => {
     checkoutService.checkout.mockResolvedValue({
       invoice: { id: 'inv-1' },
       payment: { id: 'pay-1' },
     } as never);
-    const dto = {
-      branchId: 'branch-1',
-      warehouseId: 'wh-1',
-      paymentMethod: 'CASH',
-    } as never;
 
-    await controller.checkout(dto, user as never, req);
+    await controller.checkout(dto, 'idem-key-1', user as never, req);
 
     const actor: ActorContext = checkoutService.checkout.mock.calls[0][1];
     expect(actor).toEqual({
@@ -56,6 +71,10 @@ describe('CheckoutController', () => {
       ip: '127.0.0.1',
       userAgent: 'jest',
     });
-    expect(checkoutService.checkout).toHaveBeenCalledWith(dto, actor);
+    expect(checkoutService.checkout).toHaveBeenCalledWith(
+      dto,
+      actor,
+      'idem-key-1',
+    );
   });
 });

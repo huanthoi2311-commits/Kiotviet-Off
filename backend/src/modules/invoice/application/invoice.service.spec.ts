@@ -20,6 +20,9 @@ describe('InvoiceService', () => {
     paidAmount: '220000.00',
     dueAmount: '0.00',
     dueDate: null,
+    customerCodeSnapshot: 'KH000001',
+    customerNameSnapshot: 'Nguyễn Văn A',
+    customerPhoneSnapshot: '0900000000',
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     items: [
@@ -31,6 +34,11 @@ describe('InvoiceService', () => {
         discount: '0.00',
         taxAmount: '20000.00',
         totalAmount: '220000.00',
+        productCodeSnapshot: 'SP000001',
+        productNameSnapshot: 'Sản phẩm 1',
+        unitNameSnapshot: 'Cái',
+        barcodeId: null,
+        barcodeSnapshot: null,
       },
     ],
   };
@@ -66,7 +74,10 @@ describe('InvoiceService', () => {
         tx,
       );
 
-      expect(invoiceCodeGenerator.generate).toHaveBeenCalledWith('org-1');
+      expect(invoiceCodeGenerator.generate).toHaveBeenCalledWith(
+        'org-1',
+        'branch-1',
+      );
       expect(invoiceRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ code: 'HD000001' }),
         tx,

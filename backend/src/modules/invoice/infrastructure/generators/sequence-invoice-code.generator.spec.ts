@@ -1,40 +1,84 @@
-import { PrismaService } from '../../../../prisma/prisma.service';
+import { IBranchRepository } from '../../../branch/domain/repositories/branch.repository.interface';
+import { SequenceCodeGeneratorService } from '../../../../prisma/sequence-code-generator.service';
 import { SequenceInvoiceCodeGenerator } from './sequence-invoice-code.generator';
 
 describe('SequenceInvoiceCodeGenerator', () => {
   let generator: SequenceInvoiceCodeGenerator;
-  let prisma: { sequence: { upsert: jest.Mock } };
+  let sequenceGenerator: jest.Mocked<
+    Pick<SequenceCodeGeneratorService, 'generate'>
+  >;
+  let branchRepository: jest.Mocked<Pick<IBranchRepository, 'findById'>>;
 
   beforeEach(() => {
-    prisma = { sequence: { upsert: jest.fn() } };
+    sequenceGenerator = { generate: jest.fn() };
+    branchRepository = { findById: jest.fn() };
     generator = new SequenceInvoiceCodeGenerator(
-      prisma as unknown as PrismaService,
+      sequenceGenerator as unknown as SequenceCodeGeneratorService,
+      branchRepository as unknown as IBranchRepository,
     );
   });
 
-  it('sinh mã với prefix HD và đệm 6 chữ số', async () => {
-    prisma.sequence.upsert.mockResolvedValue({ value: 1 });
-    await expect(generator.generate('org-1')).resolves.toBe('HD000001');
+  it('dùng Branch.invoicePrefix khi Branch có cấu hình', async () => {
+    branchRepository.findById.mockResolvedValue({
+      invoicePrefix: 'HN',
+    } as never);
+    sequenceGenerator.generate.mockResolvedValue('HN000001');
+
+    await expect(generator.generate('org-1', 'branch-1')).resolves.toBe(
+      'HN000001',
+    );
+    expect(branchRepository.findById).toHaveBeenCalledWith('branch-1', 'org-1');
+    expect(sequenceGenerator.generate).toHaveBeenCalledWith(
+      'org-1',
+      'invoice_code_branch-1',
+      'HN',
+      6,
+    );
   });
 
-  it('tăng dần theo lần gọi tiếp theo (dựa vào giá trị Sequence trả về)', async () => {
-    prisma.sequence.upsert.mockResolvedValue({ value: 42 });
-    await expect(generator.generate('org-1')).resolves.toBe('HD000042');
+  it('rơi về prefix "HD" khi Branch.invoicePrefix là null', async () => {
+    branchRepository.findById.mockResolvedValue({
+      invoicePrefix: null,
+    } as never);
+    sequenceGenerator.generate.mockResolvedValue('HD000001');
+
+    await generator.generate('org-1', 'branch-1');
+
+    expect(sequenceGenerator.generate).toHaveBeenCalledWith(
+      'org-1',
+      'invoice_code_branch-1',
+      'HD',
+      6,
+    );
   });
 
-  it('gọi upsert đúng theo organizationId + tên sequence cố định', async () => {
-    prisma.sequence.upsert.mockResolvedValue({ value: 1 });
-    await generator.generate('org-42');
+  it('rơi về prefix "HD" khi không tìm thấy Branch', async () => {
+    branchRepository.findById.mockResolvedValue(null);
+    sequenceGenerator.generate.mockResolvedValue('HD000001');
 
-    expect(prisma.sequence.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          organizationId_name: {
-            organizationId: 'org-42',
-            name: 'invoice_code',
-          },
-        },
-      }),
+    await generator.generate('org-1', 'branch-1');
+
+    expect(sequenceGenerator.generate).toHaveBeenCalledWith(
+      'org-1',
+      'invoice_code_branch-1',
+      'HD',
+      6,
+    );
+  });
+
+  it('mỗi Branch dùng 1 sequence riêng (tên sequence gắn theo branchId)', async () => {
+    branchRepository.findById.mockResolvedValue({
+      invoicePrefix: 'SG',
+    } as never);
+    sequenceGenerator.generate.mockResolvedValue('SG000001');
+
+    await generator.generate('org-1', 'branch-2');
+
+    expect(sequenceGenerator.generate).toHaveBeenCalledWith(
+      'org-1',
+      'invoice_code_branch-2',
+      'SG',
+      6,
     );
   });
 });

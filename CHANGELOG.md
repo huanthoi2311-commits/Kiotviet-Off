@@ -7,12 +7,71 @@ dự án tuân thủ [Semantic Versioning](https://semver.org/lang/vi/) (`MAJOR.
 
 ## [Unreleased]
 
+**T013 — Sales Foundation** (`SPEC-T013-SALES-FOUNDATION-001`), module Type A / Business-Critical
+đầu tiên theo quy trình đầy đủ 13 bước (Decision AD06) — theo `RFC-T013` v1 (Architect) →
+Architecture Review (`docs/architecture/T013-architecture-review.md`, phát hiện Checkout/Cart/
+Invoice/Payment đã là hệ thống thật one-shot atomic, không phải Draft Sales Invoice mutable như
+RFC giả định) → `ARCHITECT RESOLUTION` (AR01-AR18) → `RFC-T013` v2 → `SPEC-T013-SALES-FOUNDATION-001`
+v1 → SPEC Review (SP01-SP12, Decision AD07 Checkout Command Pattern) → SPEC v2 (thiết kế lại
+Idempotency thành 2-transaction) → Implementation Plan (7 Phase, Decision AD08 Phase Gate Policy)
+→ Implementation theo từng Phase, mỗi Phase có Architect Review + Decision riêng (AD09-AD14) →
+Phase 7 Final Regression & Release Readiness (Decision AD15 T013 Architecture Baseline, AD16
+Release Governance). **T013 COMPLETED ở cấp độ kiến trúc — chưa tag**, chờ Final Release Review
+riêng (AD16). Chi tiết đầy đủ: `docs/release/t013-release-note.md`.
+
+### Added
+- **Idempotency cho `POST /checkout`** (header `Idempotency-Key` bắt buộc) — bảng `checkout_operations`
+  (Phase 1), thiết kế 2-transaction (Reserve tách khỏi Business Transaction) để chịu được crash/
+  timeout thật, không chỉ lý thuyết. Retry Policy đầy đủ: REPLAY (cùng key+payload), 409 Conflict
+  (cùng key khác payload / đang xử lý), tự động reclaim key bị stuck (≥2 phút) hoặc đã FAILED.
+- **Invoice Snapshot** (Phase 5) — `Invoice.customerCodeSnapshot`/`customerNameSnapshot`/
+  `customerPhoneSnapshot`, `InvoiceItem.productCodeSnapshot`/`productNameSnapshot`/`unitNameSnapshot`
+  (Mandatory, luôn ghi khi checkout thành công) + `barcodeId`/`barcodeSnapshot` (Conditional, hiện
+  luôn null — xem Known Limitations). Đảm bảo Invoice bất biến trước thay đổi Customer/Product sau này.
+- **Service Product Support** (Phase 6) — Product loại `SERVICE` được phép bán, có mặt trên
+  `InvoiceItem`/`Payment`/tính đúng discount-voucher-tax như Product thường, nhưng KHÔNG tạo
+  Inventory Movement/không giữ chỗ tồn kho. Hóa đơn hỗn hợp STOCK+SERVICE hoạt động đúng.
+- `CartDomainService`, `CustomerPointDomainService` (Phase 2, mới) — Repository Boundary fix.
+
+### Changed
+- **`InvoiceModule`/`PaymentModule`** (Phase 2) — gỡ export `INVOICE_REPOSITORY`/`PAYMENT_REPOSITORY`
+  khỏi `exports`, chỉ export `InvoiceService`/`PaymentService` (giữ nguyên tên class, không tạo
+  "DomainService" mới — disclosed deviation, xem release note).
+- **`CheckoutService`** (Phase 3) — constructor injection chuyển sang dùng
+  `CartDomainService`/`CustomerPointDomainService` thay vì repository trực tiếp; tích hợp đầy đủ
+  Idempotency vào luồng checkout; `markFailed()` nay chạy cho MỌI nhánh lỗi sau reserve() thành
+  công (khác hành vi `CHECKOUT_FAILED_EVENT` trước T013 — disclosed widening).
+- **Invoice Number** (Phase 4) — `SequenceInvoiceCodeGenerator` đổi sang dùng `Branch.invoicePrefix`
+  (fallback `"HD"`) + `SequenceCodeGeneratorService` dùng chung (T012), sequence tách theo từng
+  Branch (`invoice_code_<branchId>`) thay vì 1 sequence chung toàn Organization. Mã hóa đơn cũ giữ
+  nguyên, không migrate/backfill.
+
+### Unchanged (chủ đích)
+- Mã hóa đơn đã sinh trước Phase 4 — giữ nguyên 100%, không đổi định dạng ngược.
+- Invoice/InvoiceItem trước Phase 5 — Snapshot field giữ `null` (không backfill dữ liệu lịch sử).
+
+### Known Limitations
+- **Barcode Conditional Snapshot** (`InvoiceItem.barcodeId`/`barcodeSnapshot`) luôn `null` — Cart
+  hiện không capture "dòng hàng được thêm qua quét Barcode cụ thể nào", cần một RFC riêng nếu muốn
+  bổ sung (ngoài phạm vi T013, Cart Repository Boundary đã đóng băng — Decision AD10).
+- `checkout_operations` Cleanup Job (xóa row hết hạn `expiresAt`, đánh dấu `PROCESSING` bị treo
+  thành `FAILED` chủ động) **chưa xây** — chỉ có cơ chế lazy recovery (`tryReclaim()` khi có request
+  mới tới cùng key). Ghi nhận Technical Debt.
+- `BranchModule` vẫn export raw `BRANCH_REPOSITORY` (chưa qua Repository Boundary Cleanup) — nay
+  cũng được `invoice` module tiêu thụ (Phase 4). Pre-existing, ngoài phạm vi T013.
+- 8 generator `Sequence*Generator` khác (branch, inventory-adjustment, organization, product/sku,
+  purchase-order, purchase-return, stock-count, transfer) vẫn chưa hợp nhất vào
+  `SequenceCodeGeneratorService` — ngoài phạm vi AD12 (chỉ áp dụng document number mới từ Phase 4
+  trở đi, không hồi tố).
+
+## [0.8.0-supplier-domain] - 2026-07-18
+
 **Sprint-01 — T012: Supplier Domain** (`SPEC-T012-SUPPLIER-001`), module Type B / Fast Track thứ hai
 sau Customer — theo `RFC-T012` v1 (Architect) → Architecture Review → `ARCHITECT RESOLUTION`
 (SR01-SR14, APPROVED WITH DECISIONS, một vòng duy nhất) → `RFC-T012` v2 (Claude Code cập nhật theo
 SR01-SR14, ủy quyền tường minh) → `ARCHITECTURE REVIEW – SPEC-T012-SUPPLIER-001` (SP01-SP13,
 APPROVED WITH DECISIONS) → SPEC cập nhật theo SP05/SP10/SP11/SP12 → Implementation. Chi tiết đầy
-đủ: `docs/release/t012-release-note.md`. **Chưa tag** — chờ Final Release Review riêng.
+đủ: `docs/release/t012-release-note.md`.
 
 ### Added
 - `SupplierStatus` (`ACTIVE`/`INACTIVE`/`ARCHIVED`, enum riêng) — thay `CommonStatus` 2 giá trị,

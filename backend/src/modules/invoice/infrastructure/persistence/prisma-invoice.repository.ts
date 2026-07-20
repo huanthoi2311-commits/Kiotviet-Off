@@ -34,6 +34,9 @@ export class PrismaInvoiceRepository implements IInvoiceRepository {
         paidAmount: input.paidAmount,
         dueAmount: input.dueAmount,
         createdBy: input.createdBy,
+        customerCodeSnapshot: input.customerCodeSnapshot ?? null,
+        customerNameSnapshot: input.customerNameSnapshot ?? null,
+        customerPhoneSnapshot: input.customerPhoneSnapshot ?? null,
         items: {
           create: input.items.map((item) => ({
             productId: item.productId,
@@ -42,6 +45,11 @@ export class PrismaInvoiceRepository implements IInvoiceRepository {
             discount: item.discount ?? 0,
             taxAmount: item.taxAmount ?? 0,
             totalAmount: item.totalAmount,
+            productCodeSnapshot: item.productCodeSnapshot,
+            productNameSnapshot: item.productNameSnapshot,
+            unitNameSnapshot: item.unitNameSnapshot,
+            barcodeId: item.barcodeId ?? null,
+            barcodeSnapshot: item.barcodeSnapshot ?? null,
           })),
         },
       },
@@ -100,6 +108,9 @@ export class PrismaInvoiceRepository implements IInvoiceRepository {
       paidAmount: invoice.paidAmount.toString(),
       dueAmount: invoice.dueAmount.toString(),
       dueDate: invoice.dueDate,
+      customerCodeSnapshot: invoice.customerCodeSnapshot,
+      customerNameSnapshot: invoice.customerNameSnapshot,
+      customerPhoneSnapshot: invoice.customerPhoneSnapshot,
       createdAt: invoice.createdAt,
       updatedAt: invoice.updatedAt,
       items: invoice.items.map((item) => this.toItemEntity(item)),
@@ -115,6 +126,11 @@ export class PrismaInvoiceRepository implements IInvoiceRepository {
       discount: item.discount.toString(),
       taxAmount: item.taxAmount.toString(),
       totalAmount: item.totalAmount.toString(),
+      productCodeSnapshot: item.productCodeSnapshot,
+      productNameSnapshot: item.productNameSnapshot,
+      unitNameSnapshot: item.unitNameSnapshot,
+      barcodeId: item.barcodeId,
+      barcodeSnapshot: item.barcodeSnapshot,
     };
   }
 }

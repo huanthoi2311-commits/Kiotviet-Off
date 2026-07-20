@@ -1,12 +1,23 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Headers,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiHeader,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import { ErrorCode } from '../../../common/errors/error-codes';
+import { withCode } from '../../../common/errors/with-code';
 import {
   ApiCommonErrors,
   ApiWriteErrors,
@@ -31,16 +42,35 @@ export class CheckoutController {
   @Post()
   @ApiOperation({
     summary:
-      'Chốt đơn từ giỏ hàng: kiểm tra tồn kho, áp discount/điểm/voucher, thu tiền, sinh hóa đơn — 1 transaction',
+      'Chốt đơn từ giỏ hàng: kiểm tra tồn kho, áp discount/điểm/voucher, thu tiền, sinh hóa đơn — 1 transaction. Bắt buộc header Idempotency-Key (T013).',
+  })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    description:
+      'Do client tự sinh (vd UUID) — cùng key + cùng payload sẽ trả lại đúng hóa đơn cũ, không tạo giao dịch mới (SPEC-T013-SALES-FOUNDATION-001 §13).',
   })
   @ApiResponse({ status: 201, type: CheckoutResponseDto })
   @ApiWriteErrors()
-  checkout(
+  async checkout(
     @Body() dto: CheckoutDto,
+    @Headers('idempotency-key') idempotencyKey: string,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
   ): Promise<CheckoutResponseDto> {
-    return this.checkoutService.checkout(dto, this.toActor(user, req));
+    if (!idempotencyKey) {
+      throw new BadRequestException(
+        withCode(
+          ErrorCode.CHECKOUT_IDEMPOTENCY_KEY_MISSING,
+          'Thiếu header Idempotency-Key',
+        ),
+      );
+    }
+    return this.checkoutService.checkout(
+      dto,
+      this.toActor(user, req),
+      idempotencyKey,
+    );
   }
 
   private toActor(user: JwtAccessPayload, req: Request): ActorContext {

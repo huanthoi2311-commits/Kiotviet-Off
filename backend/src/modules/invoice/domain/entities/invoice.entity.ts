@@ -8,6 +8,17 @@ export interface InvoiceItemEntity {
   discount: string;
   taxAmount: string;
   totalAmount: string;
+  /**
+   * Mandatory Snapshot (SPEC-T013-SALES-FOUNDATION-001 §1.3, Decision SP07) — Checkout luôn ghi
+   * giá trị cho Invoice MỚI. Kiểu vẫn `string | null` vì cột nullable ở DB và Invoice tạo TRƯỚC
+   * Phase 5 hợp lệ có giá trị null (không backfill lịch sử).
+   */
+  productCodeSnapshot: string | null;
+  productNameSnapshot: string | null;
+  unitNameSnapshot: string | null;
+  /** Conditional Snapshot — null nếu dòng hàng không gắn Barcode cụ thể. */
+  barcodeId: string | null;
+  barcodeSnapshot: string | null;
 }
 
 /**
@@ -27,6 +38,10 @@ export interface InvoiceEntity {
   paidAmount: string;
   dueAmount: string;
   dueDate: Date | null;
+  /** Mandatory Snapshot (SPEC-T013-SALES-FOUNDATION-001 §1.3) — null nếu Invoice không gắn Customer. */
+  customerCodeSnapshot: string | null;
+  customerNameSnapshot: string | null;
+  customerPhoneSnapshot: string | null;
   createdAt: Date;
   updatedAt: Date;
   items: InvoiceItemEntity[];

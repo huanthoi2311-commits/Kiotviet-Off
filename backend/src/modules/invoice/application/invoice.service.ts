@@ -27,6 +27,10 @@ export interface CreateInvoiceParams {
   status: InvoiceStatus;
   items: CreateInvoiceItemInput[];
   createdBy: string;
+  /** Mandatory Snapshot (SPEC-T013-SALES-FOUNDATION-001 §1.3) — null nếu không có Customer. */
+  customerCodeSnapshot?: string | null;
+  customerNameSnapshot?: string | null;
+  customerPhoneSnapshot?: string | null;
 }
 
 /**
@@ -49,6 +53,7 @@ export class InvoiceService {
   ): Promise<InvoiceResponseDto> {
     const code = await this.invoiceCodeGenerator.generate(
       params.organizationId,
+      params.branchId,
     );
     const created = await this.invoiceRepository.create(
       {
@@ -62,6 +67,9 @@ export class InvoiceService {
         dueAmount: params.dueAmount,
         items: params.items,
         createdBy: params.createdBy,
+        customerCodeSnapshot: params.customerCodeSnapshot ?? null,
+        customerNameSnapshot: params.customerNameSnapshot ?? null,
+        customerPhoneSnapshot: params.customerPhoneSnapshot ?? null,
       },
       tx,
     );

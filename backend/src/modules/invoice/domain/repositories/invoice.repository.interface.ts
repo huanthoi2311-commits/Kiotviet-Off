@@ -8,6 +8,13 @@ export interface CreateInvoiceItemInput {
   discount?: number;
   taxAmount?: number;
   totalAmount: number;
+  /** Mandatory Snapshot (SPEC-T013-SALES-FOUNDATION-001 §1.3, Decision SP07). */
+  productCodeSnapshot: string;
+  productNameSnapshot: string;
+  unitNameSnapshot: string;
+  /** Conditional Snapshot — null nếu dòng hàng không gắn Barcode cụ thể. */
+  barcodeId?: string | null;
+  barcodeSnapshot?: string | null;
 }
 
 export interface CreateInvoiceInput {
@@ -21,6 +28,10 @@ export interface CreateInvoiceInput {
   dueAmount: number;
   items: CreateInvoiceItemInput[];
   createdBy: string;
+  /** Mandatory Snapshot — null nếu Invoice không gắn Customer (khách lẻ). */
+  customerCodeSnapshot?: string | null;
+  customerNameSnapshot?: string | null;
+  customerPhoneSnapshot?: string | null;
 }
 
 export interface InvoiceSearchParams {

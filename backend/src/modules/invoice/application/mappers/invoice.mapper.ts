@@ -20,6 +20,9 @@ export class InvoiceMapper {
       paidAmount: entity.paidAmount,
       dueAmount: entity.dueAmount,
       dueDate: entity.dueDate,
+      customerCodeSnapshot: entity.customerCodeSnapshot,
+      customerNameSnapshot: entity.customerNameSnapshot,
+      customerPhoneSnapshot: entity.customerPhoneSnapshot,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
       items: entity.items.map((item) => InvoiceMapper.toItemResponseDto(item)),
@@ -35,6 +38,11 @@ export class InvoiceMapper {
       discount: item.discount,
       taxAmount: item.taxAmount,
       totalAmount: item.totalAmount,
+      productCodeSnapshot: item.productCodeSnapshot,
+      productNameSnapshot: item.productNameSnapshot,
+      unitNameSnapshot: item.unitNameSnapshot,
+      barcodeId: item.barcodeId,
+      barcodeSnapshot: item.barcodeSnapshot,
     };
   }
 }

@@ -21,6 +21,11 @@ describe('PrismaInvoiceRepository', () => {
     discount: { toString: () => '0.00' },
     taxAmount: { toString: () => '20000.00' },
     totalAmount: { toString: () => '220000.00' },
+    productCodeSnapshot: 'SP000001',
+    productNameSnapshot: 'Sản phẩm 1',
+    unitNameSnapshot: 'Cái',
+    barcodeId: null,
+    barcodeSnapshot: null,
   };
 
   const rawInvoice = {
@@ -35,6 +40,9 @@ describe('PrismaInvoiceRepository', () => {
     paidAmount: { toString: () => '220000.00' },
     dueAmount: { toString: () => '0.00' },
     dueDate: null,
+    customerCodeSnapshot: 'KH000001',
+    customerNameSnapshot: 'Nguyễn Văn A',
+    customerPhoneSnapshot: '0900000000',
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     items: [rawItem],
@@ -71,9 +79,15 @@ describe('PrismaInvoiceRepository', () => {
         unitPrice: 100000,
         taxAmount: 20000,
         totalAmount: 220000,
+        productCodeSnapshot: 'SP000001',
+        productNameSnapshot: 'Sản phẩm 1',
+        unitNameSnapshot: 'Cái',
       },
     ],
     createdBy: 'user-1',
+    customerCodeSnapshot: 'KH000001',
+    customerNameSnapshot: 'Nguyễn Văn A',
+    customerPhoneSnapshot: '0900000000',
   };
 
   describe('create', () => {
@@ -85,11 +99,19 @@ describe('PrismaInvoiceRepository', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             code: 'HD000001',
+            customerCodeSnapshot: 'KH000001',
+            customerNameSnapshot: 'Nguyễn Văn A',
+            customerPhoneSnapshot: '0900000000',
             items: {
               create: [
                 expect.objectContaining({
                   productId: 'prod-1',
                   quantity: 2,
+                  productCodeSnapshot: 'SP000001',
+                  productNameSnapshot: 'Sản phẩm 1',
+                  unitNameSnapshot: 'Cái',
+                  barcodeId: null,
+                  barcodeSnapshot: null,
                 }),
               ],
             },
@@ -99,6 +121,8 @@ describe('PrismaInvoiceRepository', () => {
       expect(result.id).toBe('inv-1');
       expect(result.items).toHaveLength(1);
       expect(result.items[0].totalAmount).toBe('220000.00');
+      expect(result.customerCodeSnapshot).toBe('KH000001');
+      expect(result.items[0].productCodeSnapshot).toBe('SP000001');
     });
 
     it('dùng thẳng tx được truyền vào, không dùng this.prisma', async () => {
