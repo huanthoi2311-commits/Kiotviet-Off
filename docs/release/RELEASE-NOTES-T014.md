@@ -1,7 +1,7 @@
 # Release Notes — T014: Sales Return & Exchange
 
 **Audience:** Developers · QA · Operations
-**Status:** RELEASE CANDIDATE (RC1) — architecture-approved, not yet committed/tagged/pushed. Release Workflow (commit/tag/push/publish) has not been authorized yet.
+**Status:** RELEASED — tagged `v0.10.0-sales-return-exchange`, committed (`4223f16`) and pushed to `origin/feature/T014-sales-return`.
 **References:** `RFC-T014-SALES-RETURN-EXCHANGE.md` v1.1, `SPEC-T014-SALES-RETURN-EXCHANGE-001`, Architect Decisions AD27-AD46 (`docs/project-governance/AI_WORKFLOW.md`), `docs/architecture/T014-rfc-v1.1-architecture-review.md`.
 
 ---
