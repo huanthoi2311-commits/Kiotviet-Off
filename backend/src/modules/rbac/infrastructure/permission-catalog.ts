@@ -175,6 +175,57 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
     group: 'payment',
     description: 'Ghi nhận thanh toán',
   },
+  // Sales Return & Exchange (SPEC-T014-SALES-RETURN-EXCHANGE-001 §6) — không đụng `order:return` (stub cũ, chưa triển khai).
+  {
+    code: 'sales_return:view',
+    group: 'sales_return',
+    description: 'Xem phiếu trả hàng',
+  },
+  {
+    code: 'sales_return:create',
+    group: 'sales_return',
+    description: 'Tạo phiếu trả hàng',
+  },
+  {
+    code: 'sales_return:update',
+    group: 'sales_return',
+    description: 'Sửa phiếu trả hàng (Draft)',
+  },
+  {
+    code: 'sales_return:submit',
+    group: 'sales_return',
+    description: 'Gửi phiếu trả hàng chờ duyệt',
+  },
+  {
+    code: 'sales_return:approve',
+    group: 'sales_return',
+    description: 'Duyệt phiếu trả hàng',
+  },
+  {
+    code: 'sales_return:receive',
+    group: 'sales_return',
+    description: 'Nhận hàng trả, phục hồi tồn kho',
+  },
+  {
+    code: 'sales_return:complete',
+    group: 'sales_return',
+    description: 'Hoàn tất phiếu trả hàng',
+  },
+  {
+    code: 'sales_return:cancel',
+    group: 'sales_return',
+    description: 'Hủy phiếu trả hàng',
+  },
+  {
+    code: 'sales_return:refund',
+    group: 'sales_return',
+    description: 'Tạo/xử lý hoàn tiền',
+  },
+  {
+    code: 'sales_return:view_refund',
+    group: 'sales_return',
+    description: 'Xem thông tin hoàn tiền',
+  },
   { code: 'debt:view', group: 'debt', description: 'Xem công nợ' },
   { code: 'cashbook:view', group: 'cashbook', description: 'Xem sổ quỹ' },
   {

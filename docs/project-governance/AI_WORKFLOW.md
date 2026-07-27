@@ -299,6 +299,63 @@ PostgreSQL/Redis, PHẢI có một vòng RC Validation Full (Docker/Postgres/Red
 khi phát hành rộng rãi — đây là hoạt động BỔ SUNG tăng cường chất lượng, không phủ nhận kết quả RC
 Lite đã được chấp nhận ở milestone này.
 
+## T014 Sales Return & Exchange — Baseline kiến trúc (Decision AD27–AD45, RFC-T014 v1.1 APPROVED)
+
+Sau khi RFC-T014-SALES-RETURN-EXCHANGE v1.1 được Architect APPROVED (2 Critical Finding A1/A2 của
+v1.0 đã giải quyết ở mức kiến trúc, không chỉ đổi câu chữ — xem
+`docs/architecture/T014-rfc-v1.1-architecture-review.md`), các quyết định sau trở thành baseline
+chính thức cho toàn bộ T014, ràng buộc SPEC-T014 và mọi Phase triển khai sau này:
+
+- **AD27** — `SalesReturn` tham chiếu trực tiếp `Invoice`/`InvoiceItem`; KHÔNG hồi sinh `Order`/
+  `OrderItem` (scaffold cũ, không có write path thật, xem T014 Discovery §2).
+- **AD28** — `SalesReturn` là Aggregate độc lập, không bao giờ sửa dữ liệu lịch sử của Invoice.
+- **AD29** — Inventory history append-only; phục hồi tồn kho CHỈ qua `InventoryDomainService`.
+- **AD30** — Partial Return được hỗ trợ.
+- **AD31** — Multiple Return (nhiều Return trên cùng 1 Invoice) được hỗ trợ, giới hạn bởi tổng số
+  lượng cộng dồn không vượt quá số lượng đã bán.
+- **AD32** — Return và Refund là hai khái niệm tách biệt.
+- **AD33** — Cashbook nằm ngoài phạm vi T014.
+- **AD34** — `PurchaseReturn` được dùng làm tiền lệ cấu trúc (điều chỉnh cho phù hợp, không sao
+  chép máy móc).
+- **AD35** — `SalesReturn` là Aggregate Root độc lập.
+- **AD36** — Eligible Quantity luôn được derive (tính toán tại thời điểm cần), KHÔNG lưu counter
+  trên `InvoiceItem`.
+- **AD37** — Refund có lifecycle độc lập, KHÔNG phải là một Return Status.
+- **AD38** — Exchange = Return + New Sale (Invoice gốc không bao giờ bị sửa; New Sale đi qua
+  Checkout hiện có).
+- **AD39** — Phục hồi tồn kho luôn qua `InventoryDomainService`.
+- **AD40** — Controlled Enablement nên theo thực hành triển khai hiện có; `SALES_RETURN_ENABLED`
+  là đề xuất, SPEC xác nhận cơ chế tích hợp cụ thể.
+- **AD41** — Optimistic Lock trên `SalesReturn` chỉ bảo vệ chính document đó, KHÔNG đủ để chống
+  over-return giữa nhiều Return khác nhau (đó là vai trò của AD44).
+- **AD42** — Repository Boundary bắt buộc — `sales-return` không được ghi trực tiếp vào Invoice/
+  InvoiceItem/Inventory (ngoài `InventoryDomainService`)/Payment/Customer repository.
+- **AD43** — `SalesReturn` hoàn tất (`COMPLETED`) KHÔNG phụ thuộc vào việc tạo/hoàn tất Refund.
+- **AD44** — Validate Eligible Quantity cuối cùng PHẢI chạy dưới một serialization boundary theo
+  `InvoiceItem` (row lock hoặc cơ chế serialization tương đương) TRƯỚC khi chuyển trạng thái
+  `RECEIVED` — đây là cơ chế chống over-return thật sự (không phải Optimistic Lock của
+  `SalesReturn`, xem AD41).
+- **AD45** — Dòng hàng SERVICE/non-stock bỏ qua phục hồi tồn kho, KHÔNG tạo `InventoryMovement`.
+
+**Ghi chú nguồn gốc (đã disclosed ở SPEC review — Finding M1):** AD27-AD34 xuất hiện lần đầu trong
+chính văn bản RFC-T014 v1.0 (không phải một vòng Architect Review Discovery tách biệt trước đó) —
+ghi nhận đúng thực tế để giữ đúng nguyên tắc audit trail của dự án, không ảnh hưởng tính hợp lệ của
+các quyết định.
+
+**AD46 (ban hành trong Phase 2, điều chỉnh Transaction Ownership của `receive()`):** SPEC §13's
+pseudocode ban đầu để `SalesReturnRepository.receive()` tự mở/quản lý transaction của chính nó
+(giống `PurchaseReturn.complete()`) — nhưng điều này không tách được "Repository & Concurrency
+Lock" (Phase 2) khỏi "Inventory restoration" (Phase 3) mà không để lại TODO trong concurrency
+path. Claude Code phát hiện xung đột, trình bày 2 phương án, Architect chọn **Option 1**:
+`SalesReturnService` (Application Service, Phase 3) mở `prisma.$transaction()`, gọi
+`ISalesReturnRepository.receive(tx, ...)` (nhận `tx` từ caller, KHÔNG tự mở/commit) để khóa
+InvoiceItem + validate Eligible Quantity + chuyển trạng thái, sau đó TỰ gọi
+`InventoryDomainService.increase(tx, ...)` trong CÙNG `tx` — đúng Transaction Propagation pattern
+của `CheckoutService` (T013 §14), không phải pattern tự-quản-lý của `PurchaseReturn`. Repository
+(Phase 2) KHÔNG được gọi `InventoryDomainService` dưới bất kỳ hình thức nào. Phase 2 coi là hoàn
+tất khi transaction propagation + locking + repository behavior đã triển khai xong — không mở
+rộng sang Inventory orchestration.
+
 ## Ví dụ cụ thể từ chính dự án này (tham khảo khi áp dụng)
 
 - **RFC/SPEC mâu thuẫn với code thực tế**: `SPEC-ORG-001` giả định `Organization.plan` là SSOT duy nhất cho gói dịch vụ, nhưng code đã có sẵn ý tưởng tách `OrganizationSubscription` — dừng lại hỏi, nhận `ARCHITECT DECISION` xác nhận hướng đi trước khi code T002.

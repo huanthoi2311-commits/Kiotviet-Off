@@ -1,6 +1,6 @@
 # Sprint Dashboard
 
-**Cập nhật lần cuối:** T013 (Sales Foundation) — **COMPLETED ở cấp độ kiến trúc** (7/7 Phase APPROVED, Decision AD07-AD16, `docs/implementation/IMPLEMENTATION-PLAN-T013-SALES-FOUNDATION.md`), Release Note đã soạn (`docs/release/t013-release-note.md`, đề xuất `v0.9.0-sales-foundation`) — **chưa tag**, chờ Final Release Review riêng (Decision AD16). T012 (Supplier Domain) — `DONE`, đã phát hành `v0.8.0-supplier-domain`. Cập nhật file này mỗi khi đóng 1 Sprint task hoặc phát hành version mới — cùng nhịp với `PROJECT_STATUS.md` (`PROJECT_STATUS.md` là nguồn chi tiết, file này là bảng tổng quan nhanh).
+**Cập nhật lần cuối:** T013 (Sales Foundation) — **RELEASED**, tag `v0.9.0-sales-foundation` (commit `aefdfa7` + docs hotfix `3ca8066`, đã push). T014 (Sales Return & Exchange) — **RFC v1.1 APPROVED** (Decision AD27-AD45, `docs/rfc/RFC-T014-SALES-RETURN-EXCHANGE.md`), **SPEC-T014 đang soạn**. Cập nhật file này mỗi khi đóng 1 Sprint task hoặc phát hành version mới — cùng nhịp với `PROJECT_STATUS.md` (`PROJECT_STATUS.md` là nguồn chi tiết, file này là bảng tổng quan nhanh).
 
 **Trạng thái module dùng đúng 8 giá trị cố định:** `NOT STARTED` → `AUDIT` → `RFC` → `SPEC` → `PLAN` → `IMPLEMENTING` → `REVIEW` → `DONE`.
 
@@ -10,9 +10,9 @@
 
 | | |
 |---|---|
-| **Current Version** | `v0.8.0-supplier-domain` (đã tag) — `v0.9.0-sales-foundation` đề xuất cho T013, chưa tag |
-| **Current Task** | T013 — Sales Foundation (Type A): **COMPLETED ở cấp độ kiến trúc** (7/7 Phase APPROVED), Ready for Release Preparation — chờ Final Release Review (Decision AD16) trước khi commit/tag. Xem "Roadmap chốt lại" bên dưới |
-| **Overall Progress** | ~89-91% *(ước tính của Architect tại Phase 7 T013)* |
+| **Current Version** | `v0.9.0-sales-foundation` (đã tag & release) |
+| **Current Task** | T014 — Sales Return & Exchange (Type A): RFC v1.1 **APPROVED**, SPEC-T014 đang soạn. Implementation chưa được phép. Xem "Roadmap chốt lại" bên dưới |
+| **Overall Progress** | ~91-93% *(ước tính, sau khi T013 released + T014 RFC approved)* |
 | **Master Data Progress** | **5/5 module đã lên kế hoạch DONE** (Product, Category, Brand, Unit, Barcode) — Attribute/Variant không còn trong roadmap mới, trạng thái chưa rõ |
 | **CRM Progress** | **2/2 module đã lên kế hoạch DONE** (Customer, Supplier) |
 | **Inventory Progress** | 0 module đã qua Audit/RFC chính thức — có scaffold code từ Sprint-00, xem ghi chú cuối bảng |
@@ -87,8 +87,8 @@ Không còn chia theo Sprint (Master Data/CRM/Inventory/POS/ERP) như cấu trú
 | T010 | Offline Single-Computer Scope Freeze | `DONE` — PASS, AR01-AR07 APPROVED, Decision AD01-AD04 (`docs/architecture/offline-single-computer-readiness-audit.md`) |
 | T011 | Customer | `DONE` — tag `v0.7.0-customer-domain`, FR01-FR10 APPROVED (`docs/release/t011-release-note.md`) |
 | T012 | Supplier | `DONE` — tag `v0.8.0-supplier-domain`, Final Release Review APPROVED (`docs/release/t012-release-note.md`) |
-| T013 | Sales Foundation | `REVIEW` — COMPLETED ở cấp độ kiến trúc, 7/7 Phase APPROVED (Decision AD07-AD16), Release Note soạn xong (`docs/release/t013-release-note.md`, đề xuất tag `v0.9.0-sales-foundation`) — **chưa tag**, chờ Final Release Review |
-| T014 | Sales Return | `NOT STARTED` |
+| T013 | Sales Foundation | `DONE` — tag `v0.9.0-sales-foundation`, đã commit/push (Decision AD07-AD23) |
+| T014 | Sales Return | `SPEC` — RFC v1.1 APPROVED (Decision AD27-AD45), SPEC-T014 đang soạn |
 | T015 | Purchase Foundation | `NOT STARTED` |
 | T016 | Purchase Return | `NOT STARTED` |
 | T017 | Debt Ledger | `NOT STARTED` |

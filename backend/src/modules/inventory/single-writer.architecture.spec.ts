@@ -9,6 +9,7 @@ import { TransferModule } from '../transfer/transfer.module';
 import { InventoryAdjustmentModule } from '../inventory-adjustment/inventory-adjustment.module';
 import { StockCountModule } from '../stock-count/stock-count.module';
 import { CheckoutModule } from '../checkout/checkout.module';
+import { SalesReturnModule } from '../sales-return/sales-return.module';
 
 /**
  * T004.5 (SPEC-INV-001) — Architecture Verification tự động, không chỉ dựa vào grep thủ công
@@ -96,6 +97,7 @@ describe('Architecture: Inventory Single Writer (SPEC-INV-001, T004.5)', () => {
     ['inventory-adjustment.module', InventoryAdjustmentModule],
     ['stock-count.module', StockCountModule],
     ['checkout.module', CheckoutModule],
+    ['sales-return.module', SalesReturnModule],
   ])(
     '%s import InventoryModule (được phép gọi InventoryDomainService)',
     (_name, ModuleClass) => {
