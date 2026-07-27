@@ -168,7 +168,8 @@ describe('SalesReturnController', () => {
     ['cancel', 'cancel'],
   ] as const)(
     '%s ủy quyền cho service.%s kèm version + actor',
-    async (method) => {
+    async (method, serviceMethod) => {
+      expect(method).toBe(serviceMethod);
       await (
         controller[method] as (
           id: string,

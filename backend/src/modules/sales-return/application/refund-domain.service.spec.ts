@@ -30,8 +30,8 @@ describe('RefundDomainService', () => {
     id: 'sr-1',
     status: 'RECEIVED',
     totalAmount: '220000.00',
-    refunds: [],
-  } as never;
+    refunds: [] as { amount: string; status: string }[],
+  };
 
   const refundEntity = {
     id: 'refund-1',
@@ -46,7 +46,7 @@ describe('RefundDomainService', () => {
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     version: 1,
-  } as never;
+  };
 
   beforeEach(() => {
     salesReturnRepository = {

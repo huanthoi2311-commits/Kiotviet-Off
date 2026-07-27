@@ -64,18 +64,18 @@ describe('SalesReturnService', () => {
         unitNameSnapshot: 'Cái',
       },
     ],
-  } as never;
+  };
 
   const stockProduct = {
     id: 'prod-1',
     type: 'STANDARD',
     costPrice: '80000.00',
-  } as never;
+  };
   const serviceProduct = {
     id: 'prod-2',
     type: 'SERVICE',
     costPrice: '0.00',
-  } as never;
+  };
 
   const salesReturnEntity = {
     id: 'sr-1',
@@ -112,8 +112,8 @@ describe('SalesReturnService', () => {
         updatedAt: new Date('2026-01-01'),
       },
     ],
-    refunds: [],
-  } as never;
+    refunds: [] as { amount: string; status: string }[],
+  };
 
   beforeEach(() => {
     prisma = {
@@ -275,7 +275,9 @@ describe('SalesReturnService', () => {
 
   describe('updateDraft', () => {
     it('Phase 5 fix — map SalesReturnQtyExceededError từ eligibilityService.validateRequestedQuantities -> UnprocessableEntityException', async () => {
-      salesReturnRepository.findById.mockResolvedValue(salesReturnEntity);
+      salesReturnRepository.findById.mockResolvedValue(
+        salesReturnEntity as never,
+      );
       eligibilityService.validateRequestedQuantities.mockRejectedValue(
         new SalesReturnQtyExceededError('invitem-1', '1'),
       );
@@ -323,7 +325,9 @@ describe('SalesReturnService', () => {
 
   describe('findOne/search/getInvoiceEligibility (Phase 5 — read-only, hoàn thiện API surface)', () => {
     it('findOne trả entity khi tồn tại', async () => {
-      salesReturnRepository.findById.mockResolvedValue(salesReturnEntity);
+      salesReturnRepository.findById.mockResolvedValue(
+        salesReturnEntity as never,
+      );
       const result = await service.findOne('sr-1', 'org-1');
       expect(result.id).toBe('sr-1');
     });
@@ -337,7 +341,7 @@ describe('SalesReturnService', () => {
 
     it('search ủy quyền trực tiếp cho repository.search', async () => {
       salesReturnRepository.search.mockResolvedValue({
-        items: [salesReturnEntity],
+        items: [salesReturnEntity as never],
         total: 1,
         page: 1,
         limit: 20,
@@ -480,7 +484,7 @@ describe('SalesReturnService', () => {
     });
 
     it('bỏ qua Inventory cho dòng SERVICE (Decision AD45)', async () => {
-      productDomainService.findById.mockResolvedValue(serviceProduct);
+      productDomainService.findById.mockResolvedValue(serviceProduct as never);
       salesReturnRepository.receive.mockResolvedValue({
         ...salesReturnEntity,
         status: 'RECEIVED',
