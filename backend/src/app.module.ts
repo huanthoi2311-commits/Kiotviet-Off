@@ -13,6 +13,7 @@ import { DiscountModule } from './modules/discount/discount.module';
 import { InvoiceModule } from './modules/invoice/invoice.module';
 import { OrganizationModule } from './modules/organization/organization.module';
 import { PaymentModule } from './modules/payment/payment.module';
+import { SalesReturnModule } from './modules/sales-return/sales-return.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -87,6 +88,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     PaymentModule,
     InvoiceModule,
     CheckoutModule,
+    SalesReturnModule,
   ],
   controllers: [AppController],
   providers: [

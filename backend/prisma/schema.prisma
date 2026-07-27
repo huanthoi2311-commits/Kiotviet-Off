@@ -130,6 +130,40 @@ enum InvoiceStatus {
   CANCELLED
 }
 
+/// T014 Phase 1 (SPEC-T014-SALES-RETURN-EXCHANGE-001 §1, Decision AD35/AD44) — lifecycle của
+/// SalesReturn, KHÔNG có REFUNDED (Refund là aggregate độc lập, xem SalesReturnRefundStatus,
+/// Decision AD37/AD43). CANCELLED chỉ hợp lệ TRƯỚC RECEIVED.
+enum SalesReturnStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  RECEIVED
+  COMPLETED
+  CANCELLED
+}
+
+/// T014 Phase 1 — lý do trả hàng, tối thiểu theo SPEC §17. OTHER bắt buộc kèm reasonNote.
+enum SalesReturnReason {
+  DAMAGED
+  DEFECTIVE
+  WRONG_PRODUCT
+  CUSTOMER_CHANGED_MIND
+  EXPIRED
+  TRANSPORT_DAMAGE
+  OTHER
+}
+
+/// T014 Phase 1 — lifecycle của Refund, độc lập hoàn toàn với SalesReturnStatus (Decision AD37).
+enum SalesReturnRefundStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+/// (Scaffold cũ, Sprint-00 — tham chiếu Order/OrderItem, không có write path thật. KHÔNG dùng
+/// cho T014, xem Decision AD27/T014 Discovery §2/§28. Giữ nguyên, không xóa — RFC-T014 §35.)
 enum ReturnStatus {
   PENDING
   APPROVED
@@ -317,6 +351,7 @@ model Organization {
   inventoryAdjustments InventoryAdjustment[]
   sequences            Sequence[]
   checkoutOperations   CheckoutOperation[]
+  salesReturns         SalesReturn[]
 
   @@map("organizations")
 }
@@ -419,6 +454,7 @@ model Branch {
   promotions            Promotion[]
   organizationDefaultOf OrganizationSettings[] @relation("OrganizationDefaultBranch")
   checkoutOperations    CheckoutOperation[]
+  salesReturns          SalesReturn[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, invoicePrefix])
@@ -477,6 +513,7 @@ model Warehouse {
   inventoryAdjustments          InventoryAdjustment[]
   organizationSettingsDefaultOf OrganizationSettings[]
   branchDefaultOf               Branch[]               @relation("BranchDefaultWarehouse")
+  salesReturnItems              SalesReturnItem[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -882,6 +919,7 @@ model Product {
   inventoryAdjustmentItems InventoryAdjustmentItem[]
   supplierProducts         SupplierProduct[]
   invoiceItems             InvoiceItem[]
+  salesReturnItems         SalesReturnItem[]
 
   @@unique([organizationId, sku])
   @@unique([organizationId, slug])
@@ -1632,8 +1670,9 @@ model Invoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items    InvoiceItem[]
-  payments Payment[]
+  items        InvoiceItem[]
+  payments     Payment[]
+  salesReturns SalesReturn[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -1674,6 +1713,105 @@ model InvoiceItem {
   @@index([productId])
   @@index([barcodeId])
   @@map("invoice_items")
+  salesReturnItems SalesReturnItem[]
+}
+
+/// T014 (SPEC-T014-SALES-RETURN-EXCHANGE-001, Decision AD27/AD35) — Aggregate Root MỚI, tham
+/// chiếu trực tiếp Invoice/InvoiceItem (KHÔNG phải model `Return` cũ bên dưới — đó là scaffold
+/// Sprint-00 tham chiếu Order, không có write path thật, giữ nguyên không xóa).
+model SalesReturn {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branchId       String       @db.Uuid
+  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  invoiceId      String       @db.Uuid
+  invoice        Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  /// Denormalize từ Invoice.customerId để query nhanh — KHÔNG phải nguồn sự thật (SPEC §1).
+  customerId     String?      @db.Uuid
+  customer       Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  code        String
+  status      SalesReturnStatus @default(DRAFT)
+  totalAmount Decimal           @default(0) @db.Decimal(18, 2)
+  note        String?
+
+  createdBy String?   @db.Uuid
+  updatedBy String?   @db.Uuid
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  /// Optimistic Lock (Decision AD41) — bảo vệ CHÍNH document này, KHÔNG phải cơ chế chống
+  /// over-return (đó là AD44, xem InvoiceItem serialization trong SalesReturnRepository).
+  version   Int       @default(1)
+
+  items   SalesReturnItem[]
+  refunds SalesReturnRefund[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([invoiceId])
+  @@index([status])
+  @@map("sales_returns")
+}
+
+/// Mỗi dòng gắn với đúng 1 InvoiceItem gốc + snapshot tại thời điểm bán (mirror InvoiceItem
+/// Phase 5 pattern) — Product.type đọc LẠI tại RECEIVED (không snapshot ở đây, SPEC §0.2).
+model SalesReturnItem {
+  id            String      @id @default(uuid()) @db.Uuid
+  salesReturnId String      @db.Uuid
+  salesReturn   SalesReturn @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  invoiceItemId String      @db.Uuid
+  invoiceItem   InvoiceItem @relation(fields: [invoiceItemId], references: [id], onDelete: Restrict)
+  productId     String      @db.Uuid
+  product       Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  /// Null hợp lệ nếu Product hiện là SERVICE tại thời điểm RECEIVED (SPEC §0.2/§12).
+  warehouseId   String?     @db.Uuid
+  warehouse     Warehouse?  @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+
+  quantity    Decimal @db.Decimal(18, 3)
+  unitPrice   Decimal @db.Decimal(18, 2)
+  discount    Decimal @default(0) @db.Decimal(18, 2)
+  taxAmount   Decimal @default(0) @db.Decimal(18, 2)
+  totalAmount Decimal @db.Decimal(18, 2)
+
+  productCodeSnapshot String
+  productNameSnapshot String
+  unitNameSnapshot    String
+
+  reason     SalesReturnReason
+  reasonNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([salesReturnId])
+  @@index([invoiceItemId])
+  @@map("sales_return_items")
+}
+
+/// Aggregate độc lập với SalesReturn.status (Decision AD37/AD43) — KHÔNG ghi vào bảng `payments`
+/// (Decision AD32, SPEC §15).
+model SalesReturnRefund {
+  id                String                   @id @default(uuid()) @db.Uuid
+  salesReturnId     String                   @db.Uuid
+  salesReturn       SalesReturn              @relation(fields: [salesReturnId], references: [id], onDelete: Restrict)
+
+  amount            Decimal                  @db.Decimal(18, 2)
+  method            PaymentMethod
+  status            SalesReturnRefundStatus  @default(PENDING)
+  externalReference String?
+  failureReason     String?
+
+  createdBy String?  @db.Uuid
+  updatedBy String?  @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  /// Optimistic Lock riêng cho Refund transition, độc lập với SalesReturn.version.
+  version   Int      @default(1)
+
+  @@index([salesReturnId])
+  @@map("sales_return_refunds")
 }
 
 model Return {
@@ -1804,6 +1942,7 @@ model Customer {
   pointLedgers CustomerPointLedger[]
   payments     Payment[]
   invoices     Invoice[]
+  salesReturns SalesReturn[]
 
   @@unique([organizationId, code])
   @@index([organizationId])

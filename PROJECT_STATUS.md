@@ -6,20 +6,18 @@
 
 ## Version
 
-**Version hiện tại (đã tag):** `v0.8.0-supplier-domain`
-**Version đề xuất cho T013 (chưa tag):** `v0.9.0-sales-foundation` — chờ Final Release Review (Decision AD16) xác nhận.
+**Version hiện tại (đã tag & release):** `v0.9.0-sales-foundation` (commit `aefdfa7`, docs hotfix `3ca8066`) — T013 Sales Foundation.
 
 ## Sprint hiện tại
 
-**Roadmap toàn dự án được chốt lại** (`ARCHITECT SCOPE CORRECTION`, Decision SC01-SC13) — hệ thống chuyển hẳn sang mô hình **Offline Single-Computer** (chi tiết đầy đủ ở `docs/SPRINT_DASHBOARD.md`). **T013 — Sales Foundation (Type A): COMPLETED ở cấp độ kiến trúc** — toàn bộ 7 Phase (Idempotency Foundation → Repository Boundary Cleanup → Checkout Refactor → Invoice Number Integration → Invoice Snapshot → Service Product Support → Final Regression & Release Readiness) đều APPROVED, phát sinh Decision AD07-AD16 (chi tiết đầy đủ `docs/project-governance/AI_WORKFLOW.md`, `docs/implementation/IMPLEMENTATION-PLAN-T013-SALES-FOUNDATION.md`). Release Readiness Checklist (Phase 7) 7/7 PASS. **Trạng thái: Ready for Release Preparation** — release note đã soạn (`docs/release/t013-release-note.md`), CHƯA commit/push/tag (Decision AD16 yêu cầu một vòng Final Release Review riêng trước khi authorize). **Module kế tiếp:** T014 — Sales Return, WAITING RFC từ Architect.
+**Roadmap toàn dự án được chốt lại** (`ARCHITECT SCOPE CORRECTION`, Decision SC01-SC13) — hệ thống chuyển hẳn sang mô hình **Offline Single-Computer** (chi tiết đầy đủ ở `docs/SPRINT_DASHBOARD.md`). **T013 — Sales Foundation: RELEASED** (commit/tag/push hoàn tất qua Release Workflow 4 bước, Decision AD16/AD19-AD23; GitHub Release publish thủ công do môi trường không có `gh` CLI/token). **T014 — Sales Return & Exchange (Type A): RFC-T014 v1.1 APPROVED** (2 Critical Finding của v1.0 — Refund/Return lifecycle contradiction, Eligible Quantity concurrency — đã giải quyết ở mức kiến trúc, xem `docs/architecture/T014-rfc-v1.1-architecture-review.md`; Decision AD27-AD45 là baseline chính thức, `docs/project-governance/AI_WORKFLOW.md`). **Trạng thái: SPEC-T014 AUTHORIZED, đang soạn.** Implementation CHƯA được phép. Branch làm việc: `feature/T014-sales-return` (tạo từ baseline `3ca8066`, chưa push).
 
 ## Release
 
-- **Tag mới nhất (đã phát hành):** `v0.8.0-supplier-domain` — Release Note: `docs/release/t012-release-note.md`.
-- **T013 Sales Foundation — Release Note đã soạn, chưa tag:** `docs/release/t013-release-note.md` (đề xuất `v0.9.0-sales-foundation`, chờ Final Release Review).
-- **Technical Complete (T013) = YES** (Phase 7 Release Readiness Checklist 7/7 PASS — RFC/SPEC implemented, không API breaking ngoài dự kiến, không schema drift, không Repository Boundary violation, không Transaction regression). **Operational Complete = PENDING** (Docker Integration Test/Rollback Test/Manual Smoke Test/End-to-End Acceptance Scenario cho T013 — theo dõi tập trung ở `docs/architecture/technical-debt.md`).
-- **Regression Baseline tại thời điểm Phase 7 (T013, chưa tag):** 166/166 test suite PASS, 1584/1584 test PASS (chạy lại 2 lần, cả 2 lần fully clean — không có flake).
-- **Regression Baseline tại thời điểm release T012 (đã tag):** 156/157 test suite PASS, 1523/1525 test PASS.
+- **Tag mới nhất (đã phát hành):** `v0.9.0-sales-foundation` — Release Note: `docs/release/t013-release-note.md`, `docs/release/RELEASE-NOTES-T013.md`, `docs/release/CHANGELOG-T013.md`. Commit `aefdfa7` (feature) + `3ca8066` (docs hotfix), cả hai đã push lên `origin/main`. GitHub Release: publish thủ công (không có `gh` CLI/token trong môi trường phát triển).
+- **Tag trước:** `v0.8.0-supplier-domain` — Release Note: `docs/release/t012-release-note.md`.
+- **Regression Baseline tại thời điểm release T013:** 166/166 test suite PASS, 1584-1590/1584-1590 test PASS (chạy nhiều lần ở Phase 7 + RC Validation Lite, luôn fully clean hoặc chỉ có flake Argon2 đã biết, không phải regression).
+- **T014 — Discovery** (`docs/discovery/T014-SALES-RETURN-DISCOVERY.md`) **→ RFC v1 (Not Approved, 2 Critical) → RFC v1.1 (APPROVED)** (`docs/rfc/RFC-T014-SALES-RETURN-EXCHANGE.md`, review: `docs/architecture/T014-rfc-architecture-review.md` + `docs/architecture/T014-rfc-v1.1-architecture-review.md`). SPEC-T014 đang soạn.
 - **Versioning Policy** (Decision T006-R07): `v0.x.y` xuyên suốt Foundation + Master Data + CRM + Inventory + POS + ERP Core. Chỉ chuyển `v1.0.0` khi hoàn thành đầy đủ các domain trên theo roadmap — không phát hành sớm.
 
 ## Tài liệu tham chiếu nhanh
