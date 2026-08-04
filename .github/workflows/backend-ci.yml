@@ -63,3 +63,59 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # SPEC-T023 Finding 7 (FR7.1) — chạy test:e2e thật trên Postgres/Redis thật (service container
+  # của GitHub Actions), đóng technical-debt.md mục #1 (Integration Test PENDING từ Sprint-00).
+  e2e:
+    name: E2E (Postgres + Redis thật)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pos_erp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/pos_erp?schema=public"
+      REDIS_HOST: localhost
+      REDIS_PORT: "6379"
+      JWT_ACCESS_SECRET: ci-e2e-access-secret
+      JWT_REFRESH_SECRET: ci-e2e-refresh-secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema=prisma/schema.prisma
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy --schema=prisma/schema.prisma
+
+      - name: E2E test
+        run: npm run test:e2e
