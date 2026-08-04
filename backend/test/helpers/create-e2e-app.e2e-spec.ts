@@ -1,4 +1,10 @@
-import { Body, Controller, INestApplication, Module, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  INestApplication,
+  Module,
+  Post,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { IsIn, IsString } from 'class-validator';
 import request from 'supertest';
