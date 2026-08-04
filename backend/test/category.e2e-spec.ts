@@ -175,7 +175,10 @@ describe('Category Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/categories/${rootRes.body.data.id}`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ parentId: childRes.body.data.id })
+      .send({
+        version: rootRes.body.data.version,
+        parentId: childRes.body.data.id,
+      })
       .expect(422);
   });
 

@@ -263,22 +263,35 @@ describe('InventoryAdjustment Module (e2e, integration)', () => {
   });
 
   it('NEGATIVE-STOCK-ALLOWED: cho phép âm tồn kho khi Setting inventory.allowNegativeStock=true', async () => {
-    await prisma.setting.upsert({
+    // T030.12F — Setting này là cấu hình toàn tổ chức (branchId: null), đúng theo cách production
+    // đọc nó (prisma-inventory.repository.ts: `where: { organizationId, branchId: null, key }`).
+    // KHÔNG dùng `upsert()` qua compound unique key `organizationId_branchId_key`: Prisma không
+    // cho phép lookup compound unique key khi field nullable (`branchId`) trong key đó là null —
+    // đây là giới hạn đã biết của Prisma (SQL NULL không so sánh bằng NULL trong unique lookup),
+    // không phải lỗi ở test hay ở schema. Thay bằng findFirst + create/update thủ công, cùng
+    // `where` shape production dùng để đọc.
+    const existingSetting = await prisma.setting.findFirst({
       where: {
-        organizationId_branchId_key: {
-          organizationId,
-          branchId: null as unknown as string,
-          key: 'inventory.allowNegativeStock',
-        },
-      },
-      create: {
         organizationId,
+        branchId: null,
         key: 'inventory.allowNegativeStock',
-        value: true,
-        createdBy: userId,
       },
-      update: { value: true },
     });
+    if (existingSetting) {
+      await prisma.setting.update({
+        where: { id: existingSetting.id },
+        data: { value: true },
+      });
+    } else {
+      await prisma.setting.create({
+        data: {
+          organizationId,
+          key: 'inventory.allowNegativeStock',
+          value: true,
+          createdBy: userId,
+        },
+      });
+    }
 
     const created = await request(app.getHttpServer())
       .post('/api/v1/inventory-adjustments')

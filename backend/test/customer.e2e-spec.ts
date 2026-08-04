@@ -142,7 +142,11 @@ describe('Customer Module (e2e, integration)', () => {
     const updated = await request(app.getHttpServer())
       .patch(`/api/v1/customers/${customerId}`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ fullName: 'Nguyễn Văn B', customerType: 'VIP' })
+      .send({
+        version: created.body.data.version,
+        fullName: 'Nguyễn Văn B',
+        customerType: 'VIP',
+      })
       .expect(200);
     expect(updated.body.data.fullName).toBe('Nguyễn Văn B');
     expect(updated.body.data.customerType).toBe('VIP');
@@ -150,6 +154,7 @@ describe('Customer Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .delete(`/api/v1/customers/${customerId}`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: updated.body.data.version })
       .expect(204);
 
     await request(app.getHttpServer())
@@ -157,9 +162,16 @@ describe('Customer Module (e2e, integration)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(404);
 
+    // T030.12F — DELETE trả 204 (không có body), không đọc được version đã tăng sau xóa qua
+    // response API — CustomerVersionDto đòi hỏi version hiện tại. Đọc trực tiếp qua Prisma để lấy
+    // đúng version mới nhất trước khi gọi restore (cùng mẫu đã dùng ở supplier.e2e-spec.ts).
+    const afterDelete = await prisma.customer.findUnique({
+      where: { id: customerId },
+    });
     const restored = await request(app.getHttpServer())
       .post(`/api/v1/customers/${customerId}/restore`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: afterDelete!.version })
       .expect(201);
     expect(restored.body.data.id).toBe(customerId);
 
@@ -195,6 +207,7 @@ describe('Customer Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .post(`/api/v1/customers/${created.body.data.id}/restore`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: created.body.data.version })
       .expect(422);
   });
 

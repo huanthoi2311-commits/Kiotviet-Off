@@ -66,7 +66,18 @@ describe('StockCount Module (e2e, integration)', () => {
     const productPermissions = await prisma.permission.findMany({
       where: { code: { startsWith: 'product:' } },
     });
-    const allPermissions = [...stockCountPermissions, ...productPermissions];
+    // T030.12F — luồng lifecycle test kết thúc bằng GET /api/v1/inventory (RequirePermissions
+    // 'inventory:view'), trước đây lọt qua vì E2E chưa từng lắp ValidationPipe/PermissionsGuard
+    // đúng theo production. Chỉ thêm ĐÚNG permission thực sự được dùng, không thêm cả nhóm
+    // inventory:* (adjust/approve/complete/transfer không liên quan tới test này).
+    const inventoryViewPermission = await prisma.permission.findMany({
+      where: { code: 'inventory:view' },
+    });
+    const allPermissions = [
+      ...stockCountPermissions,
+      ...productPermissions,
+      ...inventoryViewPermission,
+    ];
     await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
     await prisma.rolePermission.createMany({
       data: allPermissions.map((p) => ({
