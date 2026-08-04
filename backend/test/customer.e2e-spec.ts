@@ -181,19 +181,29 @@ describe('Customer Module (e2e, integration)', () => {
       .expect(200);
   });
 
-  it('DUPLICATE-PHONE: từ chối tạo khách hàng trùng số điện thoại trong cùng Organization', async () => {
+  // T030.12L/T030.12M — RFC-T011 Decision CR06/SR09: Phone không còn unique.
+  it('SAME-PHONE-ALLOWED: cho phép tạo 2 khách hàng cùng số điện thoại trong cùng Organization', async () => {
     const phone = `08${Date.now().toString().slice(-8)}`;
-    await request(app.getHttpServer())
+    const first = await request(app.getHttpServer())
       .post('/api/v1/customers')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ fullName: 'Khách gốc', phone })
       .expect(201);
 
-    await request(app.getHttpServer())
+    const second = await request(app.getHttpServer())
       .post('/api/v1/customers')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ fullName: 'Khách trùng SĐT', phone })
-      .expect(409);
+      .expect(201);
+
+    expect(second.body.data.id).not.toBe(first.body.data.id);
+    expect(second.body.data.phone).toBe(first.body.data.phone);
+
+    const [firstRow, secondRow] = await Promise.all([
+      prisma.customer.findUnique({ where: { id: first.body.data.id } }),
+      prisma.customer.findUnique({ where: { id: second.body.data.id } }),
+    ]);
+    expect(secondRow!.organizationId).toBe(firstRow!.organizationId);
   });
 
   it('RESTORE-NOT-DELETED: từ chối khôi phục khách hàng chưa bị xóa', async () => {
