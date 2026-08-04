@@ -19,3 +19,7 @@ logs/
 .env
 .env.local
 !.env.example
+
+# Playwright screenshot tooling output (tools/playwright/) — tạm thời, không phải artifact release
+/artifacts/screenshots/*
+!/artifacts/screenshots/.gitkeep
