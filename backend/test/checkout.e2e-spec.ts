@@ -211,6 +211,7 @@ describe('Checkout Module (e2e, integration)', () => {
     const checkoutRes = await request(app.getHttpServer())
       .post('/api/v1/checkout')
       .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', `e2e-checkout-full-${Date.now()}`)
       .send({
         branchId,
         warehouseId,
@@ -252,6 +253,7 @@ describe('Checkout Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .post('/api/v1/checkout')
       .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', `e2e-checkout-empty-${Date.now()}`)
       .send({ branchId, warehouseId, paymentMethod: 'CASH' })
       .expect(422);
   });
@@ -266,6 +268,7 @@ describe('Checkout Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .post('/api/v1/checkout')
       .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', `e2e-checkout-insufficient-${Date.now()}`)
       .send({ branchId, warehouseId, paymentMethod: 'CASH' })
       .expect(422);
 
