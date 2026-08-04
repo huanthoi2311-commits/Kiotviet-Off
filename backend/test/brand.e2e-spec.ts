@@ -188,6 +188,7 @@ describe('Brand Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId,
         brandId: brandRes.body.data.id,
         unitId,

@@ -128,6 +128,7 @@ describe('Cart Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: category.id,
         unitId: unit.id,
         name: `Sản phẩm cart e2e ${Date.now()}`,
@@ -142,6 +143,7 @@ describe('Cart Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: category.id,
         unitId: unit.id,
         name: `Sản phẩm ngừng bán e2e ${Date.now()}`,

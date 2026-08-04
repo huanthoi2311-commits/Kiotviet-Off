@@ -183,6 +183,7 @@ describe('Unit Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId,
         unitId: unitRes.body.data.id,
         name: 'Sản phẩm chặn xóa đơn vị tính',
@@ -350,6 +351,7 @@ describe('Unit Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId,
         unitId: primaryUnitRes.body.data.id,
         name: 'Sản phẩm có barcode theo thùng',

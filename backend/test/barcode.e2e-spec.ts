@@ -173,6 +173,7 @@ describe('Barcode Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: category.id,
         unitId: unit.id,
         name: `Sản phẩm barcode e2e ${Date.now()}`,
@@ -251,6 +252,7 @@ describe('Barcode Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken2}`)
       .send({
+        type: 'STANDARD',
         categoryId: category2.id,
         unitId: otherOrgUnitId,
         name: `Sản phẩm barcode e2e org2 ${Date.now()}`,
@@ -425,6 +427,7 @@ describe('Barcode Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: category.id,
         unitId,
         name: `Sản phẩm Delete Guard ${Date.now()}`,

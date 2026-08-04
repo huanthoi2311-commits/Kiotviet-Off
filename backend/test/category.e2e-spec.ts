@@ -190,6 +190,7 @@ describe('Category Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: categoryRes.body.data.id,
         unitId,
         name: 'Sản phẩm chặn xóa danh mục',

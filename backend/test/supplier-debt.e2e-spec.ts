@@ -218,6 +218,7 @@ describe('SupplierDebt Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: category.id,
         unitId: unit.id,
         name: `Sản phẩm supplier-debt e2e ${Date.now()}`,
