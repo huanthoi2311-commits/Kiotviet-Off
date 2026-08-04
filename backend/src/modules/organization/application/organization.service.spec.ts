@@ -219,6 +219,16 @@ describe('OrganizationService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    it('[T030.12P] cho phép Platform Admin cập nhật bất kỳ Organization nào', async () => {
+      organizationRepository.update.mockResolvedValue(aggregate.organization);
+      const result = await service.update(
+        'org-1',
+        { displayName: 'Acme 2' },
+        platformAdminActor,
+      );
+      expect(result.id).toBe('org-1');
+    });
+
     it('cập nhật thành công', async () => {
       organizationRepository.update.mockResolvedValue(aggregate.organization);
       const result = await service.update(
@@ -273,6 +283,20 @@ describe('OrganizationService', () => {
       expect(result.status).toBe('ARCHIVED');
     });
 
+    it('[T030.12P] cho phép Platform Admin archive bất kỳ Organization nào', async () => {
+      organizationRepository.findById.mockResolvedValue(aggregate);
+      organizationRepository.archive.mockResolvedValue({
+        ...aggregate.organization,
+        status: 'ARCHIVED',
+      });
+      const result = await service.archive(
+        'org-1',
+        { confirmSlug: 'acme' },
+        platformAdminActor,
+      );
+      expect(result.status).toBe('ARCHIVED');
+    });
+
     it('map OrganizationNotActiveError -> ConflictException', async () => {
       organizationRepository.findById.mockResolvedValue(aggregate);
       organizationRepository.archive.mockRejectedValue(
@@ -304,6 +328,19 @@ describe('OrganizationService', () => {
         'org-1',
         { newOwnerUserId: 'user-2' },
         tenantActor,
+      );
+      expect(result.ownerUserId).toBe('user-2');
+    });
+
+    it('[T030.12P] cho phép Platform Admin transfer-owner ở bất kỳ Organization nào', async () => {
+      organizationRepository.transferOwner.mockResolvedValue({
+        ...aggregate.organization,
+        ownerUserId: 'user-2',
+      });
+      const result = await service.transferOwner(
+        'org-1',
+        { newOwnerUserId: 'user-2' },
+        platformAdminActor,
       );
       expect(result.ownerUserId).toBe('user-2');
     });

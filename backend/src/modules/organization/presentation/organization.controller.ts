@@ -24,7 +24,6 @@ import {
 import type { JwtAccessPayload } from '../../../common/types/jwt-payload.type';
 import { JwtAuthGuard } from '../../auth/presentation/guards/jwt-auth.guard';
 import { RequirePermissions } from '../../rbac/presentation/permissions.decorator';
-import { PermissionsGuard } from '../../rbac/presentation/permissions.guard';
 import {
   ActorContext,
   OrganizationService,
@@ -97,7 +96,7 @@ export class OrganizationController {
   }
 
   @Patch(':id')
-  @UseGuards(PermissionsGuard)
+  @UseGuards(PlatformAdminOrPermissionsGuard)
   @RequirePermissions('organization:update')
   @ApiOperation({
     summary: 'Sửa thông tin tổ chức (không đổi code/slug/status)',
@@ -113,7 +112,7 @@ export class OrganizationController {
   }
 
   @Post(':id/archive')
-  @UseGuards(PermissionsGuard)
+  @UseGuards(PlatformAdminOrPermissionsGuard)
   @RequirePermissions('organization:archive')
   @ApiOperation({
     summary: 'Lưu trữ (Archive) tổ chức — không xóa cứng, xác nhận 2 bước',
@@ -129,7 +128,7 @@ export class OrganizationController {
   }
 
   @Post(':id/transfer-owner')
-  @UseGuards(PermissionsGuard)
+  @UseGuards(PlatformAdminOrPermissionsGuard)
   @RequirePermissions('organization:transfer-owner')
   @ApiOperation({
     summary: 'Chuyển quyền sở hữu tổ chức cho 1 User khác trong cùng tổ chức',
