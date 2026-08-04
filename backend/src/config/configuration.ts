@@ -1,13 +1,14 @@
+import { parseCorsOrigins } from './cors.util';
+
 export default () => ({
   env: process.env.NODE_ENV ?? 'development',
   port: parseInt(process.env.PORT ?? '3000', 10),
   cors: {
-    // Danh sách whitelist origin, phân tách bởi dấu phẩy — KHÔNG dùng '*' khi credentials:true
-    // (trình duyệt sẽ tự chặn, và về bảo mật cũng không nên cho phép mọi origin gửi cookie).
-    origins: (process.env.CORS_ORIGIN ?? 'http://localhost:3001')
-      .split(',')
-      .map((origin) => origin.trim())
-      .filter(Boolean),
+    // T030.6 — nguồn phân tích DUY NHẤT (backend/src/config/cors.util.ts), dùng chung cho REST
+    // (main.ts) VÀ WebSocket (main.ts + websocket/validated-cors.adapter.ts). KHÔNG dùng '*' khi
+    // credentials:true (trình duyệt sẽ tự chặn, và về bảo mật cũng không nên cho phép mọi origin
+    // gửi cookie).
+    origins: parseCorsOrigins(process.env.CORS_ORIGIN),
   },
   database: {
     url: process.env.DATABASE_URL,

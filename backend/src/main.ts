@@ -5,7 +5,9 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { isOriginAllowed } from './config/cors.util';
 import { winstonLogger } from './logger/winston.logger';
+import { ValidatedCorsIoAdapter } from './websocket/validated-cors.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { logger: winstonLogger });
@@ -34,8 +36,7 @@ async function bootstrap() {
       origin: string | undefined,
       callback: (err: Error | null, allow?: boolean) => void,
     ) => {
-      // Request không có Origin header (curl, server-to-server, health check...) luôn cho qua.
-      if (!origin || corsOrigins.includes(origin)) {
+      if (isOriginAllowed(origin, corsOrigins)) {
         callback(null, true);
       } else {
         callback(
@@ -45,6 +46,9 @@ async function bootstrap() {
     },
     credentials: true,
   });
+  // T030.6 — WebSocket dùng CHUNG danh sách origin đã validate ở trên (không tự đọc biến môi
+  // trường CORS_ORIGIN, không parse lại) — xem websocket/validated-cors.adapter.ts.
+  app.useWebSocketAdapter(new ValidatedCorsIoAdapter(app, corsOrigins));
 
   app.useGlobalPipes(
     new ValidationPipe({
