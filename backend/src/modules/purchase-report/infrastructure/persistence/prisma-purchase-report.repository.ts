@@ -147,37 +147,46 @@ export class PrismaPurchaseReportRepository implements IPurchaseReportRepository
         return {
           selectColumns: Prisma.sql`po."supplierId" as key, s.code as code, s."companyName" as label`,
           joins: Prisma.sql`JOIN suppliers s ON s.id = po."supplierId"`,
-          groupBy: Prisma.sql`key, code, label`,
+          // T030.12H — GROUP BY alias `code` trùng tên với cột thật `po.code` (purchase_orders
+          // luôn nằm trong FROM/JOIN của mọi dimension) → Postgres báo "ambiguous". Dùng lại đúng
+          // biểu thức nguồn đã alias thành `code` ở SELECT (s.code) thay vì bare alias, không đổi
+          // ý nghĩa nhóm.
+          groupBy: Prisma.sql`key, s.code, label`,
         };
       case 'PRODUCT':
         return {
           selectColumns: Prisma.sql`pi."productId" as key, p.sku as code, p.name as label`,
           joins: Prisma.sql`JOIN products p ON p.id = pi."productId"`,
-          groupBy: Prisma.sql`key, code, label`,
+          groupBy: Prisma.sql`key, p.sku, label`,
         };
       case 'WAREHOUSE':
         return {
           selectColumns: Prisma.sql`pi."warehouseId" as key, w.code as code, w.name as label`,
           joins: Prisma.sql`JOIN warehouses w ON w.id = pi."warehouseId"`,
-          groupBy: Prisma.sql`key, code, label`,
+          groupBy: Prisma.sql`key, w.code, label`,
         };
       case 'MONTH':
         return {
           selectColumns: Prisma.sql`to_char(date_trunc('month', po."createdAt"), 'YYYY-MM') as key, NULL as code, to_char(date_trunc('month', po."createdAt"), 'YYYY-MM') as label`,
           joins: Prisma.sql``,
-          groupBy: Prisma.sql`key, code, label`,
+          // `code` ở đây là hằng số NULL (không phải cột thật, không ambiguous) — nhưng Postgres
+          // xử lý `NULL` trần trong GROUP BY như một literal không phải số nguyên ("non-integer
+          // constant in GROUP BY", 42601), khác với lỗi ambiguous ban đầu. Ép kiểu tường minh
+          // (`NULL::text`) biến nó thành 1 biểu thức giá trị có kiểu, không còn bị parser coi là
+          // tham chiếu vị trí — vẫn đúng nguyên ý "nhóm theo hằng số", không đổi kết quả trả về.
+          groupBy: Prisma.sql`key, NULL::text, label`,
         };
       case 'USER':
         return {
           selectColumns: Prisma.sql`po."createdBy" as key, u.username as code, u.email as label`,
           joins: Prisma.sql`LEFT JOIN users u ON u.id = po."createdBy"`,
-          groupBy: Prisma.sql`key, code, label`,
+          groupBy: Prisma.sql`key, u.username, label`,
         };
       case 'CATEGORY':
         return {
           selectColumns: Prisma.sql`p."categoryId" as key, c.code as code, c.name as label`,
           joins: Prisma.sql`JOIN products p ON p.id = pi."productId" LEFT JOIN categories c ON c.id = p."categoryId"`,
-          groupBy: Prisma.sql`key, code, label`,
+          groupBy: Prisma.sql`key, c.code, label`,
         };
     }
   }
