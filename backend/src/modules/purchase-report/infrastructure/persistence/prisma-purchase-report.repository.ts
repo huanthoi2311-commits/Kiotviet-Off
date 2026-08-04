@@ -45,7 +45,7 @@ export class PrismaPurchaseReportRepository implements IPurchaseReportRepository
     >(Prisma.sql`
       SELECT SUM(po."totalAmount") as "totalAmount", COUNT(DISTINCT po.id) as "totalOrders"
       FROM purchase_orders po
-      WHERE po."organizationId" = ${params.organizationId}
+      WHERE po."organizationId" = ${params.organizationId}::uuid
         AND po.status IN ${RECEIVED_STATUSES}
         AND po."deletedAt" IS NULL
         ${dateFilter}
@@ -58,7 +58,7 @@ export class PrismaPurchaseReportRepository implements IPurchaseReportRepository
              ELSE SUM(pi.quantity * pi."unitCost") / SUM(pi.quantity) END as "averageCost"
       FROM purchase_items pi
       JOIN purchase_orders po ON po.id = pi."purchaseOrderId"
-      WHERE po."organizationId" = ${params.organizationId}
+      WHERE po."organizationId" = ${params.organizationId}::uuid
         AND po.status IN ${RECEIVED_STATUSES}
         AND po."deletedAt" IS NULL
         ${dateFilter}
@@ -97,7 +97,7 @@ export class PrismaPurchaseReportRepository implements IPurchaseReportRepository
       FROM purchase_items pi
       JOIN purchase_orders po ON po.id = pi."purchaseOrderId"
       ${joins}
-      WHERE po."organizationId" = ${params.organizationId}
+      WHERE po."organizationId" = ${params.organizationId}::uuid
         AND po.status IN ${RECEIVED_STATUSES}
         AND po."deletedAt" IS NULL
         ${dateFilter}
@@ -114,7 +114,7 @@ export class PrismaPurchaseReportRepository implements IPurchaseReportRepository
         FROM purchase_items pi
         JOIN purchase_orders po ON po.id = pi."purchaseOrderId"
         ${joins}
-        WHERE po."organizationId" = ${params.organizationId}
+        WHERE po."organizationId" = ${params.organizationId}::uuid
           AND po.status IN ${RECEIVED_STATUSES}
           AND po."deletedAt" IS NULL
           ${dateFilter}
