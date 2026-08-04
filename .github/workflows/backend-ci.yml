@@ -172,6 +172,12 @@ jobs:
     needs: [changes, ci, e2e]
     if: always()
     runs-on: ubuntu-latest
+    # No checkout step — this job only reads `needs.*` context, so the workflow-level
+    # `defaults.run.working-directory: backend` (which doesn't exist without a checkout)
+    # must be overridden here, or the shell fails to start at all.
+    defaults:
+      run:
+        working-directory: .
     steps:
       - name: Evaluate backend CI result
         shell: bash
