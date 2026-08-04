@@ -3,14 +3,8 @@ name: Frontend CI
 on:
   push:
     branches: [main]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-ci.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-ci.yml"
 
 defaults:
   run:
@@ -21,8 +15,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # T030.14B — see the matching job in backend-ci.yml for the full rationale: path detection
+  # lives inside the workflow (job-level `if:`), not in the workflow-level trigger `paths:`
+  # filter, so the `Frontend` aggregator job below always exists as a real check-run.
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect frontend-relevant changes
+        id: filter
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          fi
+
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo "No usable base commit (first push, force-push, or new branch) — treating as changed."
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD")
+          echo "Changed files ($BASE...$HEAD):"
+          echo "$CHANGED"
+
+          if echo "$CHANGED" | grep -qE '^frontend/|^\.github/workflows/frontend-ci\.yml$'; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # NOTE (disclosed, not silently assumed): as of this workflow, frontend/package.json has
+  # no "test" script and no API-client drift-check script — only lint/typecheck/build exist.
+  # Requirement 4's "tests" and "API client drift where applicable" are therefore not yet
+  # applicable; nothing is wired in for them here (adding a test runner or drift-check
+  # tooling would be a frontend application/config change, out of this package's scope).
+  # Add corresponding steps to this job once those scripts exist.
   ci:
     name: Lint · Typecheck · Build
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,3 +87,42 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # T030.14B — required aggregator check. Named exactly "Frontend" to match the repository
+  # ruleset's required_status_checks context. Always runs (`if: always()`); never reports
+  # success on account of a job being skipped due to an upstream failure.
+  Frontend:
+    name: Frontend
+    needs: [changes, ci]
+    if: always()
+    runs-on: ubuntu-latest
+    # No checkout step — this job only reads `needs.*` context, so the workflow-level
+    # `defaults.run.working-directory: frontend` (which doesn't exist without a checkout)
+    # must be overridden here, or the shell fails to start at all.
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Evaluate frontend CI result
+        shell: bash
+        run: |
+          echo "changes.result=${{ needs.changes.result }}"
+          echo "changes.outputs.frontend=${{ needs.changes.outputs.frontend }}"
+          echo "ci.result=${{ needs.ci.result }}"
+
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "Path-detection job did not succeed — failing safe, cannot determine relevance."
+            exit 1
+          fi
+
+          if [ "${{ needs.changes.outputs.frontend }}" != "true" ]; then
+            echo "No frontend-relevant changes in this diff — trivially passing."
+            exit 0
+          fi
+
+          if [ "${{ needs.ci.result }}" != "success" ]; then
+            echo "Lint/Typecheck/Build did not succeed (result: ${{ needs.ci.result }})."
+            exit 1
+          fi
+
+          echo "All required frontend checks succeeded."
