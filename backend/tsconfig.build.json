@@ -1,4 +1,15 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+  "compilerOptions": {
+    "rootDir": "src",
+    // Recovery-T030.7 — tsconfig.json bật "incremental": true nhưng KHÔNG chỉ định
+    // tsBuildInfoFile, nên cache mặc định nằm ở gốc backend/ (ngoài dist/). nest-cli.json's
+    // "deleteOutDir": true xóa TOÀN BỘ dist/ trước mỗi lần build, nhưng KHÔNG xóa cache này (nó
+    // nằm ngoài dist/) — lần build kế tiếp thấy cache nói "source chưa đổi, không cần emit lại",
+    // bỏ qua ghi file dù dist/ đã bị xóa sạch → build "thành công" (exit 0) nhưng dist/ RỖNG. Tái
+    // hiện được 100% mỗi khi `npm run build` chạy 2 lần liên tiếp không đổi source. Đặt cache VÀO
+    // TRONG dist/ để deleteOutDir xóa cache CÙNG LÚC với output nó mô tả — tự khôi phục vĩnh viễn.
+    "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo"
+  },
+  "exclude": ["node_modules", "test", "dist", "**/*spec.ts", "prisma"]
 }
