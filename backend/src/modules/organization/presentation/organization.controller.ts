@@ -40,6 +40,7 @@ import { OrganizationQueryDto } from '../application/dto/organization-query.dto'
 import { TransferOwnerDto } from '../application/dto/transfer-owner.dto';
 import { UpdateOrganizationDto } from '../application/dto/update-organization.dto';
 import { PlatformAdminGuard } from './guards/platform-admin.guard';
+import { PlatformAdminOrPermissionsGuard } from './guards/platform-admin-or-permissions.guard';
 
 @ApiTags('Organization')
 @ApiBearerAuth()
@@ -73,7 +74,7 @@ export class OrganizationController {
   }
 
   @Get('current')
-  @UseGuards(PermissionsGuard)
+  @UseGuards(PlatformAdminOrPermissionsGuard)
   @RequirePermissions('organization:view')
   @ApiOperation({ summary: 'Xem tổ chức của user đang đăng nhập' })
   @ApiResponse({ status: 200, type: OrganizationDetailResponseDto })
@@ -84,7 +85,7 @@ export class OrganizationController {
   }
 
   @Get(':id')
-  @UseGuards(PermissionsGuard)
+  @UseGuards(PlatformAdminOrPermissionsGuard)
   @RequirePermissions('organization:view')
   @ApiOperation({ summary: 'Xem chi tiết 1 tổ chức' })
   @ApiResponse({ status: 200, type: OrganizationDetailResponseDto })

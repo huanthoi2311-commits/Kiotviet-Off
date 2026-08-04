@@ -78,6 +78,20 @@ describe('Organization Module (e2e, integration)', () => {
     });
     tenantOrganizationId = tenantOrg.id;
 
+    // T030.12N/T030.12O — findById() (dùng bởi GET /current) đòi hỏi cả OrganizationSettings
+    // và OrganizationSubscription tồn tại, được tạo cùng lúc trong luồng POST /organizations
+    // thật (createWithOwner) nhưng KHÔNG được raw upsert() ở trên tự tạo — phải tạo tay ở đây.
+    await prisma.organizationSettings.upsert({
+      where: { organizationId: tenantOrg.id },
+      create: { organizationId: tenantOrg.id },
+      update: {},
+    });
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId: tenantOrg.id },
+      create: { organizationId: tenantOrg.id },
+      update: {},
+    });
+
     const role = await prisma.role.upsert({
       where: {
         organizationId_code: {
