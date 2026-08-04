@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { createE2eApp } from './helpers/create-e2e-app';
 import { AppModule } from '../src/app.module';
 import { PERMISSION_CATALOG } from '../src/modules/rbac/infrastructure/permission-catalog';
 
@@ -105,9 +106,7 @@ describe('Category Module (e2e, integration)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
-    await app.init();
+    app = await createE2eApp(moduleFixture);
 
     accessToken = app.get(JwtService).sign({
       sub: user.id,
@@ -176,7 +175,10 @@ describe('Category Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/categories/${rootRes.body.data.id}`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ parentId: childRes.body.data.id })
+      .send({
+        version: rootRes.body.data.version,
+        parentId: childRes.body.data.id,
+      })
       .expect(422);
   });
 
@@ -191,6 +193,7 @@ describe('Category Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: categoryRes.body.data.id,
         unitId,
         name: 'Sản phẩm chặn xóa danh mục',

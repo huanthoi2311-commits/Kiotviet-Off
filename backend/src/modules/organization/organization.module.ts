@@ -7,6 +7,7 @@ import { ORGANIZATION_CODE_GENERATOR } from './domain/services/organization-code
 import { SequenceOrganizationCodeGenerator } from './infrastructure/generators/sequence-organization-code.generator';
 import { PrismaOrganizationRepository } from './infrastructure/persistence/prisma-organization.repository';
 import { PlatformAdminGuard } from './presentation/guards/platform-admin.guard';
+import { PlatformAdminOrPermissionsGuard } from './presentation/guards/platform-admin-or-permissions.guard';
 import { OrganizationController } from './presentation/organization.controller';
 
 @Module({
@@ -15,6 +16,7 @@ import { OrganizationController } from './presentation/organization.controller';
   providers: [
     OrganizationService,
     PlatformAdminGuard,
+    PlatformAdminOrPermissionsGuard,
     {
       provide: ORGANIZATION_REPOSITORY,
       useClass: PrismaOrganizationRepository,

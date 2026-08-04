@@ -45,8 +45,17 @@ export class MailProcessor extends WorkerHost {
     const text = `Mã OTP của bạn là ${otp}. Mã có hiệu lực trong 5 phút. Vui lòng không chia sẻ mã này với bất kỳ ai.`;
 
     if (!this.transporter) {
+      // T030.11 (DISCOVERY-T030 F17) — winston ghi log ra `logs/*.log` (DailyRotateFile, giữ 14
+      // ngày), nên in nguyên giá trị OTP vào đây tương đương ghi 1 secret sống ra đĩa 14 ngày.
+      // Ở production, che giá trị thật — CHỈ giữ đủ ngữ cảnh vận hành (to=, lý do fallback) để
+      // chẩn đoán sự cố gửi mail, KHÔNG bao giờ lộ mã thật. Ở môi trường khác (dev/test), giữ
+      // NGUYÊN hành vi cũ — đây là cách duy nhất để đọc OTP khi chưa cấu hình SMTP thật cho local
+      // dev (đã tài liệu hóa ở `docs/setup/DEVELOPMENT-SETUP.md` §8), không đổi để không phá quy
+      // trình dev đang dùng.
+      const isProduction = this.config.get<string>('env') === 'production';
+      const otpForLog = isProduction ? '[REDACTED]' : otp;
       this.logger.warn(
-        `SMTP chưa cấu hình (SMTP_HOST rỗng) — log OTP thay vì gửi thật: to=${to} otp=${otp}`,
+        `SMTP chưa cấu hình (SMTP_HOST rỗng) — log OTP thay vì gửi thật: to=${to} otp=${otpForLog}`,
       );
       return;
     }

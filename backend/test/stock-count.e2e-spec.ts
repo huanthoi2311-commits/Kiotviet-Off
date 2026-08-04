@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { createE2eApp } from './helpers/create-e2e-app';
 import { AppModule } from '../src/app.module';
 import { INVENTORY_REPOSITORY } from '../src/modules/inventory/domain/repositories/inventory.repository.interface';
 import type { IInventoryRepository } from '../src/modules/inventory/domain/repositories/inventory.repository.interface';
@@ -65,7 +66,18 @@ describe('StockCount Module (e2e, integration)', () => {
     const productPermissions = await prisma.permission.findMany({
       where: { code: { startsWith: 'product:' } },
     });
-    const allPermissions = [...stockCountPermissions, ...productPermissions];
+    // T030.12F — luồng lifecycle test kết thúc bằng GET /api/v1/inventory (RequirePermissions
+    // 'inventory:view'), trước đây lọt qua vì E2E chưa từng lắp ValidationPipe/PermissionsGuard
+    // đúng theo production. Chỉ thêm ĐÚNG permission thực sự được dùng, không thêm cả nhóm
+    // inventory:* (adjust/approve/complete/transfer không liên quan tới test này).
+    const inventoryViewPermission = await prisma.permission.findMany({
+      where: { code: 'inventory:view' },
+    });
+    const allPermissions = [
+      ...stockCountPermissions,
+      ...productPermissions,
+      ...inventoryViewPermission,
+    ];
     await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
     await prisma.rolePermission.createMany({
       data: allPermissions.map((p) => ({
@@ -137,9 +149,7 @@ describe('StockCount Module (e2e, integration)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
-    await app.init();
+    app = await createE2eApp(moduleFixture);
 
     accessToken = app.get(JwtService).sign({
       sub: user.id,
@@ -154,6 +164,7 @@ describe('StockCount Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: category.id,
         unitId: unit.id,
         name: `Sản phẩm stock-count e2e ${Date.now()}`,

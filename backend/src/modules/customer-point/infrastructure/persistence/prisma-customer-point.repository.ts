@@ -123,7 +123,7 @@ export class PrismaCustomerPointRepository implements ICustomerPointRepository {
     tx: Prisma.TransactionClient,
     customerId: string,
   ): Promise<number> {
-    await tx.$queryRaw`SELECT id FROM customers WHERE id = ${customerId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM customers WHERE id = ${customerId}::uuid FOR UPDATE`;
     const lastEntry = await tx.customerPointLedger.findFirst({
       where: { customerId },
       orderBy: { createdAt: 'desc' },

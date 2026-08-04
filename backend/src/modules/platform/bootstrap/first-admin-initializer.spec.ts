@@ -1,0 +1,413 @@
+import type { PrismaClient } from '@prisma/client';
+import {
+  FirstAdminInitializationInput,
+  initializeFirstAdmin,
+} from './first-admin-initializer';
+
+describe('initializeFirstAdmin — SPEC-T022B1 (First Administrator / Tenant Initialization)', () => {
+  const validInput: FirstAdminInitializationInput = {
+    organization: {
+      code: 'ORG000001',
+      displayName: 'Cửa hàng của tôi',
+      slug: 'cua-hang-cua-toi',
+    },
+    branch: { code: 'BR000001', name: 'Chi nhánh chính' },
+    administrator: {
+      username: 'owner',
+      email: 'owner@example.com',
+      password: 'a-real-strong-password-123',
+      fullName: 'Chủ sở hữu',
+    },
+  };
+
+  function createMockTx() {
+    return {
+      organization: {
+        create: jest.fn().mockResolvedValue({ id: 'org-1' }),
+        update: jest.fn().mockResolvedValue({ id: 'org-1' }),
+        findFirst: jest.fn(),
+      },
+      branch: { create: jest.fn().mockResolvedValue({ id: 'branch-1' }) },
+      role: { create: jest.fn().mockResolvedValue({ id: 'role-1' }) },
+      rolePermission: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      user: { create: jest.fn().mockResolvedValue({ id: 'user-1' }) },
+      userRole: { create: jest.fn().mockResolvedValue({ id: 'user-role-1' }) },
+      permission: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ id: 'perm-1' }, { id: 'perm-2' }]),
+      },
+    };
+  }
+
+  type MockTx = ReturnType<typeof createMockTx>;
+
+  function createMockPrisma(tx: MockTx = createMockTx()) {
+    return {
+      organization: tx.organization,
+      branch: tx.branch,
+      role: tx.role,
+      rolePermission: tx.rolePermission,
+      user: tx.user,
+      userRole: tx.userRole,
+      permission: tx.permission,
+      $transaction: jest.fn(
+        async (callback: (tx: MockTx) => Promise<unknown>) => callback(tx),
+      ),
+    };
+  }
+
+  type MockPrisma = ReturnType<typeof createMockPrisma>;
+
+  function asPrismaPick(mock: MockPrisma) {
+    return mock as unknown as Pick<
+      PrismaClient,
+      | 'organization'
+      | 'branch'
+      | 'role'
+      | 'rolePermission'
+      | 'user'
+      | 'userRole'
+      | 'permission'
+      | '$transaction'
+    >;
+  }
+
+  describe('luồng thành công (deployment chưa có Organization nào)', () => {
+    it('[1] tạo Organization/Branch/Role/User/UserRole đúng 1 lần mỗi loại, không tạo gì khác', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+
+      const result = await initializeFirstAdmin(
+        asPrismaPick(prisma),
+        validInput,
+      );
+
+      expect(result.outcome).toBe('CREATED');
+      expect(tx.organization.create).toHaveBeenCalledTimes(1);
+      expect(tx.branch.create).toHaveBeenCalledTimes(1);
+      expect(tx.role.create).toHaveBeenCalledTimes(1);
+      expect(tx.user.create).toHaveBeenCalledTimes(1);
+      expect(tx.userRole.create).toHaveBeenCalledTimes(1);
+      expect(tx.organization.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('Organization được tạo với đúng code/displayName/slug từ input, KHÔNG set ownerUserId ở bước create', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+
+      await initializeFirstAdmin(asPrismaPick(prisma), validInput);
+
+      expect(tx.organization.create).toHaveBeenCalledWith({
+        data: {
+          code: 'ORG000001',
+          displayName: 'Cửa hàng của tôi',
+          slug: 'cua-hang-cua-toi',
+        },
+      });
+    });
+
+    it('Branch được tạo thuộc đúng Organization, isMain=true', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+
+      await initializeFirstAdmin(asPrismaPick(prisma), validInput);
+
+      expect(tx.branch.create).toHaveBeenCalledWith({
+        data: {
+          organizationId: 'org-1',
+          code: 'BR000001',
+          name: 'Chi nhánh chính',
+          isMain: true,
+        },
+      });
+    });
+
+    it('sau khi tạo User, Organization.ownerUserId được UPDATE trỏ đúng về User đó (SPEC-ORG-001 Decision 3)', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+
+      await initializeFirstAdmin(asPrismaPick(prisma), validInput);
+
+      expect(tx.organization.update).toHaveBeenCalledWith({
+        where: { id: 'org-1' },
+        data: { ownerUserId: 'user-1' },
+      });
+    });
+
+    it('[2] Role "owner" được gán ĐỦ TOÀN BỘ Permission đọc được tại thời điểm chạy (không phải danh sách cố định)', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      tx.permission.findMany.mockResolvedValue([
+        { id: 'perm-a' },
+        { id: 'perm-b' },
+        { id: 'perm-c' },
+      ]);
+      const prisma = createMockPrisma(tx);
+
+      await initializeFirstAdmin(asPrismaPick(prisma), validInput);
+
+      expect(tx.permission.findMany).toHaveBeenCalledTimes(1);
+      expect(tx.rolePermission.createMany).toHaveBeenCalledWith({
+        data: [
+          { roleId: 'role-1', permissionId: 'perm-a' },
+          { roleId: 'role-1', permissionId: 'perm-b' },
+          { roleId: 'role-1', permissionId: 'perm-c' },
+        ],
+        skipDuplicates: true,
+      });
+    });
+
+    it('mật khẩu được hash trước khi lưu (không lưu plaintext)', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+
+      await initializeFirstAdmin(asPrismaPick(prisma), validInput);
+
+      const createCall = tx.user.create.mock.calls[0][0] as {
+        data: { passwordHash: string };
+      };
+      expect(createCall.data.passwordHash).not.toBe(
+        validInput.administrator.password,
+      );
+      expect(createCall.data.passwordHash.length).toBeGreaterThan(0);
+    });
+
+    it('trả về outcome CREATED kèm đủ id của Organization/Branch/Role/User vừa tạo', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+
+      const result = await initializeFirstAdmin(
+        asPrismaPick(prisma),
+        validInput,
+      );
+
+      expect(result).toEqual({
+        outcome: 'CREATED',
+        organizationId: 'org-1',
+        branchId: 'branch-1',
+        roleId: 'role-1',
+        userId: 'user-1',
+      });
+    });
+  });
+
+  describe('[3] idempotency — đã khởi tạo trước đó (đã có Organization)', () => {
+    it('KHÔNG tạo record nào, trả về outcome ALREADY_INITIALIZED, KHÔNG mở transaction', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue({ id: 'existing-org' });
+      const prisma = createMockPrisma(tx);
+
+      const result = await initializeFirstAdmin(
+        asPrismaPick(prisma),
+        validInput,
+      );
+
+      expect(result).toEqual({ outcome: 'ALREADY_INITIALIZED' });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.organization.create).not.toHaveBeenCalled();
+      expect(tx.branch.create).not.toHaveBeenCalled();
+      expect(tx.role.create).not.toHaveBeenCalled();
+      expect(tx.user.create).not.toHaveBeenCalled();
+      expect(tx.userRole.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('[4] BR1/BR2 — từ chối credential trước khi tạo bất kỳ record nào', () => {
+    it('từ chối khi mật khẩu trùng mật khẩu demo đã biết của prisma/seed.ts (Admin@123)', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+      const input: FirstAdminInitializationInput = {
+        ...validInput,
+        administrator: { ...validInput.administrator, password: 'Admin@123' },
+      };
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), input),
+      ).rejects.toThrow(/mật khẩu demo/i);
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.organization.create).not.toHaveBeenCalled();
+    });
+
+    // T030.11 (DISCOVERY-T030 F36) — mở rộng ngoài đúng 1 literal demo password.
+    it.each(['password', 'Password123', 'admin123', 'changeme'])(
+      'từ chối khi mật khẩu là giá trị mặc định/placeholder đã biết khác: "%s"',
+      async (weakPassword) => {
+        const tx = createMockTx();
+        tx.organization.findFirst.mockResolvedValue(null);
+        const prisma = createMockPrisma(tx);
+        const input: FirstAdminInitializationInput = {
+          ...validInput,
+          administrator: {
+            ...validInput.administrator,
+            password: weakPassword,
+          },
+        };
+
+        await expect(
+          initializeFirstAdmin(asPrismaPick(prisma), input),
+        ).rejects.toThrow(/mặc định\/placeholder đã biết/i);
+
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(tx.organization.create).not.toHaveBeenCalled();
+      },
+    );
+
+    it('mật khẩu đủ mạnh, KHÔNG nằm trong danh sách đã biết, đủ độ dài → được chấp nhận (không throw ở assertCredentialAllowed)', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+      const input: FirstAdminInitializationInput = {
+        ...validInput,
+        administrator: {
+          ...validInput.administrator,
+          password: 'a-genuinely-unique-strong-password-2026',
+        },
+      };
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), input),
+      ).resolves.toMatchObject({ outcome: 'CREATED' });
+    });
+
+    it('lỗi mật khẩu yếu KHÔNG in giá trị password thật vào message', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+      const input: FirstAdminInitializationInput = {
+        ...validInput,
+        administrator: { ...validInput.administrator, password: 'changeme' },
+      };
+
+      let message = '';
+      try {
+        await initializeFirstAdmin(asPrismaPick(prisma), input);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).not.toContain('changeme');
+    });
+
+    it('từ chối khi mật khẩu ngắn hơn độ dài tối thiểu (BR2, cùng chuẩn ResetPasswordDto)', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+      const input: FirstAdminInitializationInput = {
+        ...validInput,
+        administrator: { ...validInput.administrator, password: 'short1' },
+      };
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), input),
+      ).rejects.toThrow(/tối thiểu/i);
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.organization.create).not.toHaveBeenCalled();
+    });
+
+    it('validation credential chạy TRƯỚC CẢ bước kiểm tra idempotency (organization.findFirst không được gọi)', async () => {
+      const tx = createMockTx();
+      const prisma = createMockPrisma(tx);
+      const input: FirstAdminInitializationInput = {
+        ...validInput,
+        administrator: { ...validInput.administrator, password: 'Admin@123' },
+      };
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), input),
+      ).rejects.toThrow();
+
+      expect(tx.organization.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('[5] thất bại giữa chừng — không tạo bước sau khi bước trước đã lỗi (bằng chứng ý định nguyên tử ở mức mock-interaction)', () => {
+    it('nếu user.create() lỗi, KHÔNG có bước nào sau đó (organization.update/role.create/rolePermission.createMany/userRole.create) được gọi', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const dbError = new Error('unique constraint violated');
+      tx.user.create.mockRejectedValue(dbError);
+      const prisma = createMockPrisma(tx);
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), validInput),
+      ).rejects.toBe(dbError);
+
+      expect(tx.organization.create).toHaveBeenCalledTimes(1);
+      expect(tx.branch.create).toHaveBeenCalledTimes(1);
+      expect(tx.organization.update).not.toHaveBeenCalled();
+      expect(tx.role.create).not.toHaveBeenCalled();
+      expect(tx.rolePermission.createMany).not.toHaveBeenCalled();
+      expect(tx.userRole.create).not.toHaveBeenCalled();
+    });
+
+    it('nếu organization.create() lỗi ngay từ đầu, không bước nào khác được gọi', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const dbError = new Error('connection lost');
+      tx.organization.create.mockRejectedValue(dbError);
+      const prisma = createMockPrisma(tx);
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), validInput),
+      ).rejects.toBe(dbError);
+
+      expect(tx.branch.create).not.toHaveBeenCalled();
+      expect(tx.user.create).not.toHaveBeenCalled();
+      expect(tx.role.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('[Phase 2] §3 Precondition P2 / §7 Failure Behavior — Permission catalog trống', () => {
+    it('ném lỗi RÕ RÀNG khi Permission catalog trống (KHÔNG âm thầm tạo Administrator có Role 0 quyền)', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      tx.permission.findMany.mockResolvedValue([]);
+      const prisma = createMockPrisma(tx);
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), validInput),
+      ).rejects.toThrow(/permission catalog trống/i);
+    });
+
+    it('khi Permission catalog trống — KHÔNG gọi rolePermission.createMany()/userRole.create() (không tạo kết quả suy giảm)', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      tx.permission.findMany.mockResolvedValue([]);
+      const prisma = createMockPrisma(tx);
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), validInput),
+      ).rejects.toThrow();
+
+      expect(tx.rolePermission.createMany).not.toHaveBeenCalled();
+      expect(tx.userRole.create).not.toHaveBeenCalled();
+    });
+
+    it('Organization/Branch/User/Role VẪN được gọi tạo trước khi phát hiện catalog trống (đúng thứ tự Phase 1, không đổi) — nhưng nằm trong transaction nên vẫn rollback nguyên vẹn', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      tx.permission.findMany.mockResolvedValue([]);
+      const prisma = createMockPrisma(tx);
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), validInput),
+      ).rejects.toThrow();
+
+      // Thứ tự tạo record giữ NGUYÊN như Phase 1 — chỉ nhánh xử lý catalog rỗng đổi từ
+      // "bỏ qua trong im lặng" sang "ném lỗi", không đổi transaction semantics/thứ tự các bước.
+      expect(tx.organization.create).toHaveBeenCalledTimes(1);
+      expect(tx.branch.create).toHaveBeenCalledTimes(1);
+      expect(tx.user.create).toHaveBeenCalledTimes(1);
+      expect(tx.role.create).toHaveBeenCalledTimes(1);
+    });
+  });
+});

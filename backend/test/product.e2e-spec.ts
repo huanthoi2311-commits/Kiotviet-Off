@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { createE2eApp } from './helpers/create-e2e-app';
 import { AppModule } from '../src/app.module';
 import { PERMISSION_CATALOG } from '../src/modules/rbac/infrastructure/permission-catalog';
 
@@ -126,9 +127,7 @@ describe('Product Module (e2e, integration)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
-    await app.init();
+    app = await createE2eApp(moduleFixture);
 
     const jwtService = app.get(JwtService);
     accessToken = jwtService.sign({
@@ -152,6 +151,7 @@ describe('Product Module (e2e, integration)', () => {
         .post('/api/v1/products')
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
+          type: 'STANDARD',
           categoryId,
           brandId,
           unitId,
@@ -176,11 +176,71 @@ describe('Product Module (e2e, integration)', () => {
       expect(inDb).not.toBeNull();
     });
 
+    // T030.12D — 3 test dưới đây chứng minh trực tiếp phát hiện của "PRODUCT TYPE CONTRACT
+    // INVESTIGATION REPORT — T030.12C": thiếu ValidationPipe ở tầng bootstrap E2E khiến request
+    // thiếu/sai `type` lọt thẳng xuống Prisma (500), thay vì bị chặn ở biên API (400) như production
+    // thật. Sau khi backend/test/helpers/create-e2e-app.ts được migrate vào toàn bộ E2E suite, 3
+    // test này khẳng định hành vi ĐÚNG đã được khôi phục cho riêng Product module.
+    it('[T030.12D] thiếu `type` → 400 (KHÔNG lọt xuống repository/Prisma, KHÔNG còn 500)', async () => {
+      const productCountBefore = await prisma.product.count({
+        where: { organizationId },
+      });
+
+      await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          categoryId,
+          unitId,
+          name: 'Sản phẩm thiếu type E2E',
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(400);
+
+      const productCountAfter = await prisma.product.count({
+        where: { organizationId },
+      });
+      expect(productCountAfter).toBe(productCountBefore);
+    });
+
+    it('[T030.12D] `type` không nằm trong danh sách hợp lệ → 400', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          categoryId,
+          unitId,
+          type: 'NOT_A_REAL_TYPE',
+          name: 'Sản phẩm type sai E2E',
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(400);
+    });
+
+    it('[T030.12D] field lạ không khai báo trong CreateProductDto → 400 (forbidNonWhitelisted)', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          type: 'STANDARD',
+          categoryId,
+          unitId,
+          name: 'Sản phẩm field lạ E2E',
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+          notARealField: 'x',
+        })
+        .expect(400);
+    });
+
     it('trả 422 khi thiếu giá RETAIL', async () => {
       await request(app.getHttpServer())
         .post('/api/v1/products')
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
+          type: 'STANDARD',
           categoryId,
           unitId,
           name: 'Sản phẩm không có giá RETAIL',
@@ -195,6 +255,7 @@ describe('Product Module (e2e, integration)', () => {
         .post('/api/v1/products')
         .send({
           categoryId,
+          type: 'STANDARD',
           unitId,
           name: 'x',
           costPrice: 1,
@@ -210,6 +271,7 @@ describe('Product Module (e2e, integration)', () => {
         .post('/api/v1/products')
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
+          type: 'STANDARD',
           categoryId,
           unitId,
           name: 'Sản phẩm gốc giữ barcode',
@@ -224,6 +286,7 @@ describe('Product Module (e2e, integration)', () => {
         .post('/api/v1/products')
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
+          type: 'STANDARD',
           categoryId,
           unitId,
           name: attemptName,
@@ -261,6 +324,7 @@ describe('Product Module (e2e, integration)', () => {
         .post('/api/v1/products')
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
+          type: 'STANDARD',
           categoryId,
           unitId,
           name: 'Sản phẩm vòng đời E2E',
@@ -279,10 +343,15 @@ describe('Product Module (e2e, integration)', () => {
     });
 
     it('update — đổi tên kéo theo đổi slug', async () => {
+      // T030.12D — UpdateProductDto.version là field bắt buộc (Optimistic Lock, SPEC-PRODUCT-001
+      // §7.1), test này trước đây chưa từng gửi field này — ValidationPipe (mới được khôi phục ở
+      // E2E, xem createE2eApp()) lẽ ra đã chặn payload thiếu field bắt buộc này ngay từ đầu; sản
+      // phẩm vừa tạo ở test 'create' ngay phía trên luôn có version=1 (SPEC-PRODUCT-001, chưa qua
+      // lần update nào).
       const res = await request(app.getHttpServer())
         .patch(`/api/v1/products/${productId}`)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send({ name: 'Sản phẩm vòng đời E2E (đã sửa)' })
+        .send({ version: 1, name: 'Sản phẩm vòng đời E2E (đã sửa)' })
         .expect(200);
       expect(res.body.data.slug).not.toBe('san-pham-vong-doi-e2e');
     });

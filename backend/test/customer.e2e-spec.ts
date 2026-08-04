@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { createE2eApp } from './helpers/create-e2e-app';
 import { AppModule } from '../src/app.module';
 import { PERMISSION_CATALOG } from '../src/modules/rbac/infrastructure/permission-catalog';
 
@@ -94,9 +95,7 @@ describe('Customer Module (e2e, integration)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
-    await app.init();
+    app = await createE2eApp(moduleFixture);
 
     accessToken = app.get(JwtService).sign({
       sub: user.id,
@@ -143,7 +142,11 @@ describe('Customer Module (e2e, integration)', () => {
     const updated = await request(app.getHttpServer())
       .patch(`/api/v1/customers/${customerId}`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ fullName: 'Nguyễn Văn B', customerType: 'VIP' })
+      .send({
+        version: created.body.data.version,
+        fullName: 'Nguyễn Văn B',
+        customerType: 'VIP',
+      })
       .expect(200);
     expect(updated.body.data.fullName).toBe('Nguyễn Văn B');
     expect(updated.body.data.customerType).toBe('VIP');
@@ -151,6 +154,7 @@ describe('Customer Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .delete(`/api/v1/customers/${customerId}`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: updated.body.data.version })
       .expect(204);
 
     await request(app.getHttpServer())
@@ -158,9 +162,16 @@ describe('Customer Module (e2e, integration)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(404);
 
+    // T030.12F — DELETE trả 204 (không có body), không đọc được version đã tăng sau xóa qua
+    // response API — CustomerVersionDto đòi hỏi version hiện tại. Đọc trực tiếp qua Prisma để lấy
+    // đúng version mới nhất trước khi gọi restore (cùng mẫu đã dùng ở supplier.e2e-spec.ts).
+    const afterDelete = await prisma.customer.findUnique({
+      where: { id: customerId },
+    });
     const restored = await request(app.getHttpServer())
       .post(`/api/v1/customers/${customerId}/restore`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: afterDelete!.version })
       .expect(201);
     expect(restored.body.data.id).toBe(customerId);
 
@@ -170,19 +181,29 @@ describe('Customer Module (e2e, integration)', () => {
       .expect(200);
   });
 
-  it('DUPLICATE-PHONE: từ chối tạo khách hàng trùng số điện thoại trong cùng Organization', async () => {
+  // T030.12L/T030.12M — RFC-T011 Decision CR06/SR09: Phone không còn unique.
+  it('SAME-PHONE-ALLOWED: cho phép tạo 2 khách hàng cùng số điện thoại trong cùng Organization', async () => {
     const phone = `08${Date.now().toString().slice(-8)}`;
-    await request(app.getHttpServer())
+    const first = await request(app.getHttpServer())
       .post('/api/v1/customers')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ fullName: 'Khách gốc', phone })
       .expect(201);
 
-    await request(app.getHttpServer())
+    const second = await request(app.getHttpServer())
       .post('/api/v1/customers')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ fullName: 'Khách trùng SĐT', phone })
-      .expect(409);
+      .expect(201);
+
+    expect(second.body.data.id).not.toBe(first.body.data.id);
+    expect(second.body.data.phone).toBe(first.body.data.phone);
+
+    const [firstRow, secondRow] = await Promise.all([
+      prisma.customer.findUnique({ where: { id: first.body.data.id } }),
+      prisma.customer.findUnique({ where: { id: second.body.data.id } }),
+    ]);
+    expect(secondRow!.organizationId).toBe(firstRow!.organizationId);
   });
 
   it('RESTORE-NOT-DELETED: từ chối khôi phục khách hàng chưa bị xóa', async () => {
@@ -196,6 +217,7 @@ describe('Customer Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .post(`/api/v1/customers/${created.body.data.id}/restore`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: created.body.data.version })
       .expect(422);
   });
 

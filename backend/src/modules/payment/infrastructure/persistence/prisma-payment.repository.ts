@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { formatMoney } from '../../../../common/utils/money-format.util';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { PaymentEntity } from '../../domain/entities/payment.entity';
 import {
@@ -64,7 +65,7 @@ export class PrismaPaymentRepository implements IPaymentRepository {
       invoiceId: payment.invoiceId as string,
       customerId: payment.customerId,
       method: payment.method,
-      amount: payment.amount.toString(),
+      amount: formatMoney(payment.amount),
       paidAt: payment.paidAt,
       createdAt: payment.createdAt,
     };

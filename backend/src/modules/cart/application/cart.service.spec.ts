@@ -311,4 +311,32 @@ describe('CartService', () => {
       expect(result.totalAmount).toBe('0.00');
     });
   });
+
+  // T030.12 — describe('[T017 Phase 3] Cart Atomicity — mutate() delegation & concurrency
+  // mapping', ...) đã bị GỠ khỏi nhánh publication này: toàn bộ 6 test phụ thuộc trực tiếp vào
+  // `ICartRepository.mutate()`/`CartConcurrencyConflictError`, thuộc SPEC-T017-CHECKOUT-POS-001
+  // §Phase 3, một carry-over CHƯA được publish trong nhánh T030 này (xem
+  // docs/setup/T030.12-CARRY-OVER-SOURCE-CLASSIFICATION.md §6). Baseline `ICartRepository` của
+  // nhánh này (backend/src/modules/cart/domain/repositories/cart.repository.interface.ts) chỉ có
+  // findByUserId/save/delete — không có mutate() — nên các test này không compile được ở đây. Bộ
+  // test đầy đủ (bao gồm các test này) ĐÃ được chạy và pass trong working tree gốc, đầy đủ, không
+  // publish; việc gỡ ở đây chỉ là sửa cho nhất quán khi publish, không phải phát hiện lỗi mới.
+
+  describe('[T030.9] Redis không khả dụng — không tạo unhandled rejection, không fallback giả', () => {
+    const redisDownError = new Error('connect ECONNREFUSED 127.0.0.1:6379');
+
+    it('getCart() reject nguyên vẹn khi Redis lỗi (KHÔNG âm thầm trả giỏ rỗng)', async () => {
+      cartRepository.findByUserId.mockRejectedValue(redisDownError);
+      await expect(service.getCart(actor)).rejects.toBe(redisDownError);
+    });
+
+    // T030.12 — test 'addItem() reject nguyên vẹn khi Redis (mutate) lỗi...' đã bị GỠ: nội dung
+    // của nó (cartRepository.mutate.mockRejectedValue(...)) chỉ có ý nghĩa với API mutate() của
+    // SPEC-T017 §Phase 3, không tồn tại trên baseline ICartRepository của nhánh publication này.
+
+    it('clear() reject nguyên vẹn khi Redis (delete) lỗi', async () => {
+      cartRepository.delete.mockRejectedValue(redisDownError);
+      await expect(service.clear(actor)).rejects.toBe(redisDownError);
+    });
+  });
 });

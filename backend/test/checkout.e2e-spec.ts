@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { createE2eApp } from './helpers/create-e2e-app';
 import { AppModule } from '../src/app.module';
 import { INVENTORY_REPOSITORY } from '../src/modules/inventory/domain/repositories/inventory.repository.interface';
 import type { IInventoryRepository } from '../src/modules/inventory/domain/repositories/inventory.repository.interface';
@@ -150,9 +151,7 @@ describe('Checkout Module (e2e, integration)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
-    await app.init();
+    app = await createE2eApp(moduleFixture);
 
     accessToken = app.get(JwtService).sign({
       sub: user.id,
@@ -167,6 +166,7 @@ describe('Checkout Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: category.id,
         unitId: unit.id,
         name: `Sản phẩm checkout e2e ${Date.now()}`,
@@ -211,6 +211,7 @@ describe('Checkout Module (e2e, integration)', () => {
     const checkoutRes = await request(app.getHttpServer())
       .post('/api/v1/checkout')
       .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', `e2e-checkout-full-${Date.now()}`)
       .send({
         branchId,
         warehouseId,
@@ -252,6 +253,7 @@ describe('Checkout Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .post('/api/v1/checkout')
       .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', `e2e-checkout-empty-${Date.now()}`)
       .send({ branchId, warehouseId, paymentMethod: 'CASH' })
       .expect(422);
   });
@@ -266,6 +268,7 @@ describe('Checkout Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .post('/api/v1/checkout')
       .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', `e2e-checkout-insufficient-${Date.now()}`)
       .send({ branchId, warehouseId, paymentMethod: 'CASH' })
       .expect(422);
 

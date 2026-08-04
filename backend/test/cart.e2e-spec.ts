@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { createE2eApp } from './helpers/create-e2e-app';
 import { AppModule } from '../src/app.module';
 import { PERMISSION_CATALOG } from '../src/modules/rbac/infrastructure/permission-catalog';
 
@@ -112,9 +113,7 @@ describe('Cart Module (e2e, integration)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
-    await app.init();
+    app = await createE2eApp(moduleFixture);
 
     accessToken = app.get(JwtService).sign({
       sub: user.id,
@@ -129,6 +128,7 @@ describe('Cart Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: category.id,
         unitId: unit.id,
         name: `Sản phẩm cart e2e ${Date.now()}`,
@@ -143,6 +143,7 @@ describe('Cart Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: category.id,
         unitId: unit.id,
         name: `Sản phẩm ngừng bán e2e ${Date.now()}`,

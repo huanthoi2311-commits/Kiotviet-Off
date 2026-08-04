@@ -24,7 +24,6 @@ import {
 import type { JwtAccessPayload } from '../../../common/types/jwt-payload.type';
 import { JwtAuthGuard } from '../../auth/presentation/guards/jwt-auth.guard';
 import { RequirePermissions } from '../../rbac/presentation/permissions.decorator';
-import { PermissionsGuard } from '../../rbac/presentation/permissions.guard';
 import {
   ActorContext,
   OrganizationService,
@@ -40,6 +39,7 @@ import { OrganizationQueryDto } from '../application/dto/organization-query.dto'
 import { TransferOwnerDto } from '../application/dto/transfer-owner.dto';
 import { UpdateOrganizationDto } from '../application/dto/update-organization.dto';
 import { PlatformAdminGuard } from './guards/platform-admin.guard';
+import { PlatformAdminOrPermissionsGuard } from './guards/platform-admin-or-permissions.guard';
 
 @ApiTags('Organization')
 @ApiBearerAuth()
@@ -73,7 +73,7 @@ export class OrganizationController {
   }
 
   @Get('current')
-  @UseGuards(PermissionsGuard)
+  @UseGuards(PlatformAdminOrPermissionsGuard)
   @RequirePermissions('organization:view')
   @ApiOperation({ summary: 'Xem tổ chức của user đang đăng nhập' })
   @ApiResponse({ status: 200, type: OrganizationDetailResponseDto })
@@ -84,7 +84,7 @@ export class OrganizationController {
   }
 
   @Get(':id')
-  @UseGuards(PermissionsGuard)
+  @UseGuards(PlatformAdminOrPermissionsGuard)
   @RequirePermissions('organization:view')
   @ApiOperation({ summary: 'Xem chi tiết 1 tổ chức' })
   @ApiResponse({ status: 200, type: OrganizationDetailResponseDto })
@@ -96,7 +96,7 @@ export class OrganizationController {
   }
 
   @Patch(':id')
-  @UseGuards(PermissionsGuard)
+  @UseGuards(PlatformAdminOrPermissionsGuard)
   @RequirePermissions('organization:update')
   @ApiOperation({
     summary: 'Sửa thông tin tổ chức (không đổi code/slug/status)',
@@ -112,7 +112,7 @@ export class OrganizationController {
   }
 
   @Post(':id/archive')
-  @UseGuards(PermissionsGuard)
+  @UseGuards(PlatformAdminOrPermissionsGuard)
   @RequirePermissions('organization:archive')
   @ApiOperation({
     summary: 'Lưu trữ (Archive) tổ chức — không xóa cứng, xác nhận 2 bước',
@@ -128,7 +128,7 @@ export class OrganizationController {
   }
 
   @Post(':id/transfer-owner')
-  @UseGuards(PermissionsGuard)
+  @UseGuards(PlatformAdminOrPermissionsGuard)
   @RequirePermissions('organization:transfer-owner')
   @ApiOperation({
     summary: 'Chuyển quyền sở hữu tổ chức cho 1 User khác trong cùng tổ chức',

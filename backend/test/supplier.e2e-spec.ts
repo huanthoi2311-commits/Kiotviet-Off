@@ -6,6 +6,7 @@ import * as argon2 from 'argon2';
 import ExcelJS from 'exceljs';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { createE2eApp } from './helpers/create-e2e-app';
 import { AppModule } from '../src/app.module';
 import { PERMISSION_CATALOG } from '../src/modules/rbac/infrastructure/permission-catalog';
 
@@ -116,9 +117,7 @@ describe('Supplier Module (e2e, integration)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
-    await app.init();
+    app = await createE2eApp(moduleFixture);
 
     accessToken = app.get(JwtService).sign({
       sub: user.id,
@@ -133,6 +132,7 @@ describe('Supplier Module (e2e, integration)', () => {
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        type: 'STANDARD',
         categoryId: category.id,
         unitId: unit.id,
         name: `Sản phẩm supplier e2e ${Date.now()}`,
@@ -169,13 +169,17 @@ describe('Supplier Module (e2e, integration)', () => {
     const updated = await request(app.getHttpServer())
       .patch(`/api/v1/suppliers/${id}`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ companyName: 'Công ty Đức An (đã sửa)' })
+      .send({
+        version: created.body.data.version,
+        companyName: 'Công ty Đức An (đã sửa)',
+      })
       .expect(200);
     expect(updated.body.data.companyName).toBe('Công ty Đức An (đã sửa)');
 
     await request(app.getHttpServer())
       .delete(`/api/v1/suppliers/${id}`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: updated.body.data.version })
       .expect(204);
 
     await request(app.getHttpServer())
@@ -183,9 +187,15 @@ describe('Supplier Module (e2e, integration)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(404);
 
+    // T030.12F — DELETE trả 204 (không có body), không đọc được version đã tăng sau xóa qua
+    // response API — SupplierVersionDto (dùng chung Archive/Restore/Activate/Deactivate) đòi hỏi
+    // version hiện tại. Đọc trực tiếp qua Prisma (findUnique không tự lọc soft-delete như tầng
+    // repository ứng dụng) để lấy đúng version mới nhất trước khi gọi restore.
+    const afterDelete = await prisma.supplier.findUnique({ where: { id } });
     await request(app.getHttpServer())
       .post(`/api/v1/suppliers/${id}/restore`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: afterDelete!.version })
       .expect(201);
 
     await request(app.getHttpServer())
@@ -233,6 +243,7 @@ describe('Supplier Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .delete(`/api/v1/suppliers/${created.body.data.id}`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: created.body.data.version })
       .expect(422);
   });
 

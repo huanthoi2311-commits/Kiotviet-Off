@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { createE2eApp } from './helpers/create-e2e-app';
 import { AppModule } from '../src/app.module';
 import { PERMISSION_CATALOG } from '../src/modules/rbac/infrastructure/permission-catalog';
 
@@ -77,6 +78,20 @@ describe('Organization Module (e2e, integration)', () => {
     });
     tenantOrganizationId = tenantOrg.id;
 
+    // T030.12N/T030.12O — findById() (dùng bởi GET /current) đòi hỏi cả OrganizationSettings
+    // và OrganizationSubscription tồn tại, được tạo cùng lúc trong luồng POST /organizations
+    // thật (createWithOwner) nhưng KHÔNG được raw upsert() ở trên tự tạo — phải tạo tay ở đây.
+    await prisma.organizationSettings.upsert({
+      where: { organizationId: tenantOrg.id },
+      create: { organizationId: tenantOrg.id },
+      update: {},
+    });
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId: tenantOrg.id },
+      create: { organizationId: tenantOrg.id },
+      update: {},
+    });
+
     const role = await prisma.role.upsert({
       where: {
         organizationId_code: {
@@ -126,9 +141,7 @@ describe('Organization Module (e2e, integration)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1', { exclude: ['health'] });
-    await app.init();
+    app = await createE2eApp(moduleFixture);
 
     const jwtService = app.get(JwtService);
     platformAdminToken = jwtService.sign({
