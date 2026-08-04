@@ -237,6 +237,65 @@ describe('initializeFirstAdmin — SPEC-T022B1 (First Administrator / Tenant Ini
       expect(tx.organization.create).not.toHaveBeenCalled();
     });
 
+    // T030.11 (DISCOVERY-T030 F36) — mở rộng ngoài đúng 1 literal demo password.
+    it.each(['password', 'Password123', 'admin123', 'changeme'])(
+      'từ chối khi mật khẩu là giá trị mặc định/placeholder đã biết khác: "%s"',
+      async (weakPassword) => {
+        const tx = createMockTx();
+        tx.organization.findFirst.mockResolvedValue(null);
+        const prisma = createMockPrisma(tx);
+        const input: FirstAdminInitializationInput = {
+          ...validInput,
+          administrator: {
+            ...validInput.administrator,
+            password: weakPassword,
+          },
+        };
+
+        await expect(
+          initializeFirstAdmin(asPrismaPick(prisma), input),
+        ).rejects.toThrow(/mặc định\/placeholder đã biết/i);
+
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        expect(tx.organization.create).not.toHaveBeenCalled();
+      },
+    );
+
+    it('mật khẩu đủ mạnh, KHÔNG nằm trong danh sách đã biết, đủ độ dài → được chấp nhận (không throw ở assertCredentialAllowed)', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+      const input: FirstAdminInitializationInput = {
+        ...validInput,
+        administrator: {
+          ...validInput.administrator,
+          password: 'a-genuinely-unique-strong-password-2026',
+        },
+      };
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), input),
+      ).resolves.toMatchObject({ outcome: 'CREATED' });
+    });
+
+    it('lỗi mật khẩu yếu KHÔNG in giá trị password thật vào message', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+      const input: FirstAdminInitializationInput = {
+        ...validInput,
+        administrator: { ...validInput.administrator, password: 'changeme' },
+      };
+
+      let message = '';
+      try {
+        await initializeFirstAdmin(asPrismaPick(prisma), input);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).not.toContain('changeme');
+    });
+
     it('từ chối khi mật khẩu ngắn hơn độ dài tối thiểu (BR2, cùng chuẩn ResetPasswordDto)', async () => {
       const tx = createMockTx();
       tx.organization.findFirst.mockResolvedValue(null);

@@ -27,9 +27,27 @@ import * as argon2 from 'argon2';
  * minh ở Phase 1 — chỉ đổi hành vi của ĐÚNG 1 nhánh trước đây "bỏ qua trong im lặng".
  */
 
-const MIN_PASSWORD_LENGTH = 8; // Cùng chuẩn ResetPasswordDto (BR2).
+const MIN_PASSWORD_LENGTH = 8; // Cùng chuẩn ResetPasswordDto (BR2) — đây là baseline độ mạnh
+// mật khẩu DUY NHẤT đã được chấp thuận trong dự án (không có yêu cầu độ phức tạp/ký tự đặc biệt
+// nào khác ở bất kỳ đâu — xác nhận qua `reset-password.dto.ts` chỉ dùng `@MinLength(8)`), nên
+// KHÔNG phát minh thêm yêu cầu phức tạp mới chỉ riêng cho luồng này (T030.11, DISCOVERY-T030 F36).
 /** BR1 — mật khẩu demo đã biết công khai của prisma/seed.ts, không được phép dùng lại. */
 const KNOWN_DEMO_PASSWORD = 'Admin@123';
+
+/**
+ * T030.11 (DISCOVERY-T030 F36) — mở rộng danh sách chặn ngoài `KNOWN_DEMO_PASSWORD` (vốn chỉ
+ * chặn đúng 1 literal). Các giá trị dưới đây là mật khẩu placeholder/mặc định phổ biến, đủ dài để
+ * qua được `MIN_PASSWORD_LENGTH` nhưng rõ ràng không phải mật khẩu thật do người vận hành tự chọn
+ * — cùng tinh thần với `WEAK_PRODUCTION_PASSWORDS` (`database-url.util.ts`, T030.7), một danh
+ * sách literal nhỏ, tường minh, KHÔNG phải bộ máy chấm điểm phức tạp.
+ */
+const KNOWN_WEAK_ADMIN_PASSWORDS: ReadonlySet<string> = new Set([
+  KNOWN_DEMO_PASSWORD,
+  'password',
+  'Password123',
+  'admin123',
+  'changeme',
+]);
 
 export interface FirstAdminOrganizationInput {
   code: string;
@@ -77,11 +95,23 @@ type FirstAdminPrismaClient = Pick<
   | '$transaction'
 >;
 
-/** BR1/BR2 — thất bại RÕ RÀNG trước khi tạo bất kỳ record nào (§7 Failure Behavior). */
+/**
+ * BR1/BR2 — thất bại RÕ RÀNG trước khi tạo bất kỳ record nào (§7 Failure Behavior).
+ * KHÔNG BAO GIỜ in giá trị `password` thật vào bất kỳ message nào ở đây (mọi throw bên dưới chỉ
+ * mô tả LOẠI lỗi, không lặp lại giá trị đã nhập).
+ */
 function assertCredentialAllowed(password: string): void {
   if (password === KNOWN_DEMO_PASSWORD) {
     throw new Error(
       'Mật khẩu quản trị viên không được trùng với mật khẩu demo đã biết công khai của prisma/seed.ts',
+    );
+  }
+  // T030.11 (DISCOVERY-T030 F36) — mở rộng ngoài đúng 1 literal demo password: các giá trị
+  // placeholder/mặc định phổ biến khác cũng bị từ chối tường minh, thông điệp riêng (không lẫn
+  // với nhánh "mật khẩu demo" ở trên — test hiện có đã khẳng định message CHÍNH XÁC cho nhánh đó).
+  if (KNOWN_WEAK_ADMIN_PASSWORDS.has(password)) {
+    throw new Error(
+      'Mật khẩu quản trị viên là một giá trị mặc định/placeholder đã biết, không được phép dùng cho production',
     );
   }
   if (password.length < MIN_PASSWORD_LENGTH) {
