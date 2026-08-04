@@ -65,4 +65,29 @@ describe('AppController', () => {
       }),
     );
   });
+
+  it('[T030.9] redis.ping() TREO VÔ THỜI HẠN (Redis đang retry kết nối nội bộ) — /health VẪN trả 503 trong giới hạn thời gian xác định, KHÔNG chờ ping() mãi mãi', async () => {
+    jest.useFakeTimers();
+    try {
+      redis.ping.mockReturnValue(new Promise(() => {}));
+
+      const checkPromise = controller.check(res as unknown as Response);
+      // Đủ lớn hơn REDIS_HEALTH_CHECK_TIMEOUT_MS (1500ms) — nếu logic timeout không hoạt động,
+      // promise này sẽ KHÔNG BAO GIỜ resolve và test sẽ timeout thật (fail rõ ràng, không treo im lặng).
+      await jest.advanceTimersByTimeAsync(2000);
+      await checkPromise;
+
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'degraded',
+            dependencies: { database: 'up', redis: 'down' },
+          }),
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

@@ -7,6 +7,34 @@ import { getRequestId } from './common/context/request-context';
 import { PrismaService } from './prisma/prisma.service';
 import { REDIS_CLIENT } from './redis/redis.constants';
 
+/**
+ * T030.9 — chặn trên cả thời gian ioredis tự retry nội bộ (bounded nhưng vẫn có thể cộng dồn vài
+ * giây — xem redis-options.util.ts). `/health` là endpoint vận hành (health probe, load balancer,
+ * Docker healthcheck...) — cần trả lời NHANH VÀ CHẮC CHẮN bất kể client Redis đang tự retry bao
+ * lâu, nên bọc thêm 1 giới hạn RIÊNG của endpoint này, độc lập với chính sách retry của client.
+ */
+const REDIS_HEALTH_CHECK_TIMEOUT_MS = 1500;
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  onTimeout: T,
+): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(onTimeout), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(onTimeout);
+      },
+    );
+  });
+}
+
 @ApiTags('Health')
 @SkipThrottle()
 @Controller('health')
@@ -27,10 +55,14 @@ export class AppController {
   async check(@Res() res: Response): Promise<void> {
     const [database, redis] = await Promise.all([
       this.prisma.$queryRaw`SELECT 1`.then(() => 'up').catch(() => 'down'),
-      this.redis
-        .ping()
-        .then(() => 'up')
-        .catch(() => 'down'),
+      withTimeout(
+        this.redis
+          .ping()
+          .then(() => 'up' as const)
+          .catch(() => 'down' as const),
+        REDIS_HEALTH_CHECK_TIMEOUT_MS,
+        'down' as const,
+      ),
     ]);
 
     const status = database === 'up' && redis === 'up' ? 'ok' : 'degraded';
