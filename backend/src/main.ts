@@ -11,6 +11,19 @@ import { winstonLogger } from './logger/winston.logger';
 import { ValidatedCorsIoAdapter } from './websocket/validated-cors.adapter';
 
 /**
+ * T030.12D — trích xuất thành hằng số export được để E2E test (backend/test/helpers/
+ * create-e2e-app.ts) dùng CHUNG chính xác cùng 1 bộ tùy chọn với production, thay vì mỗi
+ * `*.e2e-spec.ts` tự định nghĩa lại (hoặc quên định nghĩa — đây chính là nguyên nhân gốc khiến
+ * 21/22 E2E suite trước đó không hề áp dụng ValidationPipe). Không đổi giá trị, không đổi hành vi
+ * production — chỉ đặt tên cho object đã có sẵn.
+ */
+export const VALIDATION_PIPE_OPTIONS = {
+  whitelist: true,
+  forbidNonWhitelisted: true,
+  transform: true,
+} as const;
+
+/**
  * T030.7 (AD-5 point 1/2) — điểm gọi validation TƯỜNG MINH, đứng trước bước khởi tạo Nest app
  * trong chính văn bản của hàm này. Xác minh nguồn (Mandatory Source Verification) cho thấy
  * `ConfigModule.forRoot({ validate: validateEnv })` (app.module.ts) đã tự chạy `validateEnv`
@@ -80,13 +93,7 @@ async function bootstrap() {
   // trường CORS_ORIGIN, không parse lại) — xem websocket/validated-cors.adapter.ts.
   app.useWebSocketAdapter(new ValidatedCorsIoAdapter(app, corsOrigins));
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  app.useGlobalPipes(new ValidationPipe(VALIDATION_PIPE_OPTIONS));
 
   if (config.get<boolean>('swagger.enabled')) {
     const document = SwaggerModule.createDocument(

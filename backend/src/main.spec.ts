@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { handleBootstrapFailure } from './main';
+import { handleBootstrapFailure, VALIDATION_PIPE_OPTIONS } from './main';
 import { winstonLogger } from './logger/winston.logger';
 
 function readMainSource(): string {
@@ -90,5 +90,22 @@ describe('main.ts — T030.7 structural verification (startup ordering)', () => 
 
   it('main.ts không tự parse CORS_ORIGIN (vẫn dùng cors.util qua ConfigService — không hồi quy T030.6)', () => {
     expect(readMainSource()).not.toContain(".split(',')");
+  });
+});
+
+describe('VALIDATION_PIPE_OPTIONS — T030.12D (E2E/production validation parity)', () => {
+  it('có đúng 3 tùy chọn whitelist/forbidNonWhitelisted/transform, đều bật', () => {
+    expect(VALIDATION_PIPE_OPTIONS).toEqual({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    });
+  });
+
+  it('bootstrap() dùng CHÍNH `VALIDATION_PIPE_OPTIONS` (không định nghĩa lại literal riêng)', () => {
+    const source = readMainSource();
+    expect(source).toMatch(
+      /useGlobalPipes\(new ValidationPipe\(VALIDATION_PIPE_OPTIONS\)\)/,
+    );
   });
 });
