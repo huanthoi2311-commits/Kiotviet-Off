@@ -3,14 +3,8 @@ name: Backend CI
 on:
   push:
     branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/backend-ci.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/backend-ci.yml"
 
 defaults:
   run:
@@ -21,8 +15,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # T030.14B — path-detection lives INSIDE the workflow (job-level `if:`), not in the
+  # workflow-level `on.push/pull_request.paths` trigger filter. A path-filtered *trigger*
+  # means GitHub creates ZERO check-runs for non-matching diffs, which a required-status-check
+  # ruleset can never satisfy (see docs/release/... T030.14A). Detecting changes as a job
+  # keeps the workflow itself always eligible to run, so the `Backend` aggregator job below
+  # always exists as a real check-run — it just no-ops when nothing backend-relevant changed.
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect backend-relevant changes
+        id: filter
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          fi
+
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo "No usable base commit (first push, force-push, or new branch) — treating as changed."
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD")
+          echo "Changed files ($BASE...$HEAD):"
+          echo "$CHANGED"
+
+          if echo "$CHANGED" | grep -qE '^backend/|^\.github/workflows/backend-ci\.yml$'; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=false" >> "$GITHUB_OUTPUT"
+          fi
+
   ci:
     name: Lint · Typecheck · Test · Prisma Validate · Build
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     env:
       # Giá trị giả — đủ để env.validation.ts/prisma validate pass, KHÔNG kết nối DB/Redis thật.
@@ -68,6 +108,8 @@ jobs:
   # của GitHub Actions), đóng technical-debt.md mục #1 (Integration Test PENDING từ Sprint-00).
   e2e:
     name: E2E (Postgres + Redis thật)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -119,3 +161,50 @@ jobs:
 
       - name: E2E test
         run: npm run test:e2e
+
+  # T030.14B — required aggregator check. Named exactly "Backend" to match the repository
+  # ruleset's required_status_checks context. Always runs (`if: always()`) so it always
+  # produces a real check-run, even when `ci`/`e2e` were skipped because nothing backend-
+  # relevant changed. Never reports success on account of a job being skipped due to an
+  # upstream failure — see the explicit changes.result check below.
+  Backend:
+    name: Backend
+    needs: [changes, ci, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    # No checkout step — this job only reads `needs.*` context, so the workflow-level
+    # `defaults.run.working-directory: backend` (which doesn't exist without a checkout)
+    # must be overridden here, or the shell fails to start at all.
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Evaluate backend CI result
+        shell: bash
+        run: |
+          echo "changes.result=${{ needs.changes.result }}"
+          echo "changes.outputs.backend=${{ needs.changes.outputs.backend }}"
+          echo "ci.result=${{ needs.ci.result }}"
+          echo "e2e.result=${{ needs.e2e.result }}"
+
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "Path-detection job did not succeed — failing safe, cannot determine relevance."
+            exit 1
+          fi
+
+          if [ "${{ needs.changes.outputs.backend }}" != "true" ]; then
+            echo "No backend-relevant changes in this diff — trivially passing."
+            exit 0
+          fi
+
+          if [ "${{ needs.ci.result }}" != "success" ]; then
+            echo "Lint/Typecheck/Test/Prisma/Build did not succeed (result: ${{ needs.ci.result }})."
+            exit 1
+          fi
+
+          if [ "${{ needs.e2e.result }}" != "success" ]; then
+            echo "E2E did not succeed (result: ${{ needs.e2e.result }})."
+            exit 1
+          fi
+
+          echo "All required backend checks succeeded."
