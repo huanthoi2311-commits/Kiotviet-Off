@@ -1,17 +1,22 @@
+# T030.5 (AD-2) — POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB đọc từ file `.env` ở CÙNG thư mục
+# với file này (Compose tự nạp `.env` gốc repo cho cú pháp ${VAR} — khác với `env_file: ./backend/.env`
+# dùng bên dưới, vốn chỉ nạp biến môi trường VÀO BÊN TRONG container, không dùng để nội suy ${VAR}).
+# `:?...` khiến `docker compose` thoát ngay với lỗi rõ ràng nếu biến chưa được set — không còn giá
+# trị mặc định hoạt động được nào bị commit trong file này. Xem docs/setup/ENVIRONMENT-CONTRACT.md §12.
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: pos_erp
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER chưa được set — copy .env.example thành .env ở thư mục gốc repo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD chưa được set — copy .env.example thành .env ở thư mục gốc repo}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB chưa được set — copy .env.example thành .env ở thư mục gốc repo}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?POSTGRES_USER chưa được set}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -44,7 +49,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/pos_erp?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:?POSTGRES_USER chưa được set}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD chưa được set}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB chưa được set}?schema=public
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,7 +62,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/pos_erp?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:?POSTGRES_USER chưa được set}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD chưa được set}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB chưa được set}?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
     ports:
