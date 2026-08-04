@@ -1,15 +1,11 @@
 import {
-  ConflictException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import type { ProductEntity } from '../../product/domain/entities/product.entity';
 import type { ProductDomainService } from '../../product/application/product-domain.service';
 import { CartEntity } from '../domain/entities/cart.entity';
-import {
-  CartConcurrencyConflictError,
-  type ICartRepository,
-} from '../domain/repositories/cart.repository.interface';
+import type { ICartRepository } from '../domain/repositories/cart.repository.interface';
 import { ActorContext, CartService } from './cart.service';
 
 describe('CartService', () => {
@@ -51,56 +47,11 @@ describe('CartService', () => {
     barcodes: [],
   };
 
-  // T017 Phase 3 — fixture dùng chung cho describe('[T017 Phase 3] ...') bên dưới (khác
-  // `cartWithItem` cục bộ trong từng describe('updateItem'/'removeItem') — cùng dữ liệu, phạm vi
-  // rộng hơn vì mutate() delegation cần dùng chung cho cả addItem/updateItem/removeItem).
-  const cartWithItemFixture: CartEntity = {
-    organizationId: 'org-1',
-    userId: 'user-1',
-    items: [
-      {
-        productId: 'prod-1',
-        productName: 'Áo thun',
-        quantity: '2.000',
-        price: '100000.00',
-        discount: '0.00',
-        promotion: '0.00',
-        voucher: '0.00',
-        tax: '20000.00',
-        total: '220000.00',
-      },
-    ],
-    subtotal: '200000.00',
-    totalDiscount: '0.00',
-    totalPromotion: '0.00',
-    totalVoucher: '0.00',
-    totalTax: '20000.00',
-    totalAmount: '220000.00',
-    updatedAt: '2026-07-15T00:00:00.000Z',
-  };
-
   beforeEach(() => {
     cartRepository = {
       findByUserId: jest.fn(),
       save: jest.fn(),
       delete: jest.fn(),
-      // T017 Phase 3 — fake tối giản, đúng hợp đồng ICartRepository.mutate(): đọc "current" (qua
-      // chính findByUserId() đã mock sẵn theo từng test) rồi áp mutator() — đủ để kiểm chứng logic
-      // nghiệp vụ của CartService mà không cần mô phỏng WATCH/MULTI/EXEC thật (test riêng cho cơ
-      // chế đó nằm ở redis-cart.repository.spec.ts).
-      mutate: jest.fn(
-        async (
-          organizationId: string,
-          userId: string,
-          mutator: (current: CartEntity | null) => CartEntity,
-        ) => {
-          const current = await cartRepository.findByUserId(
-            organizationId,
-            userId,
-          );
-          return mutator(current);
-        },
-      ),
     };
     productDomainService = {
       findById: jest.fn(),
@@ -195,10 +146,8 @@ describe('CartService', () => {
       expect(result.items[0].tax).toBe('20000.00');
       expect(result.items[0].total).toBe('220000.00');
       expect(result.totalAmount).toBe('220000.00');
-      expect(cartRepository.mutate).toHaveBeenCalledWith(
-        'org-1',
-        'user-1',
-        expect.any(Function),
+      expect(cartRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationId: 'org-1', userId: 'user-1' }),
       );
     });
 
@@ -350,7 +299,7 @@ describe('CartService', () => {
       const result = await service.removeItem({ productId: 'prod-1' }, actor);
       expect(result.items).toEqual([]);
       expect(result.totalAmount).toBe('0.00');
-      expect(cartRepository.mutate).toHaveBeenCalled();
+      expect(cartRepository.save).toHaveBeenCalled();
     });
   });
 
@@ -363,92 +312,15 @@ describe('CartService', () => {
     });
   });
 
-  describe('[T017 Phase 3] Cart Atomicity — mutate() delegation & concurrency mapping', () => {
-    it('[7] addItem() ủy quyền cho cartRepository.mutate() (không còn gọi save() trực tiếp)', async () => {
-      productDomainService.findById.mockResolvedValue(product);
-      cartRepository.findByUserId.mockResolvedValue(null);
-
-      await service.addItem({ productId: 'prod-1', quantity: 2 }, actor);
-
-      expect(cartRepository.mutate).toHaveBeenCalledTimes(1);
-      expect(cartRepository.save).not.toHaveBeenCalled();
-    });
-
-    it('[8] updateItem() ủy quyền cho cartRepository.mutate() (không còn gọi save() trực tiếp)', async () => {
-      cartRepository.findByUserId.mockResolvedValue(cartWithItemFixture);
-      productDomainService.findById.mockResolvedValue(product);
-
-      await service.updateItem({ productId: 'prod-1', quantity: 5 }, actor);
-
-      expect(cartRepository.mutate).toHaveBeenCalledWith(
-        'org-1',
-        'user-1',
-        expect.any(Function),
-      );
-      expect(cartRepository.save).not.toHaveBeenCalled();
-    });
-
-    it('[9] removeItem() ủy quyền cho cartRepository.mutate() (không còn gọi save() trực tiếp)', async () => {
-      cartRepository.findByUserId.mockResolvedValue(cartWithItemFixture);
-
-      await service.removeItem({ productId: 'prod-1' }, actor);
-
-      expect(cartRepository.mutate).toHaveBeenCalledWith(
-        'org-1',
-        'user-1',
-        expect.any(Function),
-      );
-      expect(cartRepository.save).not.toHaveBeenCalled();
-    });
-
-    it('[10] kết quả nghiệp vụ giống hệt implementation trước Phase 3 — cộng dồn quantity, giá/thuế/tổng tính đúng (mutate() chỉ đổi cơ chế ghi, không đổi logic thuần)', async () => {
-      productDomainService.findById.mockResolvedValue(product);
-      cartRepository.findByUserId.mockResolvedValue(cartWithItemFixture);
-
-      const result = await service.addItem(
-        { productId: 'prod-1', quantity: 3 },
-        actor,
-      );
-
-      // cartWithItemFixture đã có quantity=2 @ price=100000, VAT 10% → cộng dồn thành 5
-      expect(result.items).toHaveLength(1);
-      expect(result.items[0].quantity).toBe('5.000');
-      expect(result.items[0].price).toBe('100000.00');
-      expect(result.items[0].tax).toBe('50000.00');
-      expect(result.items[0].total).toBe('550000.00');
-      expect(result.totalAmount).toBe('550000.00');
-    });
-
-    it('mutate() ném CartConcurrencyConflictError (cạn retry) → CartService dịch sang ConflictException + CART_CONCURRENCY_CONFLICT (409)', async () => {
-      productDomainService.findById.mockResolvedValue(product);
-      cartRepository.findByUserId.mockResolvedValue(null);
-      cartRepository.mutate.mockRejectedValue(
-        new CartConcurrencyConflictError('org-1', 'user-1'),
-      );
-
-      await expect(
-        service.addItem({ productId: 'prod-1', quantity: 1 }, actor),
-      ).rejects.toThrow(ConflictException);
-    });
-
-    it('updateItem() — item bị request khác xóa NGAY GIỮA lúc check ngoài và lúc mutate() chạy thật → mutator tự phát hiện lại, vẫn ném NotFoundException (không ghi đè dữ liệu sai)', async () => {
-      // Outer loadCart() (fail-fast) thấy item còn tồn tại — nhưng bên trong mutate(), "current"
-      // thực tế đã không còn item đó nữa (giả lập race: 1 request removeItem khác chen vào giữa).
-      cartRepository.findByUserId.mockResolvedValue(cartWithItemFixture);
-      productDomainService.findById.mockResolvedValue(product);
-      cartRepository.mutate.mockImplementation(
-        (
-          _organizationId: string,
-          _userId: string,
-          mutator: (current: CartEntity | null) => CartEntity,
-        ) => Promise.resolve(mutator({ ...cartWithItemFixture, items: [] })),
-      );
-
-      await expect(
-        service.updateItem({ productId: 'prod-1', quantity: 5 }, actor),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
+  // T030.12 — describe('[T017 Phase 3] Cart Atomicity — mutate() delegation & concurrency
+  // mapping', ...) đã bị GỠ khỏi nhánh publication này: toàn bộ 6 test phụ thuộc trực tiếp vào
+  // `ICartRepository.mutate()`/`CartConcurrencyConflictError`, thuộc SPEC-T017-CHECKOUT-POS-001
+  // §Phase 3, một carry-over CHƯA được publish trong nhánh T030 này (xem
+  // docs/setup/T030.12-CARRY-OVER-SOURCE-CLASSIFICATION.md §6). Baseline `ICartRepository` của
+  // nhánh này (backend/src/modules/cart/domain/repositories/cart.repository.interface.ts) chỉ có
+  // findByUserId/save/delete — không có mutate() — nên các test này không compile được ở đây. Bộ
+  // test đầy đủ (bao gồm các test này) ĐÃ được chạy và pass trong working tree gốc, đầy đủ, không
+  // publish; việc gỡ ở đây chỉ là sửa cho nhất quán khi publish, không phải phát hiện lỗi mới.
 
   describe('[T030.9] Redis không khả dụng — không tạo unhandled rejection, không fallback giả', () => {
     const redisDownError = new Error('connect ECONNREFUSED 127.0.0.1:6379');
@@ -458,15 +330,9 @@ describe('CartService', () => {
       await expect(service.getCart(actor)).rejects.toBe(redisDownError);
     });
 
-    it('addItem() reject nguyên vẹn khi Redis (mutate) lỗi — lỗi khác CartConcurrencyConflictError được rethrow nguyên trạng, KHÔNG dịch thành 409', async () => {
-      productDomainService.findById.mockResolvedValue(product);
-      cartRepository.findByUserId.mockResolvedValue(null);
-      cartRepository.mutate.mockRejectedValue(redisDownError);
-
-      await expect(
-        service.addItem({ productId: 'prod-1', quantity: 1 }, actor),
-      ).rejects.toBe(redisDownError);
-    });
+    // T030.12 — test 'addItem() reject nguyên vẹn khi Redis (mutate) lỗi...' đã bị GỠ: nội dung
+    // của nó (cartRepository.mutate.mockRejectedValue(...)) chỉ có ý nghĩa với API mutate() của
+    // SPEC-T017 §Phase 3, không tồn tại trên baseline ICartRepository của nhánh publication này.
 
     it('clear() reject nguyên vẹn khi Redis (delete) lỗi', async () => {
       cartRepository.delete.mockRejectedValue(redisDownError);
