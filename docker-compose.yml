@@ -29,6 +29,26 @@ services:
       timeout: 5s
       retries: 10
 
+  # SPEC-T022C — chạy MỘT LẦN, gọi lại nguyên vẹn cơ chế Production Bring-up đã có (T022B2), rồi
+  # thoát. KHÔNG có restart policy (chỉ chạy 1 lần mỗi khi `docker compose up`, không tự chạy lại
+  # khi backend crash-restart — SPEC-T022C §5). Dùng target "build" (không phải "runtime") vì
+  # runtime image bị strip devDependencies (`npm ci --omit=dev`) nên không có `ts-node` để chạy
+  # `prisma:production-bring-up`; stage "build" vẫn còn đủ node_modules + mã nguồn `prisma/*.ts`.
+  # Chỉ cần `postgres` healthy — bring-up không dùng Redis.
+  bring-up:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: build
+    command: ["npm", "run", "prisma:production-bring-up"]
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/pos_erp?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   backend:
     build:
       context: ./backend
@@ -47,6 +67,25 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # SPEC-T022C §3/§4 — backend chỉ khởi động sau khi bring-up hoàn tất THÀNH CÔNG, không phải
+      # chỉ "đã chạy". Đây là cơ chế đóng Production Readiness Gap Audit G1 (backend không còn có
+      # thể khởi động khi schema/permission catalog/administrator đầu tiên chưa sẵn sàng).
+      bring-up:
+        condition: service_completed_successfully
+    # SPEC-T023 Finding 12 (FR12.1) — gọi /health bằng chính `node` có sẵn trong image (base
+    # Alpine của runtime stage không có sẵn curl/wget — IC12.1), không cần thêm gói OS nào.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:
