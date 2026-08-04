@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { formatMoney } from '../../../../common/utils/money-format.util';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   InvoiceEntity,
@@ -104,9 +105,9 @@ export class PrismaInvoiceRepository implements IInvoiceRepository {
       customerId: invoice.customerId,
       code: invoice.code,
       status: invoice.status,
-      totalAmount: invoice.totalAmount.toString(),
-      paidAmount: invoice.paidAmount.toString(),
-      dueAmount: invoice.dueAmount.toString(),
+      totalAmount: formatMoney(invoice.totalAmount),
+      paidAmount: formatMoney(invoice.paidAmount),
+      dueAmount: formatMoney(invoice.dueAmount),
       dueDate: invoice.dueDate,
       customerCodeSnapshot: invoice.customerCodeSnapshot,
       customerNameSnapshot: invoice.customerNameSnapshot,
@@ -122,10 +123,10 @@ export class PrismaInvoiceRepository implements IInvoiceRepository {
       id: item.id,
       productId: item.productId,
       quantity: item.quantity.toString(),
-      unitPrice: item.unitPrice.toString(),
-      discount: item.discount.toString(),
-      taxAmount: item.taxAmount.toString(),
-      totalAmount: item.totalAmount.toString(),
+      unitPrice: formatMoney(item.unitPrice),
+      discount: formatMoney(item.discount),
+      taxAmount: formatMoney(item.taxAmount),
+      totalAmount: formatMoney(item.totalAmount),
       productCodeSnapshot: item.productCodeSnapshot,
       productNameSnapshot: item.productNameSnapshot,
       unitNameSnapshot: item.unitNameSnapshot,

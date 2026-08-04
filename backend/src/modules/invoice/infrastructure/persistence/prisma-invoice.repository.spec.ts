@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { PrismaInvoiceRepository } from './prisma-invoice.repository';
 
@@ -16,11 +17,11 @@ describe('PrismaInvoiceRepository', () => {
   const rawItem = {
     id: 'item-1',
     productId: 'prod-1',
-    quantity: { toString: () => '2.000' },
-    unitPrice: { toString: () => '100000.00' },
-    discount: { toString: () => '0.00' },
-    taxAmount: { toString: () => '20000.00' },
-    totalAmount: { toString: () => '220000.00' },
+    quantity: new Prisma.Decimal('2.000'),
+    unitPrice: new Prisma.Decimal('100000'),
+    discount: new Prisma.Decimal('0'),
+    taxAmount: new Prisma.Decimal('20000'),
+    totalAmount: new Prisma.Decimal('220000'),
     productCodeSnapshot: 'SP000001',
     productNameSnapshot: 'Sản phẩm 1',
     unitNameSnapshot: 'Cái',
@@ -36,9 +37,9 @@ describe('PrismaInvoiceRepository', () => {
     customerId: 'cus-1',
     code: 'HD000001',
     status: 'PAID',
-    totalAmount: { toString: () => '220000.00' },
-    paidAmount: { toString: () => '220000.00' },
-    dueAmount: { toString: () => '0.00' },
+    totalAmount: new Prisma.Decimal('220000'),
+    paidAmount: new Prisma.Decimal('220000'),
+    dueAmount: new Prisma.Decimal('0'),
     dueDate: null,
     customerCodeSnapshot: 'KH000001',
     customerNameSnapshot: 'Nguyễn Văn A',
@@ -133,6 +134,35 @@ describe('PrismaInvoiceRepository', () => {
 
       expect(prisma.invoice.create).not.toHaveBeenCalled();
       expect(tx.invoice.create).toHaveBeenCalled();
+    });
+
+    it('[T030.12K] mọi field tiền tệ Invoice + InvoiceItem trả về string cố định 2 chữ số thập phân', async () => {
+      prisma.invoice.create.mockResolvedValue({
+        ...rawInvoice,
+        totalAmount: new Prisma.Decimal('300000.5'),
+        paidAmount: new Prisma.Decimal('300000.55'),
+        dueAmount: new Prisma.Decimal('0'),
+        items: [
+          {
+            ...rawItem,
+            unitPrice: new Prisma.Decimal('300000.5'),
+            discount: new Prisma.Decimal('0'),
+            taxAmount: new Prisma.Decimal('300000.55'),
+            totalAmount: new Prisma.Decimal('300000'),
+          },
+        ],
+      });
+      const result = await repository.create(input);
+
+      expect(result.totalAmount).toBe('300000.50');
+      expect(result.paidAmount).toBe('300000.55');
+      expect(result.dueAmount).toBe('0.00');
+      expect(result.items[0].unitPrice).toBe('300000.50');
+      expect(result.items[0].discount).toBe('0.00');
+      expect(result.items[0].taxAmount).toBe('300000.55');
+      expect(result.items[0].totalAmount).toBe('300000.00');
+      // quantity không phải tiền tệ (Decimal(18,3) — số lượng), KHÔNG áp dụng formatMoney.
+      expect(result.items[0].quantity).toBe('2');
     });
   });
 

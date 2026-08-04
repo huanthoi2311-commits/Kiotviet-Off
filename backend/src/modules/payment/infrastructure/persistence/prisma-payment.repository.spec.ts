@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { PrismaPaymentRepository } from './prisma-payment.repository';
 
@@ -19,7 +20,7 @@ describe('PrismaPaymentRepository', () => {
     customerId: 'cus-1',
     method: 'CASH',
     direction: 'IN',
-    amount: { toString: () => '150000' },
+    amount: new Prisma.Decimal('150000'),
     paidAt: new Date('2026-01-01'),
     createdAt: new Date('2026-01-01'),
   };
@@ -61,7 +62,7 @@ describe('PrismaPaymentRepository', () => {
         }),
       });
       expect(result.id).toBe('pay-1');
-      expect(result.amount).toBe('150000');
+      expect(result.amount).toBe('150000.00');
     });
 
     it('dùng thẳng tx được truyền vào (Checkout Engine), không dùng this.prisma', async () => {
@@ -72,6 +73,29 @@ describe('PrismaPaymentRepository', () => {
 
       expect(prisma.payment.create).not.toHaveBeenCalled();
       expect(tx.payment.create).toHaveBeenCalled();
+    });
+
+    it('[T030.12K] amount trả về string cố định 2 chữ số thập phân — 1 số lẻ, 2 số lẻ, 0', async () => {
+      prisma.payment.create.mockResolvedValueOnce({
+        ...rawPayment,
+        amount: new Prisma.Decimal('300000.5'),
+      });
+      const oneDecimal = await repository.create(input);
+      expect(oneDecimal.amount).toBe('300000.50');
+
+      prisma.payment.create.mockResolvedValueOnce({
+        ...rawPayment,
+        amount: new Prisma.Decimal('300000.55'),
+      });
+      const twoDecimal = await repository.create(input);
+      expect(twoDecimal.amount).toBe('300000.55');
+
+      prisma.payment.create.mockResolvedValueOnce({
+        ...rawPayment,
+        amount: new Prisma.Decimal('0'),
+      });
+      const zero = await repository.create(input);
+      expect(zero.amount).toBe('0.00');
     });
   });
 
