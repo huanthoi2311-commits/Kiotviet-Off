@@ -57,11 +57,9 @@ jobs:
           fi
 
   # NOTE (disclosed, not silently assumed): as of this workflow, frontend/package.json has
-  # no "test" script and no API-client drift-check script — only lint/typecheck/build exist.
-  # Requirement 4's "tests" and "API client drift where applicable" are therefore not yet
-  # applicable; nothing is wired in for them here (adding a test runner or drift-check
-  # tooling would be a frontend application/config change, out of this package's scope).
-  # Add corresponding steps to this job once those scripts exist.
+  # no API-client drift-check script — that depends on `docs/api/openapi.json` and the
+  # backend export script existing first (SPEC-T031 §13/§26, backend-scope, separately
+  # authorized). Nothing is wired in for it here; add it once those exist.
   ci:
     name: Lint · Typecheck · Build
     needs: changes
@@ -88,12 +86,34 @@ jobs:
       - name: Build
         run: npm run build
 
+  # SPEC-T031 §26 — added at the same time the first real test file exists (RFC §30 D14),
+  # not pre-provisioned as an empty/trivially-passing job ahead of that.
+  test:
+    name: Test
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm run test
+
   # T030.14B — required aggregator check. Named exactly "Frontend" to match the repository
   # ruleset's required_status_checks context. Always runs (`if: always()`); never reports
   # success on account of a job being skipped due to an upstream failure.
   Frontend:
     name: Frontend
-    needs: [changes, ci]
+    needs: [changes, ci, test]
     if: always()
     runs-on: ubuntu-latest
     # No checkout step — this job only reads `needs.*` context, so the workflow-level
@@ -109,6 +129,7 @@ jobs:
           echo "changes.result=${{ needs.changes.result }}"
           echo "changes.outputs.frontend=${{ needs.changes.outputs.frontend }}"
           echo "ci.result=${{ needs.ci.result }}"
+          echo "test.result=${{ needs.test.result }}"
 
           if [ "${{ needs.changes.result }}" != "success" ]; then
             echo "Path-detection job did not succeed — failing safe, cannot determine relevance."
@@ -122,6 +143,11 @@ jobs:
 
           if [ "${{ needs.ci.result }}" != "success" ]; then
             echo "Lint/Typecheck/Build did not succeed (result: ${{ needs.ci.result }})."
+            exit 1
+          fi
+
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "Test suite did not succeed (result: ${{ needs.test.result }})."
             exit 1
           fi
 
