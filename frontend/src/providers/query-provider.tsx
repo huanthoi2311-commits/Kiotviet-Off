@@ -3,16 +3,17 @@
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { normalizeError } from '@/services/api-client';
+import { isNormalizedError } from '@/services/api-client';
 
 /**
  * Global error surfacing to the Toast system (SPEC-T031 §20): the single
  * integration point between TanStack Query and the Toast component — no
- * calling code parses `error.response.data` itself (FR9).
+ * calling code parses `error.response.data` itself (FR9). `error` here is
+ * already a `NormalizedError` (apiClient's interceptor normalized it
+ * before rejecting) — never re-normalize it.
  */
 function reportQueryError(error: unknown) {
-  const normalized = normalizeError(error);
-  toast.error(normalized.message);
+  toast.error(isNormalizedError(error) ? error.message : 'Đã xảy ra lỗi không xác định');
 }
 
 export function QueryProvider({ children }: { children: React.ReactNode }) {

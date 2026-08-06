@@ -2,13 +2,17 @@
  * UX-only JWT payload decode — no signature verification (SPEC-T031 §10).
  * The decoded claims are a hint for client-side rendering only; every real
  * authorization decision is re-validated server-side on each request.
+ * Mirrors backend `JwtAccessPayload` (backend/src/common/types/jwt-payload.type.ts).
  */
 export interface AccessTokenClaims {
   sub: string;
   organizationId: string;
-  branchId?: string;
+  branchId: string | null;
+  email: string;
   permissions: string[];
-  isPlatformAdmin?: boolean;
+  /** Compared against User.permissionVersion server-side — a stale value here just means a UX hint is out of date. */
+  permissionVersion: number;
+  isPlatformAdmin: boolean;
   exp: number;
   iat: number;
   [claim: string]: unknown;

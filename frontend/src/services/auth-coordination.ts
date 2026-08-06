@@ -1,7 +1,8 @@
 import { hasWebLocks } from '@/utils/browser-capability';
 
 const LOCK_NAME = 'pos-erp-auth-refresh-lock';
-const CHANNEL_NAME = 'pos-erp-auth-coordination';
+/** Exported so tests can observe it via an independent BroadcastChannel instance, simulating another tab. */
+export const CHANNEL_NAME = 'pos-erp-auth-coordination';
 const FALLBACK_BROADCAST_KEY = 'pos-erp-auth-coordination-message';
 const MUTEX_KEY = 'pos-erp-auth-refresh-mutex';
 const MUTEX_STALE_MS = 10_000;

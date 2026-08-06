@@ -72,6 +72,22 @@ export function normalizeError(error: unknown): NormalizedError {
   };
 }
 
+/**
+ * Every rejection from `apiClient` is already a `NormalizedError` — the
+ * response interceptor below normalizes it before calling code ever sees
+ * it (FR9). Calling code (mutation.error, Query/MutationCache onError)
+ * must check this guard directly, never call `normalizeError` again on an
+ * already-normalized value.
+ */
+export function isNormalizedError(error: unknown): error is NormalizedError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    ((error as { kind?: unknown }).kind === 'api-error' ||
+      (error as { kind?: unknown }).kind === 'network-error')
+  );
+}
+
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
@@ -109,13 +125,28 @@ interface RetryableRequestConfig extends InternalAxiosRequestConfig {
   _retried?: boolean;
 }
 
+/**
+ * `/auth/login` and `/auth/refresh` are excluded from the 401-retry dance
+ * below: a 401 from either means "bad credentials" / "invalid refresh
+ * token," never "this session's access token just expired" (FR3's actual
+ * trigger condition) — retrying them via a coordinated refresh would be
+ * meaningless (login) or directly recursive (refresh).
+ */
+function isAuthBootstrapCall(url: string | undefined): boolean {
+  return Boolean(url && (url.includes('/auth/login') || url.includes('/auth/refresh')));
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const config = error.config as RetryableRequestConfig | undefined;
-    const isRefreshCall = config?.url?.includes('/auth/refresh');
 
-    if (error.response?.status === 401 && config && !config._retried && !isRefreshCall) {
+    if (
+      error.response?.status === 401 &&
+      config &&
+      !config._retried &&
+      !isAuthBootstrapCall(config.url)
+    ) {
       config._retried = true;
       try {
         const newToken = await requestCoordinatedRefresh(
