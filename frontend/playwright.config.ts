@@ -16,7 +16,9 @@ export default defineConfig({
   testDir: './e2e/auth',
   fullyParallel: false,
   retries: 0,
-  reporter: 'list',
+  // Local runs keep plain list output; CI also writes an HTML report so a
+  // failure has an artifact to upload (T031.06) — never opened automatically.
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: DEFAULT_BASE_URL,
     trace: 'retain-on-failure',

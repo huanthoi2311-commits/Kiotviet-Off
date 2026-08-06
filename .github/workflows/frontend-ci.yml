@@ -108,12 +108,49 @@ jobs:
       - name: Test
         run: npm run test
 
+  # T031.06 — the required Playwright auth/session E2E test (playwright.config.ts is scoped
+  # to e2e/auth only). Chromium only (no firefox/webkit) — this suite doesn't use them. The
+  # config's own webServer block starts `next dev` and Playwright tears it down after the run
+  # (reuseExistingServer is false in CI, so it always starts and always owns the shutdown).
+  e2e-auth:
+    name: Playwright Auth E2E
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright auth tests
+        run: npm run test:e2e:auth
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
+
   # T030.14B — required aggregator check. Named exactly "Frontend" to match the repository
   # ruleset's required_status_checks context. Always runs (`if: always()`); never reports
   # success on account of a job being skipped due to an upstream failure.
   Frontend:
     name: Frontend
-    needs: [changes, ci, test]
+    needs: [changes, ci, test, e2e-auth]
     if: always()
     runs-on: ubuntu-latest
     # No checkout step — this job only reads `needs.*` context, so the workflow-level
@@ -130,6 +167,7 @@ jobs:
           echo "changes.outputs.frontend=${{ needs.changes.outputs.frontend }}"
           echo "ci.result=${{ needs.ci.result }}"
           echo "test.result=${{ needs.test.result }}"
+          echo "e2e-auth.result=${{ needs['e2e-auth'].result }}"
 
           if [ "${{ needs.changes.result }}" != "success" ]; then
             echo "Path-detection job did not succeed — failing safe, cannot determine relevance."
@@ -148,6 +186,11 @@ jobs:
 
           if [ "${{ needs.test.result }}" != "success" ]; then
             echo "Test suite did not succeed (result: ${{ needs.test.result }})."
+            exit 1
+          fi
+
+          if [ "${{ needs['e2e-auth'].result }}" != "success" ]; then
+            echo "Playwright auth E2E did not succeed (result: ${{ needs['e2e-auth'].result }})."
             exit 1
           fi
 
