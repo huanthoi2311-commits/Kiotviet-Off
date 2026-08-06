@@ -17,6 +17,9 @@ import { SalesReturnModule } from './modules/sales-return/sales-return.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { MetricsInterceptor } from './common/interceptors/metrics.interceptor';
+import { MetricsModule } from './modules/platform/metrics/metrics.module';
 import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { JwtConfigModule } from './config/jwt-config.module';
@@ -89,10 +92,18 @@ import { WebsocketModule } from './websocket/websocket.module';
     InvoiceModule,
     CheckoutModule,
     SalesReturnModule,
+    MetricsModule,
   ],
   controllers: [AppController],
   providers: [
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
+    // T032.01E (R1 recovery, SPEC-T023 Finding 10) — đăng ký TRƯỚC TransformInterceptor để bọc
+    // ngoài cùng, đo trọn thời gian xử lý request (bao gồm cả các interceptor khác), không phụ
+    // thuộc hình dạng response.
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
+    // T032.01E (R1 recovery, SPEC-T023 Finding 4) — cùng vị trí với LoggingInterceptor, quan sát
+    // độc lập cho /metrics.
+    { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
     { provide: APP_INTERCEPTOR, useClass: TransformInterceptor },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],

@@ -103,6 +103,13 @@ class EnvironmentVariables {
   @IsOptional()
   SWAGGER_ENABLED: string = 'true';
 
+  // T032.01E (R1 recovery, Architect Decision) — cùng strict boolean parsing với SWAGGER_ENABLED
+  // (T030.7) và cùng lý do: chỉ 'true'/'false' được chấp nhận, không suy đoán từ chuỗi khác.
+  @IsString()
+  @IsIn(['true', 'false'])
+  @IsOptional()
+  METRICS_ENABLED: string = 'false';
+
   @IsString()
   @IsOptional()
   SMTP_HOST?: string;
