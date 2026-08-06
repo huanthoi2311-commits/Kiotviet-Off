@@ -71,7 +71,8 @@ async function bootstrap() {
     }),
   );
   app.use(cookieParser());
-  app.setGlobalPrefix('api/v1', { exclude: ['health'] });
+  // T032.01E (R1 recovery) — /metrics phải nằm ngoài prefix api/v1, cùng quy ước với /health.
+  app.setGlobalPrefix('api/v1', { exclude: ['health', 'metrics'] });
 
   const corsOrigins = config.get<string[]>('cors.origins')!;
   app.enableCors({

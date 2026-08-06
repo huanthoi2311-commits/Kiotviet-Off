@@ -28,6 +28,12 @@ export default () => ({
     enabled: (process.env.SWAGGER_ENABLED ?? 'true') === 'true',
     path: process.env.SWAGGER_PATH ?? 'api/docs',
   },
+  // T032.01E (R1 recovery, Architect Decision) — mặc định TẮT, khác hẳn swagger (mặc định BẬT ở
+  // dev). Khi bật, MetricsController vẫn chỉ cho Platform Admin truy cập (xem
+  // metrics-enabled.guard.ts) — cờ này chỉ quyết định endpoint có tồn tại hay không (404 khi tắt).
+  metrics: {
+    enabled: (process.env.METRICS_ENABLED ?? 'false') === 'true',
+  },
   mail: {
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT ?? '587', 10),
