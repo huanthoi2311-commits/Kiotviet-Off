@@ -16365,7 +16365,7 @@
             "type": "string"
           },
           "parentId": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "code": {
@@ -16378,11 +16378,11 @@
             "type": "string"
           },
           "description": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "imageUrl": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "sortOrder": {
@@ -16407,7 +16407,8 @@
             "type": "string"
           },
           "deletedAt": {
-            "type": "object",
+            "format": "date-time",
+            "type": "string",
             "nullable": true
           }
         },
@@ -16461,7 +16462,7 @@
             "type": "string"
           },
           "parentId": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "code": {
@@ -16474,11 +16475,11 @@
             "type": "string"
           },
           "description": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "imageUrl": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "sortOrder": {
@@ -16503,7 +16504,8 @@
             "type": "string"
           },
           "deletedAt": {
-            "type": "object",
+            "format": "date-time",
+            "type": "string",
             "nullable": true
           },
           "children": {
@@ -16632,19 +16634,19 @@
             "type": "string"
           },
           "logo": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "description": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "website": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "country": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "status": {
