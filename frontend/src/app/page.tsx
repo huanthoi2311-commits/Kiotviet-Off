@@ -9,7 +9,7 @@ export default function Home() {
       <h1 className="text-2xl font-semibold">POS ERP Enterprise v1.0</h1>
       <p className="text-muted-foreground text-sm">
         Nền tảng Frontend (Next.js 15) đã sẵn sàng — Tailwind, shadcn/ui, TanStack Query, Zustand,
-        React Hook Form, Zod, Dark Mode.
+        React Hook Form, Zod, Dark Mode, Vitest, Authentication infrastructure (SPEC-T031).
       </p>
     </div>
   );
