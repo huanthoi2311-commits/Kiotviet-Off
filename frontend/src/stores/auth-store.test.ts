@@ -1,17 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { buildAccessToken } from '@/test/build-access-token';
 import { useAuthStore } from './auth-store';
-
-function base64UrlEncode(value: unknown): string {
-  return Buffer.from(JSON.stringify(value))
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-}
-
-function buildAccessToken(payload: Record<string, unknown>): string {
-  return `${base64UrlEncode({ alg: 'HS256' })}.${base64UrlEncode(payload)}.sig`;
-}
 
 describe('useAuthStore', () => {
   beforeEach(() => {

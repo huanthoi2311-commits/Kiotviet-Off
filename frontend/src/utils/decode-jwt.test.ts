@@ -1,23 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { buildAccessToken } from '@/test/build-access-token';
 import { decodeJwt } from './decode-jwt';
-
-function base64UrlEncode(value: unknown): string {
-  return Buffer.from(JSON.stringify(value))
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-}
-
-function buildJwt(payload: Record<string, unknown>): string {
-  const header = base64UrlEncode({ alg: 'HS256', typ: 'JWT' });
-  const body = base64UrlEncode(payload);
-  return `${header}.${body}.signature-not-verified`;
-}
 
 describe('decodeJwt', () => {
   it('decodes a well-formed JWT payload without verifying the signature', () => {
-    const token = buildJwt({
+    const token = buildAccessToken({
       sub: 'user-1',
       organizationId: 'org-1',
       permissions: ['product:read'],
