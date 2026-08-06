@@ -159,6 +159,16 @@ jobs:
       - name: Apply migrations
         run: npx prisma migrate deploy --schema=prisma/schema.prisma
 
+      # T032.03 (RFC-T031 D10) — drift check against the committed docs/api/openapi.json:
+      # regenerate against the real running app, then fail if the committed file doesn't
+      # match. Reuses this job's already-provisioned Postgres (export-openapi.ts boots the
+      # full AppModule, which eagerly connects via PrismaService.onModuleInit()).
+      - name: Export OpenAPI document
+        run: npm run export:openapi
+
+      - name: Check OpenAPI drift
+        run: git diff --exit-code -- ../docs/api/openapi.json
+
       - name: E2E test
         run: npm run test:e2e
 

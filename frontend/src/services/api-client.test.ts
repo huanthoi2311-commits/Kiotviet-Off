@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '@/mocks/server';
 import { buildAccessToken } from '@/test/build-access-token';
 import { useAuthStore } from '@/stores/auth-store';
-import { apiClient } from './api-client';
+import { apiClient, apiClientMutator } from './api-client';
 import { CHANNEL_NAME } from './auth-coordination';
 
 const API_BASE_URL = 'http://localhost:3000/api/v1';
@@ -172,5 +172,36 @@ describe('apiClient 401 handling (FR3, §9)', () => {
       message: 'Sai thông tin đăng nhập',
     });
     expect(refreshCallCount).toBe(0);
+  });
+});
+
+describe('apiClientMutator (T032.03 — envelope double-unwrap)', () => {
+  beforeEach(() => {
+    useAuthStore.getState().clear();
+    window.localStorage.clear();
+  });
+
+  it('unwraps the backend TransformInterceptor envelope, returning only the inner data payload', async () => {
+    const token = buildAccessToken({ sub: 'user-1', organizationId: 'org-1', permissions: [] });
+    useAuthStore.getState().setAccessToken(token);
+
+    server.use(
+      http.get(`${API_BASE_URL}/widgets/1`, () =>
+        HttpResponse.json({
+          success: true,
+          data: { id: '1', name: 'Widget' },
+          meta: null,
+          traceId: 'trace-1',
+          timestamp: new Date().toISOString(),
+        }),
+      ),
+    );
+
+    const result = await apiClientMutator<{ id: string; name: string }>({
+      url: '/widgets/1',
+      method: 'GET',
+    });
+
+    expect(result).toEqual({ id: '1', name: 'Widget' });
   });
 });

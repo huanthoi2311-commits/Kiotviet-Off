@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiCookieAuth,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -76,6 +77,12 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  // T032.03 (RFC-T031 D09) — Web client gửi refresh token qua HttpOnly cookie
+  // (extractRefreshToken() bên dưới); Mobile client gửi qua JSON body
+  // (RefreshTokenDto), không cần cookie. Khai báo security scheme để tài
+  // liệu hoá đúng luồng Web — không đổi hành vi endpoint (vẫn công khai,
+  // không yêu cầu access token hợp lệ).
+  @ApiCookieAuth('refreshCookie')
   @ApiOperation({
     summary: 'Cấp lại access/refresh token (refresh token rotation)',
   })

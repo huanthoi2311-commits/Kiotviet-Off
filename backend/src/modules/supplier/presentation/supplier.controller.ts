@@ -40,11 +40,9 @@ import { JwtAuthGuard } from '../../auth/presentation/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../rbac/presentation/permissions.guard';
 import { RequirePermissions } from '../../rbac/presentation/permissions.decorator';
 import { ActorContext, SupplierService } from '../application/supplier.service';
-import {
-  SupplierExcelService,
-  SupplierImportSummary,
-} from '../application/supplier-excel.service';
+import { SupplierExcelService } from '../application/supplier-excel.service';
 import { CreateSupplierDto } from '../application/dto/create-supplier.dto';
+import { SupplierImportSummaryDto } from '../application/dto/supplier-import-summary.dto';
 import { SupplierQueryDto } from '../application/dto/supplier-query.dto';
 import {
   PaginatedSupplierResponseDto,
@@ -94,13 +92,13 @@ export class SupplierController {
     summary:
       'Nhập nhà cung cấp từ file Excel — rollback toàn bộ nếu có dòng lỗi',
   })
-  @ApiResponse({ status: 201 })
+  @ApiResponse({ status: 201, type: SupplierImportSummaryDto })
   @ApiWriteErrors()
   async import(
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
-  ): Promise<SupplierImportSummary> {
+  ): Promise<SupplierImportSummaryDto> {
     if (!file?.buffer) {
       throw new BadRequestException(
         withCode(

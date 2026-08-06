@@ -50,16 +50,15 @@ jobs:
           echo "Changed files ($BASE...$HEAD):"
           echo "$CHANGED"
 
-          if echo "$CHANGED" | grep -qE '^frontend/|^\.github/workflows/frontend-ci\.yml$'; then
+          # T032.03 — docs/api/openapi.json also counts as frontend-relevant even though it
+          # lives outside frontend/: a backend-only change to the API contract must still
+          # trigger the Orval drift-check below, or a stale generated client would go unnoticed.
+          if echo "$CHANGED" | grep -qE '^frontend/|^\.github/workflows/frontend-ci\.yml$|^docs/api/openapi\.json$'; then
             echo "frontend=true" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # NOTE (disclosed, not silently assumed): as of this workflow, frontend/package.json has
-  # no API-client drift-check script — that depends on `docs/api/openapi.json` and the
-  # backend export script existing first (SPEC-T031 §13/§26, backend-scope, separately
-  # authorized). Nothing is wired in for it here; add it once those exist.
   ci:
     name: Lint · Typecheck · Build
     needs: changes
@@ -85,6 +84,32 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # T032.03 (RFC-T031 D10) — regenerates the Orval client from the committed
+  # docs/api/openapi.json and typechecks the result. src/generated/ is gitignored (D11), so
+  # there is no committed baseline to diff against by design — the meaningful invariant this
+  # job protects instead is "the committed OpenAPI document still produces a client that
+  # generates and typechecks cleanly against apiClientMutator/current TS strict settings",
+  # not a byte-for-byte comparison against nothing.
+  api-client-drift:
+    name: API Client Drift
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Regenerate API client and check drift
+        run: npm run check:api-client-drift
 
   # SPEC-T031 §26 — added at the same time the first real test file exists (RFC §30 D14),
   # not pre-provisioned as an empty/trivially-passing job ahead of that.
@@ -167,7 +192,7 @@ jobs:
   # success on account of a job being skipped due to an upstream failure.
   Frontend:
     name: Frontend
-    needs: [changes, ci, test, e2e-auth]
+    needs: [changes, ci, test, e2e-auth, api-client-drift]
     if: always()
     runs-on: ubuntu-latest
     # No checkout step — this job only reads `needs.*` context, so the workflow-level
@@ -185,6 +210,7 @@ jobs:
           echo "ci.result=${{ needs.ci.result }}"
           echo "test.result=${{ needs.test.result }}"
           echo "e2e-auth.result=${{ needs['e2e-auth'].result }}"
+          echo "api-client-drift.result=${{ needs['api-client-drift'].result }}"
 
           if [ "${{ needs.changes.result }}" != "success" ]; then
             echo "Path-detection job did not succeed — failing safe, cannot determine relevance."
@@ -208,6 +234,11 @@ jobs:
 
           if [ "${{ needs['e2e-auth'].result }}" != "success" ]; then
             echo "Playwright auth E2E did not succeed (result: ${{ needs['e2e-auth'].result }})."
+            exit 1
+          fi
+
+          if [ "${{ needs['api-client-drift'].result }}" != "success" ]; then
+            echo "API client drift check did not succeed (result: ${{ needs['api-client-drift'].result }})."
             exit 1
           fi
 

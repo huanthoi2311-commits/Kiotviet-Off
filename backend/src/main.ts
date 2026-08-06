@@ -104,6 +104,15 @@ async function bootstrap() {
         .setDescription('API cho hệ thống POS ERP Enterprise v1.0')
         .setVersion('1.0')
         .addBearerAuth()
+        // T032.03 (RFC-T031 D09) — WEB client gửi refresh token qua HttpOnly
+        // cookie (auth.controller.ts's REFRESH_COOKIE_NAME), chưa từng được
+        // đăng ký làm security scheme nên @ApiCookieAuth() ở route không có
+        // gì để tham chiếu tới trước bản sửa này.
+        .addCookieAuth(
+          'refresh_token',
+          { type: 'apiKey', in: 'cookie', name: 'refresh_token' },
+          'refreshCookie',
+        )
         .build(),
     );
     SwaggerModule.setup(config.get<string>('swagger.path')!, app, document);
