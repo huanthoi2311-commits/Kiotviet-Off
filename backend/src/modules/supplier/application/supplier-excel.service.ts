@@ -16,13 +16,9 @@ import type {
 import { SUPPLIER_EXCEL_PORT } from '../domain/services/supplier-excel.interface';
 import type { ISupplierExcelPort } from '../domain/services/supplier-excel.interface';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
+import { SupplierImportSummaryDto } from './dto/supplier-import-summary.dto';
 import { SupplierQueryDto } from './dto/supplier-query.dto';
 import { ActorContext, SupplierService } from './supplier.service';
-
-export interface SupplierImportSummary {
-  createdCount: number;
-  updatedCount: number;
-}
 
 export interface SupplierRowError {
   row: number;
@@ -74,7 +70,7 @@ export class SupplierExcelService {
   async importFromExcel(
     fileBuffer: Buffer,
     actor: ActorContext,
-  ): Promise<SupplierImportSummary> {
+  ): Promise<SupplierImportSummaryDto> {
     const rawRows = await this.excelPort.parseRows(fileBuffer);
     if (rawRows.length === 0) {
       throw new UnprocessableEntityException(

@@ -181,9 +181,16 @@ apiClient.interceptors.response.use(
  * Custom-instance mutator for Orval's `react-query` client (SPEC-T031 §13):
  * every generated call routes through `apiClient`, so FR9's error
  * normalization and the request/response interceptors above apply
- * uniformly. Referenced only from `orval.config.ts` — not exercised until
- * generation actually runs against a real `docs/api/openapi.json`.
+ * uniformly.
+ *
+ * T032.03 — every successful backend response is wrapped by the global
+ * `TransformInterceptor` (`APP_INTERCEPTOR`) into `{ success, data, meta,
+ * traceId, timestamp }`. `response.data` (Axios) is therefore the WHOLE
+ * envelope, not the payload — the actual payload is `response.data.data`.
+ * This was never exercised before Orval generation existed, so a single-
+ * level unwrap here would have silently returned the envelope instead of
+ * the typed payload to every generated call.
  */
 export function apiClientMutator<T>(config: AxiosRequestConfig): Promise<T> {
-  return apiClient(config).then((response) => response.data as T);
+  return apiClient(config).then((response) => (response.data as { data: T }).data);
 }

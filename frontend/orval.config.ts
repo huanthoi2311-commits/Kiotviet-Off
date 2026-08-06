@@ -1,9 +1,16 @@
 import { defineConfig } from 'orval';
 
 /**
- * Config only (SPEC-T031 §13). Do NOT run `npm run generate:api` until
- * `docs/api/openapi.json` exists — that file, and the backend export script
- * that produces it, are backend-scope and require separate authorization.
+ * SPEC-T031 §13. `docs/api/openapi.json` is produced by
+ * `backend/scripts/export-openapi.ts` (T032.03) — run `npm run
+ * export:openapi` in `backend/` first, then `npm run generate:api` here.
+ *
+ * T032.03 — `httpClient: 'axios'` is required, not optional: without it,
+ * Orval defaults to fetch-style generated calls (`RequestInit`, a 2-arg
+ * `mutator(url, options)` signature with `body`), which is incompatible
+ * with `apiClientMutator`'s single-argument `AxiosRequestConfig` signature
+ * in `services/api-client.ts`. Confirmed only by actually running
+ * generation — the mismatch is a type/runtime error, not a lint warning.
  */
 export default defineConfig({
   posErpApi: {
@@ -12,6 +19,7 @@ export default defineConfig({
       mode: 'tags-split',
       target: 'src/generated',
       client: 'react-query',
+      httpClient: 'axios',
       override: {
         mutator: {
           path: './src/services/api-client.ts',

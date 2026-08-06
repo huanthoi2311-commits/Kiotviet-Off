@@ -11,5 +11,5 @@
     // TRONG dist/ để deleteOutDir xóa cache CÙNG LÚC với output nó mô tả — tự khôi phục vĩnh viễn.
     "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo"
   },
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts", "prisma"]
+  "exclude": ["node_modules", "test", "dist", "**/*spec.ts", "prisma", "scripts"]
 }

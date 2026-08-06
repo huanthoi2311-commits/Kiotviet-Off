@@ -29,7 +29,8 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
     "ops:inspect-db": "ts-node -T prisma/inspect-db.ts",
-    "ops:inspect-jobs": "ts-node -T prisma/inspect-jobs.ts"
+    "ops:inspect-jobs": "ts-node -T prisma/inspect-jobs.ts",
+    "export:openapi": "ts-node -T scripts/export-openapi.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.2",
