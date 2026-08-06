@@ -48,8 +48,17 @@ async function exportOpenApi(): Promise<void> {
   mkdirSync(dirname(OUTPUT_PATH), { recursive: true });
   writeFileSync(OUTPUT_PATH, JSON.stringify(document, null, 2) + '\n');
 
-  await app.close();
   console.log(`OpenAPI document written to ${OUTPUT_PATH}`);
+  // T032.04A — deliberately NOT awaiting app.close(). Booting the full AppModule
+  // wires up BullMQ's MailProcessor Worker (@nestjs/bullmq), whose internal
+  // shutdown sequence races against its own not-yet-settled blocking Redis
+  // connection in a process this short-lived: app.close() itself resolves
+  // cleanly, but a dangling background handle fires an unhandled "Connection
+  // is closed" error afterward (root-caused in T032.04), crashing a process
+  // that had already succeeded. The document is already synchronously and
+  // durably written by this point (writeFileSync above) — exiting immediately
+  // sidesteps the race entirely rather than tolerating or catching it.
+  process.exit(0);
 }
 
 exportOpenApi().catch((error) => {
