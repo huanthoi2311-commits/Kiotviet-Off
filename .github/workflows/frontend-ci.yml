@@ -135,8 +135,25 @@ jobs:
       - name: Run Playwright auth tests
         run: npm run test:e2e:auth
 
+      # T031.08 — a retry (playwright.config.ts: retries: 2 in CI) may let this
+      # race-sensitive test pass without ever needing one; if it DID need a retry,
+      # that's real reliability evidence and must stay visible, not be silently
+      # dropped just because the job is otherwise green.
+      - name: Check for flaky Playwright results
+        id: flaky_check
+        if: always()
+        working-directory: frontend
+        shell: bash
+        run: |
+          if [ -f playwright-report/results.json ] && grep -q '"status":"flaky"' playwright-report/results.json; then
+            echo "::warning::T031.08: at least one Playwright test passed only after a retry (flaky) — see the uploaded playwright-report artifact for details."
+            echo "flaky=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "flaky=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload Playwright report
-        if: failure()
+        if: failure() || steps.flaky_check.outputs.flaky == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
