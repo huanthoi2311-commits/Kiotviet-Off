@@ -155,12 +155,31 @@ async function performAndStampRefresh(refreshFn: () => Promise<string>): Promise
 }
 
 /**
- * Distinguishes "no message arrived in time" (recoverable — the caller may
- * reasonably become the refresher itself) from "a message arrived and it was
- * a definitive negative outcome" (must propagate, never silently retried —
- * a logout or a peer's failure is not a signal to try again).
+ * Distinguishes "no message arrived in time" from "a message arrived and it
+ * was a definitive negative outcome" (must propagate, never silently
+ * retried — a logout or a peer's failure is not a signal to try again).
  */
 class BroadcastWaitTimeoutError extends Error {}
+
+/**
+ * Thrown when a tab knows (via the generation marker) that another tab's
+ * refresh already completed, but the corresponding `BroadcastChannel`
+ * result never arrived within the bound (T031.08A). This tab does **not**
+ * retry the refresh itself in this same coordination attempt — doing so
+ * was the residual duplicate-request path T031.08 disclosed and T031.08A
+ * closes. This is a distinct failure mode from a genuine backend-reported
+ * refresh failure: the session may well still be valid, we simply never
+ * heard the result. Callers must not treat this the same as a confirmed
+ * logout (§9 step 6) — see `api-client.ts`/`use-session-restore.ts`.
+ */
+export class CoordinationTimeoutError extends Error {
+  constructor(
+    message = "Cross-tab refresh coordination timed out waiting for another tab's result",
+  ) {
+    super(message);
+    this.name = 'CoordinationTimeoutError';
+  }
+}
 
 /** Waits for the specific broadcast outcome of a refresh cycle already known to be in flight/done. */
 function waitForBroadcastResult(timeoutMs: number): Promise<string> {
@@ -224,19 +243,20 @@ async function resolveOrRefresh(
   try {
     return await waitForBroadcastResult(BROADCAST_WAIT_TIMEOUT_MS);
   } catch (error) {
-    if (!(error instanceof BroadcastWaitTimeoutError)) {
-      // A definitive negative outcome arrived (another tab's refresh failed, or an
-      // explicit logout happened while we were waiting) — must propagate, never
-      // silently retried (a logout must not be masked by a stale successful token).
-      throw error;
+    if (error instanceof BroadcastWaitTimeoutError) {
+      // T031.08A: fail closed. Never issue a second refreshFn() call in this same
+      // coordination attempt — the other tab's generation says its refresh already
+      // completed; retrying here is exactly the duplicate-request path this
+      // package exists to prevent. A dedicated error type lets callers distinguish
+      // "coordination didn't converge in time" (session may still be fine) from a
+      // genuine backend-reported failure (§9 step 6) — see api-client.ts's and
+      // use-session-restore.ts's handling.
+      throw new CoordinationTimeoutError();
     }
-    // Recovery bound (never permanently block refresh): the other tab's success
-    // message never arrived within the window — vanishingly rare under real
-    // BroadcastChannel delivery (near-instant), but if it happens, become the
-    // refresher ourselves rather than hang. Disclosed trade-off, not silently
-    // masked: this is the one path where two real calls remain theoretically
-    // possible, bounded to this timeout window only.
-    return performAndStampRefresh(refreshFn);
+    // A definitive negative outcome arrived (another tab's refresh failed, or an
+    // explicit logout happened while we were waiting) — must propagate, never
+    // silently retried (a logout must not be masked by a stale successful token).
+    throw error;
   }
 }
 

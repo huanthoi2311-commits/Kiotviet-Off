@@ -4,7 +4,11 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios';
 import { useAuthStore } from '@/stores/auth-store';
-import { broadcastLogout, requestCoordinatedRefresh } from './auth-coordination';
+import {
+  broadcastLogout,
+  CoordinationTimeoutError,
+  requestCoordinatedRefresh,
+} from './auth-coordination';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1';
 
@@ -155,9 +159,16 @@ apiClient.interceptors.response.use(
         );
         config.headers.set('Authorization', `Bearer ${newToken}`);
         return apiClient(config);
-      } catch {
-        useAuthStore.getState().clear();
-        broadcastLogout();
+      } catch (refreshError) {
+        // T031.08A: a CoordinationTimeoutError means the backend never told us
+        // anything is wrong — we simply didn't hear another tab's refresh result
+        // in time. Preserve session state and do not broadcast logout; only a
+        // genuine backend-reported refresh failure (any other rejection here)
+        // clears the session. Either way the ORIGINAL request still fails.
+        if (!(refreshError instanceof CoordinationTimeoutError)) {
+          useAuthStore.getState().clear();
+          broadcastLogout();
+        }
         return Promise.reject(normalizeError(error));
       }
     }

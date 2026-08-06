@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { SessionExpiredState } from '@/components/common/session-expired-state';
+import { SessionRestoreErrorState } from '@/components/common/session-restore-error-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCurrentOrganization } from '@/hooks/use-current-organization';
 import { useSessionRestore } from '@/hooks/use-session-restore';
@@ -45,6 +46,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   if (sessionExpired) {
     return <SessionExpiredState />;
+  }
+
+  if (sessionStatus === 'restore-error') {
+    return <SessionRestoreErrorState />;
   }
 
   if (sessionStatus === 'restoring') {

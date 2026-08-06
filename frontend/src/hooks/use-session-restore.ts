@@ -2,10 +2,18 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { refreshAccessToken } from '@/services/api-client';
-import { requestCoordinatedRefresh } from '@/services/auth-coordination';
+import { CoordinationTimeoutError, requestCoordinatedRefresh } from '@/services/auth-coordination';
 import { useAuthStore } from '@/stores/auth-store';
 
-export type SessionRestoreStatus = 'restoring' | 'restored' | 'unauthenticated';
+/**
+ * `restore-error` (T031.08A) is distinct from `unauthenticated`: it means
+ * cross-tab coordination never converged in time (another tab's refresh
+ * completed, but its broadcast result never arrived) — the backend has not
+ * told us the session is actually invalid. Callers must not treat this the
+ * same as a confirmed logged-out state (no redirect to `/login`); a later
+ * retry starts a fresh, fully-coordinated attempt (requirement 4).
+ */
+export type SessionRestoreStatus = 'restoring' | 'restored' | 'unauthenticated' | 'restore-error';
 
 /**
  * Silent session restoration on app load (SPEC-T031 FR2, §9 step 2): if no
@@ -32,8 +40,11 @@ export function useSessionRestore(): SessionRestoreStatus {
         setAccessToken(token);
         setStatus('restored');
       })
-      .catch(() => {
-        setStatus('unauthenticated');
+      .catch((error: unknown) => {
+        // A CoordinationTimeoutError is not a backend-reported failure — do not
+        // restore a stale token, but do not claim "unauthenticated" either
+        // (T031.08A requirement 3).
+        setStatus(error instanceof CoordinationTimeoutError ? 'restore-error' : 'unauthenticated');
       });
   }, [accessToken, setAccessToken]);
 

@@ -85,6 +85,73 @@ describe('apiClient 401 handling (FR3, §9)', () => {
     observerChannel.close();
   });
 
+  it('coordination timeout: preserves session state and does not broadcast logout (T031.08A)', async () => {
+    const oldToken = buildAccessToken({ sub: 'user-1', organizationId: 'org-1', permissions: [] });
+    useAuthStore.getState().setAccessToken(oldToken);
+
+    // Simulate another tab already holding the mutex — requestCoordinatedRefresh
+    // will queue behind it and, once released, find a completed generation whose
+    // broadcast never arrives (the exact case T031.08A closes).
+    window.localStorage.setItem(
+      'pos-erp-auth-refresh-mutex',
+      JSON.stringify({ holderId: 'tab-a-holder', startedAt: Date.now() }),
+    );
+
+    server.use(
+      http.get(`${API_BASE_URL}/protected/resource`, () =>
+        HttpResponse.json(
+          { success: false, code: 'UNAUTHORIZED', message: 'Token expired' },
+          { status: 401 },
+        ),
+      ),
+    );
+
+    const observerChannel = new BroadcastChannel(CHANNEL_NAME);
+    const receivedMessages: string[] = [];
+    observerChannel.addEventListener('message', (event: MessageEvent<{ type: string }>) => {
+      receivedMessages.push(event.data.type);
+    });
+
+    const resultPromise = apiClient.get('/protected/resource');
+    const settlement = resultPromise.then(
+      (value) => ({ status: 'fulfilled' as const, value }),
+      (error: unknown) => ({ status: 'rejected' as const, error }),
+    );
+
+    // Real timers here: let the 401 response, the interceptor, and
+    // requestCoordinatedRefresh's own generation/mutex capture all settle before
+    // simulating "Tab A" — otherwise this write could race ahead of that capture
+    // and be observed as "nothing changed", silently defeating the whole test.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Only now switch to fake timers, to bound the 5s broadcast-wait deterministically.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    // "Tab A" completes, but its broadcast is never delivered in this test.
+    window.localStorage.setItem(
+      'pos-erp-auth-refresh-generation',
+      JSON.stringify({ id: 'tab-a-generation', status: 'completed', completedAt: Date.now() }),
+    );
+    window.localStorage.removeItem('pos-erp-auth-refresh-mutex');
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'pos-erp-auth-refresh-mutex', newValue: null }),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_100);
+    vi.useRealTimers();
+
+    const outcome = await settlement;
+    expect(outcome.status).toBe('rejected');
+
+    // Session state preserved — the backend never told us anything is wrong, so the
+    // (stale-but-not-confirmed-invalid) token stays, and no logout is broadcast.
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().accessToken).toBe(oldToken);
+    expect(receivedMessages).not.toContain('logout');
+
+    observerChannel.close();
+  });
+
   it('does not attempt a refresh for a 401 from /auth/login itself', async () => {
     let refreshCallCount = 0;
     server.use(

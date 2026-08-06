@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CHANNEL_NAME, requestCoordinatedRefresh } from './auth-coordination';
+import {
+  CHANNEL_NAME,
+  CoordinationTimeoutError,
+  requestCoordinatedRefresh,
+} from './auth-coordination';
 
 const MUTEX_KEY = 'pos-erp-auth-refresh-mutex';
 const GENERATION_KEY = 'pos-erp-auth-refresh-generation';
+/** Mirrors auth-coordination.ts's private BROADCAST_WAIT_TIMEOUT_MS — kept in sync manually. */
+const BROADCAST_WAIT_TIMEOUT_MS = 5_000;
 
 function seedCompletedGeneration(id: string) {
   window.localStorage.setItem(
@@ -11,9 +17,28 @@ function seedCompletedGeneration(id: string) {
   );
 }
 
+/**
+ * Attaches a rejection handler immediately, before any timer advancement —
+ * Node/Vitest flags a promise as "unhandled" the instant it settles if
+ * nothing is listening *yet*, even if `expect(...).rejects` attaches a
+ * handler moments later. With `vi.advanceTimersByTimeAsync` driving the
+ * actual rejection, that gap is enough to trigger the warning (which fails
+ * the whole run) unless a handler is attached up front, as here.
+ */
+function observeSettlement<T>(promise: Promise<T>) {
+  return promise.then(
+    (value) => ({ status: 'fulfilled' as const, value }),
+    (error: unknown) => ({ status: 'rejected' as const, error }),
+  );
+}
+
 describe('requestCoordinatedRefresh — localStorage-mutex fallback (no navigator.locks)', () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('N concurrent refresh requests produce exactly one real refresh call', async () => {
@@ -96,9 +121,78 @@ describe('requestCoordinatedRefresh — localStorage-mutex fallback (no navigato
 
     setItemSpy.mockRestore();
   });
+
+  it('mutex path: fails closed with CoordinationTimeoutError when a completed generation exists but its broadcast never arrives — no second refresh call (T031.08A)', async () => {
+    vi.useFakeTimers();
+
+    window.localStorage.setItem(
+      MUTEX_KEY,
+      JSON.stringify({ holderId: 'tab-a-holder', startedAt: Date.now() }),
+    );
+
+    const refreshFnB = vi.fn(async () => 'should-never-be-called');
+    const getCurrentTokenB = () => null;
+
+    const resultPromise = requestCoordinatedRefresh(refreshFnB, getCurrentTokenB);
+    const settlement = observeSettlement(resultPromise);
+
+    // "Tab A" completes, but its broadcast is never delivered in this test.
+    seedCompletedGeneration('tab-a-generation');
+    window.localStorage.removeItem(MUTEX_KEY);
+    window.dispatchEvent(new StorageEvent('storage', { key: MUTEX_KEY, newValue: null }));
+
+    await vi.advanceTimersByTimeAsync(BROADCAST_WAIT_TIMEOUT_MS + 100);
+
+    const outcome = await settlement;
+    expect(outcome.status).toBe('rejected');
+    expect(outcome.status === 'rejected' && outcome.error).toBeInstanceOf(CoordinationTimeoutError);
+    expect(refreshFnB).not.toHaveBeenCalled();
+  });
+
+  it('mutex path: a later independent retry after a coordination timeout recovers normally', async () => {
+    vi.useFakeTimers();
+
+    window.localStorage.setItem(
+      MUTEX_KEY,
+      JSON.stringify({ holderId: 'tab-a-holder', startedAt: Date.now() }),
+    );
+    const refreshFnB = vi.fn(async () => 'should-never-be-called');
+    const timedOutAttempt = requestCoordinatedRefresh(refreshFnB, () => null);
+    const timedOutSettlement = observeSettlement(timedOutAttempt);
+
+    seedCompletedGeneration('tab-a-generation');
+    window.localStorage.removeItem(MUTEX_KEY);
+    window.dispatchEvent(new StorageEvent('storage', { key: MUTEX_KEY, newValue: null }));
+    await vi.advanceTimersByTimeAsync(BROADCAST_WAIT_TIMEOUT_MS + 100);
+    const timedOutOutcome = await timedOutSettlement;
+    expect(timedOutOutcome.status).toBe('rejected');
+    expect(timedOutOutcome.status === 'rejected' && timedOutOutcome.error).toBeInstanceOf(
+      CoordinationTimeoutError,
+    );
+    expect(refreshFnB).not.toHaveBeenCalled();
+
+    // A later, independent retry (requirement 4) — still goes through full
+    // coordination, is free to become the refresher since nothing newer exists
+    // relative to its own fresh start, and recovers normally.
+    const recoveryToken = 'recovered-after-timeout';
+    const recoveryRefreshFn = vi.fn(async () => recoveryToken);
+    const recovered = await requestCoordinatedRefresh(recoveryRefreshFn, () => null);
+
+    expect(recoveryRefreshFn).toHaveBeenCalledOnce();
+    expect(recovered).toBe(recoveryToken);
+  });
 });
 
 describe('requestCoordinatedRefresh — Web Locks primary path', () => {
+  beforeEach(() => {
+    // localStorage is not reset between tests within a file by default — the
+    // generation marker (and mutex key) must start clean each test, or a stale
+    // record from an earlier test can make a later test's own
+    // generationBeforeWaitId capture already match a "fresh" seed with the same
+    // literal id, silently defeating the "newer generation" check.
+    window.localStorage.clear();
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
@@ -268,5 +362,66 @@ describe('requestCoordinatedRefresh — Web Locks primary path', () => {
     }
 
     setItemSpy.mockRestore();
+  });
+
+  it('fails closed with CoordinationTimeoutError when a completed generation exists but its broadcast never arrives — no second refresh call (T031.08A)', async () => {
+    vi.useFakeTimers();
+    stubSerializingLockManager();
+
+    let releaseBlocker!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      releaseBlocker = resolve;
+    });
+    void navigator.locks.request('blocker', () => blocker);
+
+    const refreshFnB = vi.fn(async () => 'should-never-be-called');
+    const resultPromise = requestCoordinatedRefresh(refreshFnB, () => null);
+    const settlement = observeSettlement(resultPromise);
+
+    // "Tab A" stamps the generation as completed, but its broadcast is never
+    // delivered in this test — the exact residual gap T031.08 disclosed.
+    seedCompletedGeneration('tab-a-generation');
+    releaseBlocker();
+
+    await vi.advanceTimersByTimeAsync(BROADCAST_WAIT_TIMEOUT_MS + 100);
+
+    const outcome = await settlement;
+    expect(outcome.status).toBe('rejected');
+    expect(outcome.status === 'rejected' && outcome.error).toBeInstanceOf(CoordinationTimeoutError);
+    expect(refreshFnB).not.toHaveBeenCalled();
+  });
+
+  it('a later independent retry after a coordination timeout recovers normally', async () => {
+    vi.useFakeTimers();
+    stubSerializingLockManager();
+
+    let releaseBlocker!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      releaseBlocker = resolve;
+    });
+    void navigator.locks.request('blocker', () => blocker);
+
+    const refreshFnB = vi.fn(async () => 'should-never-be-called');
+    const timedOutAttempt = requestCoordinatedRefresh(refreshFnB, () => null);
+    const timedOutSettlement = observeSettlement(timedOutAttempt);
+
+    seedCompletedGeneration('tab-a-generation');
+    releaseBlocker();
+    await vi.advanceTimersByTimeAsync(BROADCAST_WAIT_TIMEOUT_MS + 100);
+    const timedOutOutcome = await timedOutSettlement;
+    expect(timedOutOutcome.status).toBe('rejected');
+    expect(timedOutOutcome.status === 'rejected' && timedOutOutcome.error).toBeInstanceOf(
+      CoordinationTimeoutError,
+    );
+    expect(refreshFnB).not.toHaveBeenCalled();
+
+    // A later, independent retry (requirement 4) — still goes through full
+    // coordination (the same navigator.locks.request entry point), and recovers.
+    const recoveryToken = 'recovered-after-timeout';
+    const recoveryRefreshFn = vi.fn(async () => recoveryToken);
+    const recovered = await requestCoordinatedRefresh(recoveryRefreshFn, () => null);
+
+    expect(recoveryRefreshFn).toHaveBeenCalledOnce();
+    expect(recovered).toBe(recoveryToken);
   });
 });
