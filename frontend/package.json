@@ -9,6 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e:auth": "playwright test",
     "format": "prettier --write .",
     "generate:api": "orval --config orval.config.ts"
   },
