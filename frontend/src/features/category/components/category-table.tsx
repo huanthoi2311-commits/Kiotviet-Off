@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import type { Column, ColumnDef, SortingState } from '@tanstack/react-table';
 import { FolderTree } from 'lucide-react';
 import { useCategoryControllerList } from '@/generated/category/category';
@@ -12,6 +13,7 @@ import {
 } from '@/generated/pOSERPEnterpriseAPI.schemas';
 import { DataTable } from '@/components/ui/data-table';
 import { EmptyState } from '@/components/common/empty-state';
+import { PermissionButton } from '@/components/common/permission-button';
 import { SearchToolbar } from '@/components/common/search-toolbar';
 import {
   Select,
@@ -74,13 +76,25 @@ const columns: ColumnDef<CategoryResponseDto, unknown>[] = [
     accessorKey: 'sortOrder',
     header: ({ column }) => <SortableHeader label="Thứ tự" column={column} />,
   },
+  {
+    id: 'actions',
+    header: 'Thao tác',
+    cell: ({ row }) => (
+      <PermissionButton
+        permission="category:update"
+        variant="outline"
+        size="sm"
+        render={<Link href={`/categories/${row.original.id}`}>Sửa</Link>}
+      />
+    ),
+  },
 ];
 
 /**
- * T035.10 — read-only: no create/edit/archive/restore actions, no tree
- * view. Search/status/pagination/sorting are all server-driven via
- * `CategoryControllerListParams`; component-local state only (no URL sync
- * in this package — out of T035.10's own scope).
+ * T035.10 (list) + T037.10 (per-row Edit link, `category:update`-gated).
+ * No Archive/Restore/Tree view yet. Search/status/pagination/sorting are
+ * all server-driven via `CategoryControllerListParams`; component-local
+ * state only (no URL sync in this package — out of scope).
  */
 export function CategoryTable() {
   const [search, setSearch] = useState('');

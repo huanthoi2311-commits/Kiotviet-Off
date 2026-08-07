@@ -118,6 +118,36 @@ describe('CategoryCreateForm (T036.10)', () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith('/categories'));
   });
 
+  it('invalidates the category list cache on successful create (T037.10 AD-6 retroactive fix)', async () => {
+    let listCallCount = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/categories`, () => {
+        listCallCount += 1;
+        return HttpResponse.json(
+          envelope({ items: [buildCategory()], total: 1, page: 1, limit: 100 }),
+        );
+      }),
+      http.post(`${API_BASE_URL}/categories`, () =>
+        HttpResponse.json(envelope(buildCategory({ id: 'new-1' })), { status: 201 }),
+      ),
+    );
+
+    renderForm();
+    await screen.findByLabelText('Mã danh mục');
+    const callsAfterMount = listCallCount;
+    expect(callsAfterMount).toBeGreaterThan(0);
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Mã danh mục'), 'ABC');
+    await user.type(screen.getByLabelText('Tên danh mục'), 'Danh mục mới');
+    await user.click(screen.getByRole('button', { name: 'Tạo danh mục' }));
+
+    // Invalidating a still-active query (the form's own parent-picker list
+    // query) triggers an immediate background refetch — a second GET call
+    // beyond the initial mount is direct evidence invalidation actually fired.
+    await waitFor(() => expect(listCallCount).toBeGreaterThan(callsAfterMount));
+  });
+
   it('blocks submission and makes zero network calls when a required field is invalid', async () => {
     let called = false;
     server.use(
@@ -223,6 +253,31 @@ describe('CategoryCreateForm (T036.10)', () => {
     await user.click(screen.getByRole('button', { name: 'Tạo danh mục' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Đã xảy ra lỗi hệ thống');
+  });
+
+  it('navigates immediately on Cancel when the form is pristine (T037.10 AD-4)', async () => {
+    renderForm();
+    await screen.findByLabelText('Mã danh mục');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Hủy' }));
+
+    expect(push).toHaveBeenCalledWith('/categories');
+    expect(screen.queryByText('Hủy các thay đổi chưa lưu?')).not.toBeInTheDocument();
+  });
+
+  it('shows a confirm dialog on Cancel when the form is dirty, and only navigates after confirming (T037.10 AD-4)', async () => {
+    renderForm();
+    await screen.findByLabelText('Mã danh mục');
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Mã danh mục'), 'ABC');
+    await user.click(screen.getByRole('button', { name: 'Hủy' }));
+
+    expect(await screen.findByText('Hủy các thay đổi chưa lưu?')).toBeInTheDocument();
+    expect(push).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Hủy thay đổi' }));
+    expect(push).toHaveBeenCalledWith('/categories');
   });
 
   it('has no accessibility violations on the empty form', async () => {
