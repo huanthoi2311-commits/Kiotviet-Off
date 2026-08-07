@@ -51,8 +51,18 @@ export function useCrudForm<TFieldValues extends FieldValues, TOutput = TFieldVa
   });
 
   const setServerError = (error: NormalizedApiError) => {
+    // T036.10 — an empty `errors: []` (the backend's actual shape for any
+    // non-validation error, e.g. a generic 500 — confirmed via the same
+    // envelope shape already used in login page's own test fixtures)
+    // vacuously satisfies `.every()`, producing an empty joined message
+    // instead of falling back to `error.message`. Never caught by T034's
+    // own tests, which only covered a non-empty array or a fully absent
+    // one — not the empty-array case every real non-field error actually
+    // sends.
     const messages =
-      Array.isArray(error.errors) && error.errors.every((item) => typeof item === 'string')
+      Array.isArray(error.errors) &&
+      error.errors.length > 0 &&
+      error.errors.every((item) => typeof item === 'string')
         ? (error.errors as string[])
         : [error.message];
 
