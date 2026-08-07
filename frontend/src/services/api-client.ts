@@ -191,6 +191,19 @@ apiClient.interceptors.response.use(
  * level unwrap here would have silently returned the envelope instead of
  * the typed payload to every generated call.
  */
+/**
+ * T035.10 — every Orval-generated call embeds the full OpenAPI path
+ * (`/api/v1/...`, since that's the real server route), but `apiClient`'s
+ * own `baseURL` already includes `/api/v1` (matching every hand-written
+ * call site, e.g. `auth-actions.ts`'s `apiClient.post('/auth/login', ...)`)
+ * — passing the generated `url` straight through doubled the prefix into
+ * `/api/v1/api/v1/...`, a 404 against any real backend. Never previously
+ * exercised at runtime (Orval's own drift-check only regenerates +
+ * typechecks) until this call site was actually wired into a real page.
+ * `/health`'s generated URL has no `/api/v1` prefix (matches the backend's
+ * actual unprefixed route) and passes through unchanged.
+ */
 export function apiClientMutator<T>(config: AxiosRequestConfig): Promise<T> {
-  return apiClient(config).then((response) => (response.data as { data: T }).data);
+  const url = config.url?.startsWith('/api/v1') ? config.url.slice('/api/v1'.length) : config.url;
+  return apiClient({ ...config, url }).then((response) => (response.data as { data: T }).data);
 }

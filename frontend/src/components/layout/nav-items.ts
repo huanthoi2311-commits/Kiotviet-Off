@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { LayoutDashboard } from 'lucide-react';
+import { FolderTree, LayoutDashboard } from 'lucide-react';
 
 export interface NavItem {
   label: string;
@@ -24,5 +24,16 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: null,
     items: [{ label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }],
+  },
+  {
+    label: 'Master Data',
+    items: [
+      {
+        label: 'Categories',
+        href: '/categories',
+        icon: FolderTree,
+        permission: 'category:view',
+      },
+    ],
   },
 ];
