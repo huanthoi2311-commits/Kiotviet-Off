@@ -50,6 +50,37 @@ describe('CategoriesPage (T035.10)', () => {
     expect(await screen.findByText('Chưa có danh mục nào')).toBeInTheDocument();
   });
 
+  it('shows the "Thêm danh mục" link for a user with category:create (T036.10)', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['category:view', 'category:create'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+
+    renderPage();
+    await screen.findByText('Chưa có danh mục nào');
+
+    expect(screen.getByRole('link', { name: 'Thêm danh mục' })).toHaveAttribute(
+      'href',
+      '/categories/new',
+    );
+  });
+
+  it('hides the "Thêm danh mục" link for a user without category:create (T036.10)', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['category:view'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+
+    renderPage();
+    await screen.findByText('Chưa có danh mục nào');
+
+    expect(screen.queryByRole('link', { name: 'Thêm danh mục' })).not.toBeInTheDocument();
+  });
+
   it('shows the unauthorized state, not the table, for a user lacking category:view', () => {
     renderPage();
 
