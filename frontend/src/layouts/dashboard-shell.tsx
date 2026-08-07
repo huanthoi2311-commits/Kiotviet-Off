@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { SessionExpiredState } from '@/components/common/session-expired-state';
 import { SessionRestoreErrorState } from '@/components/common/session-restore-error-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { AppSidebarProvider } from '@/components/layout/app-sidebar';
 import { useCurrentOrganization } from '@/hooks/use-current-organization';
 import { useSessionRestore } from '@/hooks/use-session-restore';
 import { subscribeToAuthEvents } from '@/services/auth-coordination';
@@ -14,9 +15,9 @@ import { useAuthStore } from '@/stores/auth-store';
 /**
  * Composition point for the `(dashboard)` route group (SPEC-T031 §8): reads
  * the Auth Store (via session restoration) and the Organization Context,
- * and renders children within them. No sidebar/topbar visual design is
- * specified anywhere in the RFC or discovery evidence base — that is a
- * separate, disclosed gap (§8), not implemented here.
+ * and renders children within them. The sidebar/navigation shell (T034.01
+ * §7/§8, T034.02) wraps `children` only once authenticated — every gate
+ * below it is unchanged from the original session-restore design.
  *
  * Also owns the session-restore gate (redirect on a cold unauthenticated
  * load) and the session-expired state (logout/refresh-failure while the
@@ -65,5 +66,5 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  return <div className="min-h-screen">{children}</div>;
+  return <AppSidebarProvider>{children}</AppSidebarProvider>;
 }
