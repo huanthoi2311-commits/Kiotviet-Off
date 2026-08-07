@@ -2,9 +2,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { axe } from 'vitest-axe';
 import { server } from '@/mocks/server';
+import { useAuthStore } from '@/stores/auth-store';
+import { buildAccessToken } from '@/test/build-access-token';
 import { CategoryTable } from './category-table';
 
 const API_BASE_URL = 'http://localhost:3000/api/v1';
@@ -45,7 +47,47 @@ function buildCategory(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('CategoryTable (T035.10)', () => {
+describe('CategoryTable (T035.10 + T037.10 Edit link)', () => {
+  beforeEach(() => {
+    useAuthStore.getState().clear();
+  });
+
+  it('shows a "Sửa" link per row for a user with category:update, pointing at /categories/:id', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['category:update'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+
+    server.use(
+      http.get(`${API_BASE_URL}/categories`, () =>
+        HttpResponse.json(envelope({ items: [buildCategory()], total: 1, page: 1, limit: 20 })),
+      ),
+    );
+
+    renderTable();
+    await screen.findByText('Thời trang');
+
+    expect(screen.getByRole('link', { name: 'Sửa' })).toHaveAttribute(
+      'href',
+      '/categories/a1b2c3d4-0000-0000-0000-000000000001',
+    );
+  });
+
+  it('hides the "Sửa" link for a user without category:update', async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/categories`, () =>
+        HttpResponse.json(envelope({ items: [buildCategory()], total: 1, page: 1, limit: 20 })),
+      ),
+    );
+
+    renderTable();
+    await screen.findByText('Thời trang');
+
+    expect(screen.queryByRole('link', { name: 'Sửa' })).not.toBeInTheDocument();
+  });
+
   it('renders skeleton rows while loading', () => {
     server.use(
       http.get(`${API_BASE_URL}/categories`, async () => {
