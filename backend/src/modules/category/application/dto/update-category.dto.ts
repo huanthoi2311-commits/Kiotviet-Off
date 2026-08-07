@@ -25,7 +25,13 @@ export class UpdateCategoryDto {
   @IsInt()
   version: number;
 
-  @ApiProperty({ required: false, nullable: true })
+  // T037.05 — same class of defect T033.03A already fixed for the response
+  // DTOs: @nestjs/swagger's CLI plugin is not enabled (nest-cli.json), so
+  // ApiProperty() relies on reflect-metadata alone; a union type (`string |
+  // null`) emits `Object` at runtime, which produced a degenerate
+  // `{ [key: string]: unknown } | null` OpenAPI/Orval type on this request
+  // DTO without this explicit `type:` override. No runtime behavior change.
+  @ApiProperty({ required: false, nullable: true, type: String })
   @IsOptional()
   @IsUUID()
   parentId?: string | null;
