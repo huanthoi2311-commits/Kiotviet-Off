@@ -204,4 +204,48 @@ describe('apiClientMutator (T032.03 — envelope double-unwrap)', () => {
 
     expect(result).toEqual({ id: '1', name: 'Widget' });
   });
+
+  it(
+    "strips a leading '/api/v1' from Orval-generated URLs instead of doubling apiClient's own baseURL " +
+      '(T035.10 — every generated call embeds the full OpenAPI path; not caught until a real page ' +
+      'first wired a generated hook in, since the drift-check only regenerates + typechecks)',
+    async () => {
+      server.use(
+        http.get(`${API_BASE_URL}/widgets/1`, () =>
+          HttpResponse.json({
+            success: true,
+            data: { id: '1', name: 'Widget' },
+            meta: null,
+            traceId: 'trace-1',
+            timestamp: new Date().toISOString(),
+          }),
+        ),
+      );
+
+      const result = await apiClientMutator<{ id: string; name: string }>({
+        url: '/api/v1/widgets/1',
+        method: 'GET',
+      });
+
+      expect(result).toEqual({ id: '1', name: 'Widget' });
+    },
+  );
+
+  it("leaves a URL with no '/api/v1' prefix unchanged (only the '/api/v1'-prefixed shape generated calls actually use is stripped)", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/health`, () =>
+        HttpResponse.json({
+          success: true,
+          data: { status: 'ok' },
+          meta: null,
+          traceId: 'trace-1',
+          timestamp: new Date().toISOString(),
+        }),
+      ),
+    );
+
+    const result = await apiClientMutator<{ status: string }>({ url: '/health', method: 'GET' });
+
+    expect(result).toEqual({ status: 'ok' });
+  });
 });
