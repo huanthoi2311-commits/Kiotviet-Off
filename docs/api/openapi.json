@@ -16541,7 +16541,7 @@
             "description": "Optimistic Lock (SPEC-CATEGORY-001 §7.1) — gửi lại đúng version đã đọc trước đó; sai version bị từ chối (409)"
           },
           "parentId": {
-            "type": "object",
+            "type": "string",
             "nullable": true
           },
           "code": {
