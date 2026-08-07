@@ -1,5 +1,6 @@
 import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { axe } from 'vitest-axe';
 import { useAuthStore } from '@/stores/auth-store';
 import { useUiStore } from '@/stores/ui-store';
 import { buildAccessToken } from '@/test/build-access-token';
@@ -89,5 +90,14 @@ describe('DashboardShell', () => {
     expect(screen.getByText('Nội dung trang')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
     expect(document.querySelector('[data-slot="sidebar"]')).toBeInTheDocument();
+  });
+
+  it('has no accessibility violations once authenticated and restored (T034.03A)', async () => {
+    useSessionRestore.mockReturnValue('restored');
+    const token = buildAccessToken({ sub: 'user-1', organizationId: 'org-1', permissions: [] });
+    useAuthStore.getState().setAccessToken(token);
+
+    const { container } = render(<DashboardShell>Nội dung trang</DashboardShell>);
+    expect(await axe(container)).toHaveNoViolations();
   });
 });

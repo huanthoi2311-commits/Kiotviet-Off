@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { NormalizedApiError } from '@/services/api-client';
 import { useCrudForm } from './use-crud-form';
@@ -76,5 +76,58 @@ describe('useCrudForm (T034.01 §12)', () => {
     rerender();
 
     expect(result.current.formState.errors.root?.message).toBe('Đã xảy ra lỗi hệ thống');
+  });
+
+  // T034.03A Fix #2: `z.ZodType<TSchema, TSchema>` previously forced Input === Output,
+  // rejecting exactly the schemas below — these confirm the generalized
+  // `UseCrudFormOptions<TFieldValues, TOutput>` accepts them and that `onSubmit`
+  // receives the transformed Output, not the raw form Input.
+  it('supports .transform() schemas, passing the transformed Output to onSubmit', async () => {
+    const transformSchema = z.object({
+      code: z.string().transform((value) => value.trim().toUpperCase()),
+    });
+    const onSubmit = vi.fn();
+    const { result } = renderHook(() =>
+      useCrudForm({ schema: transformSchema, defaultValues: { code: '' } }),
+    );
+
+    await act(async () => {
+      result.current.setValue('code', ' abc ');
+      await result.current.handleSubmit(onSubmit)();
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith({ code: 'ABC' }, undefined);
+  });
+
+  it('supports z.coerce schemas, coercing string form input to the numeric Output', async () => {
+    const coerceSchema = z.object({
+      quantity: z.coerce.number().min(1, 'Số lượng phải lớn hơn 0'),
+    });
+    const onSubmit = vi.fn();
+    const { result } = renderHook(() =>
+      useCrudForm({ schema: coerceSchema, defaultValues: { quantity: '5' } }),
+    );
+
+    await act(async () => {
+      await result.current.handleSubmit(onSubmit)();
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith({ quantity: 5 }, undefined);
+  });
+
+  it('supports z.preprocess() schemas', async () => {
+    const preprocessSchema = z.object({
+      price: z.preprocess((value) => Number(value), z.number().min(0)),
+    });
+    const onSubmit = vi.fn();
+    const { result } = renderHook(() =>
+      useCrudForm({ schema: preprocessSchema, defaultValues: { price: '10' } }),
+    );
+
+    await act(async () => {
+      await result.current.handleSubmit(onSubmit)();
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith({ price: 10 }, undefined);
   });
 });

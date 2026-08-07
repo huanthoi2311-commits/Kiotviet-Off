@@ -5,9 +5,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import type { UseCrudFormReturn } from '@/hooks/use-crud-form';
 
-export interface CrudFormProps<TSchema extends FieldValues> {
-  form: UseCrudFormReturn<TSchema>;
-  onSubmit: (values: TSchema) => void | Promise<void>;
+export interface CrudFormProps<TFieldValues extends FieldValues, TOutput = TFieldValues> {
+  form: UseCrudFormReturn<TFieldValues, TOutput>;
+  /** Receives the schema's Output (post `.transform()`/`.coerce`/`.preprocess()`), not raw form input — T034.03A Fix #2. */
+  onSubmit: (values: TOutput) => void | Promise<void>;
   onCancel: () => void;
   submitLabel?: string;
   cancelLabel?: string;
@@ -20,14 +21,14 @@ export interface CrudFormProps<TSchema extends FieldValues> {
  * actual field markup (`children`), so it stays agnostic to what fields
  * any given module needs (Acceptance Criteria §23).
  */
-export function CrudForm<TSchema extends FieldValues>({
+export function CrudForm<TFieldValues extends FieldValues, TOutput = TFieldValues>({
   form,
   onSubmit,
   onCancel,
   submitLabel = 'Lưu',
   cancelLabel = 'Hủy',
   children,
-}: CrudFormProps<TSchema>) {
+}: CrudFormProps<TFieldValues, TOutput>) {
   const rootError = form.formState.errors.root;
 
   return (

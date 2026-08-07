@@ -1,24 +1,30 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  useForm,
-  type FieldValues,
-  type Resolver,
-  type UseFormProps,
-  type UseFormReturn,
-} from 'react-hook-form';
+import { useForm, type FieldValues, type UseFormProps, type UseFormReturn } from 'react-hook-form';
 import type { z } from 'zod';
 import type { NormalizedApiError } from '@/services/api-client';
 
-export interface UseCrudFormOptions<TSchema extends FieldValues> extends Omit<
-  UseFormProps<TSchema>,
-  'resolver'
-> {
-  schema: z.ZodType<TSchema, TSchema>;
+/**
+ * `TFieldValues` is the schema's raw Input shape (what `defaultValues`,
+ * `register()`, etc. work with); `TOutput` is its Output shape after
+ * validation — they diverge for any schema using `z.coerce.*`,
+ * `.transform()` or `.preprocess()` (T034.03A Fix #2: the previous
+ * `z.ZodType<TSchema, TSchema>` constraint forced Input === Output,
+ * rejecting exactly those schemas). Defaults to `TFieldValues` so callers
+ * with a plain, non-transforming schema don't need to specify it.
+ */
+export interface UseCrudFormOptions<
+  TFieldValues extends FieldValues,
+  TOutput = TFieldValues,
+> extends Omit<UseFormProps<TFieldValues, unknown, TOutput>, 'resolver'> {
+  schema: z.ZodType<TOutput, TFieldValues>;
   /** Combined with RHF's own `formState.isSubmitting` — T034.01 §12. */
   isMutating?: boolean;
 }
 
-export interface UseCrudFormReturn<TSchema extends FieldValues> extends UseFormReturn<TSchema> {
+export interface UseCrudFormReturn<
+  TFieldValues extends FieldValues,
+  TOutput = TFieldValues,
+> extends UseFormReturn<TFieldValues, unknown, TOutput> {
   isSubmitting: boolean;
   /**
    * T034.01 §12 — the backend's validation-error envelope is a flat
@@ -34,18 +40,14 @@ export interface UseCrudFormReturn<TSchema extends FieldValues> extends UseFormR
   setServerError: (error: NormalizedApiError) => void;
 }
 
-export function useCrudForm<TSchema extends FieldValues>({
+export function useCrudForm<TFieldValues extends FieldValues, TOutput = TFieldValues>({
   schema,
   isMutating = false,
   ...formOptions
-}: UseCrudFormOptions<TSchema>): UseCrudFormReturn<TSchema> {
-  const form = useForm<TSchema>({
+}: UseCrudFormOptions<TFieldValues, TOutput>): UseCrudFormReturn<TFieldValues, TOutput> {
+  const form = useForm<TFieldValues, unknown, TOutput>({
     ...formOptions,
-    // zodResolver's generic inference from a caller-supplied `z.ZodType<TSchema>`
-    // widens the resolver's input type to `FieldValues`, which `useForm<TSchema>`
-    // then rejects — the runtime contract (schema's output IS TSchema) still
-    // holds, so this narrows the type back rather than widening useForm's own.
-    resolver: zodResolver(schema) as Resolver<TSchema>,
+    resolver: zodResolver(schema),
   });
 
   const setServerError = (error: NormalizedApiError) => {
