@@ -5,7 +5,10 @@ import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import { server } from '@/mocks/server';
-import { useCategoryControllerList } from '@/generated/category/category';
+import {
+  getCategoryControllerGetTreeQueryKey,
+  useCategoryControllerList,
+} from '@/generated/category/category';
 import { reportMutationError } from '@/providers/query-provider';
 import {
   CategoryLifecycleDialog,
@@ -45,17 +48,20 @@ function renderDialog(
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     mutationCache: new MutationCache({ onError: reportMutationError }),
   });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <CategoryLifecycleDialog
-        open
-        onOpenChange={onOpenChange}
-        categoryId={CATEGORY_ID}
-        categoryName="Thời trang"
-        mode={mode}
-      />
-    </QueryClientProvider>,
-  );
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <CategoryLifecycleDialog
+          open
+          onOpenChange={onOpenChange}
+          categoryId={CATEGORY_ID}
+          categoryName="Thời trang"
+          mode={mode}
+        />
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 describe('CategoryLifecycleDialog — mode="archive" (T038.10 + T038.08B/D, renamed T039)', () => {
@@ -121,6 +127,7 @@ describe('CategoryLifecycleDialog — mode="archive" (T038.10 + T038.08B/D, rena
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
+    queryClient.setQueryData(getCategoryControllerGetTreeQueryKey(), []);
     const onOpenChange = vi.fn();
     // Renders the dialog alongside a real, active `useCategoryControllerList`
     // query — the exact same query-key shape `getCategoryControllerListQueryKey()`
@@ -150,6 +157,10 @@ describe('CategoryLifecycleDialog — mode="archive" (T038.10 + T038.08B/D, rena
 
     await waitFor(() => expect(listCallCount).toBeGreaterThan(callsAfterMount));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    // T040 — Tree must also stop showing a just-archived category.
+    expect(queryClient.getQueryState(getCategoryControllerGetTreeQueryKey())?.isInvalidated).toBe(
+      true,
+    );
   });
 
   it('CATEGORY_004 keeps the dialog open, shows the backend message, and does not also show a global toast', async () => {
@@ -327,6 +338,7 @@ describe('CategoryLifecycleDialog — mode="restore" (T039)', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
+    queryClient.setQueryData(getCategoryControllerGetTreeQueryKey(), []);
     const onOpenChange = vi.fn();
     function Harness() {
       useCategoryControllerList({ limit: 20 });
@@ -352,6 +364,10 @@ describe('CategoryLifecycleDialog — mode="restore" (T039)', () => {
 
     await waitFor(() => expect(listCallCount).toBeGreaterThan(callsAfterMount));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    // T040 — Tree must also show the just-restored category.
+    expect(queryClient.getQueryState(getCategoryControllerGetTreeQueryKey())?.isInvalidated).toBe(
+      true,
+    );
   });
 
   it('CATEGORY_003 (not deleted) keeps the dialog open, shows the backend message, no duplicate toast', async () => {

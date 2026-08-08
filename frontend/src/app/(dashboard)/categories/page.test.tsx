@@ -67,6 +67,23 @@ describe('CategoriesPage (T035.10)', () => {
     );
   });
 
+  it('shows the "Xem dạng cây" link to /categories/tree for any user with category:view (T040)', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['category:view'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+
+    renderPage();
+    await screen.findByText('Chưa có danh mục nào');
+
+    expect(screen.getByRole('link', { name: 'Xem dạng cây' })).toHaveAttribute(
+      'href',
+      '/categories/tree',
+    );
+  });
+
   it('hides the "Thêm danh mục" link for a user without category:create (T036.10)', async () => {
     const token = buildAccessToken({
       sub: 'user-1',
