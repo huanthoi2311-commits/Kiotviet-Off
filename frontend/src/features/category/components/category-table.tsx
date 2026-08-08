@@ -23,7 +23,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { isNormalizedError, type NormalizedError } from '@/services/api-client';
-import { CategoryArchiveDialog } from './category-archive-dialog';
+import {
+  CategoryLifecycleDialog,
+  type CategoryLifecycleDialogMode,
+} from './category-lifecycle-dialog';
 
 const STATUS_FILTER_OPTIONS: { value: CategoryControllerListStatus | 'ALL'; label: string }[] = [
   { value: 'ALL', label: 'Tất cả trạng thái' },
@@ -63,21 +66,30 @@ function SortableHeader({
 
 /**
  * T035.10 (list) + T037.10 (per-row Edit link, `category:update`-gated) +
- * T038.10 (per-row Archive action, `category:delete`-gated). No Restore/Tree
- * view yet. Search/status/pagination/sorting are all server-driven via
- * `CategoryControllerListParams`; component-local state only (no URL sync
- * in this package — out of scope).
+ * T038.10 (per-row Archive action, `category:delete`-gated) + T039
+ * (per-row Restore action, `category:restore`-gated). T039 AD-3: the
+ * actions column is status-conditional — ARCHIVED rows show only Restore
+ * (Edit/Archive would both 404 on an already-archived row, since
+ * `findOne()`/`remove()` filter `deletedAt: null` server-side); every
+ * other status keeps Sửa + Lưu trữ as before. Search/status/pagination/
+ * sorting are all server-driven via `CategoryControllerListParams`;
+ * component-local state only (no URL sync in this package — out of scope).
  */
 export function CategoryTable() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<CategoryControllerListStatus | 'ALL'>('ALL');
   const [page, setPage] = useState(1);
   const [sorting, setSorting] = useState<SortingState>([{ id: 'sortOrder', desc: false }]);
-  const [archiveTarget, setArchiveTarget] = useState<{ id: string; name: string } | null>(null);
+  const [lifecycleTarget, setLifecycleTarget] = useState<{
+    id: string;
+    name: string;
+    mode: CategoryLifecycleDialogMode;
+  } | null>(null);
 
   // Column defs live inside the component (moved from module scope in
-  // T038.10) so the actions cell can close over `setArchiveTarget` — the
-  // Archive button opens `CategoryArchiveDialog` for that row's category.
+  // T038.10) so the actions cell can close over `setLifecycleTarget` — the
+  // Archive/Restore buttons open `CategoryLifecycleDialog` for that row's
+  // category, in the mode appropriate to its current status.
   const columns = useMemo<ColumnDef<CategoryResponseDto, unknown>[]>(
     () => [
       {
@@ -98,24 +110,46 @@ export function CategoryTable() {
       {
         id: 'actions',
         header: 'Thao tác',
-        cell: ({ row }) => (
-          <div className="flex items-center gap-2">
+        cell: ({ row }) =>
+          row.original.status === 'ARCHIVED' ? (
             <PermissionButton
-              permission="category:update"
+              permission="category:restore"
               variant="outline"
               size="sm"
-              render={<Link href={`/categories/${row.original.id}`}>Sửa</Link>}
-            />
-            <PermissionButton
-              permission="category:delete"
-              variant="outline"
-              size="sm"
-              onClick={() => setArchiveTarget({ id: row.original.id, name: row.original.name })}
+              onClick={() =>
+                setLifecycleTarget({
+                  id: row.original.id,
+                  name: row.original.name,
+                  mode: 'restore',
+                })
+              }
             >
-              Lưu trữ
+              Khôi phục
             </PermissionButton>
-          </div>
-        ),
+          ) : (
+            <div className="flex items-center gap-2">
+              <PermissionButton
+                permission="category:update"
+                variant="outline"
+                size="sm"
+                render={<Link href={`/categories/${row.original.id}`}>Sửa</Link>}
+              />
+              <PermissionButton
+                permission="category:delete"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setLifecycleTarget({
+                    id: row.original.id,
+                    name: row.original.name,
+                    mode: 'archive',
+                  })
+                }
+              >
+                Lưu trữ
+              </PermissionButton>
+            </div>
+          ),
       },
     ],
     [],
@@ -199,14 +233,15 @@ export function CategoryTable() {
         sorting={sorting}
         onSortingChange={setSorting}
       />
-      {archiveTarget && (
-        <CategoryArchiveDialog
+      {lifecycleTarget && (
+        <CategoryLifecycleDialog
           open
           onOpenChange={(open) => {
-            if (!open) setArchiveTarget(null);
+            if (!open) setLifecycleTarget(null);
           }}
-          categoryId={archiveTarget.id}
-          categoryName={archiveTarget.name}
+          categoryId={lifecycleTarget.id}
+          categoryName={lifecycleTarget.name}
+          mode={lifecycleTarget.mode}
         />
       )}
     </div>

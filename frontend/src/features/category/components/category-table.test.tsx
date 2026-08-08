@@ -47,7 +47,7 @@ function buildCategory(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('CategoryTable (T035.10 + T037.10 Edit link + T038.10 Archive action)', () => {
+describe('CategoryTable (T035.10 + T037.10 Edit link + T038.10 Archive action + T039 Restore action)', () => {
   beforeEach(() => {
     useAuthStore.getState().clear();
   });
@@ -141,6 +141,107 @@ describe('CategoryTable (T035.10 + T037.10 Edit link + T038.10 Archive action)',
     await userEvent.click(screen.getByRole('button', { name: 'Lưu trữ' }));
 
     expect(screen.getByText('Lưu trữ danh mục?')).toBeInTheDocument();
+    expect(screen.getByText(/"Thời trang"/)).toBeInTheDocument();
+  });
+
+  it('ARCHIVED rows show only "Khôi phục" — "Sửa" and "Lưu trữ" are hidden even with category:update/category:delete (T039 AD-3)', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['category:update', 'category:delete', 'category:restore'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+
+    server.use(
+      http.get(`${API_BASE_URL}/categories`, () =>
+        HttpResponse.json(
+          envelope({
+            items: [buildCategory({ status: 'ARCHIVED', deletedAt: '2026-02-01T00:00:00.000Z' })],
+            total: 1,
+            page: 1,
+            limit: 20,
+          }),
+        ),
+      ),
+    );
+
+    renderTable();
+    await screen.findByText('Thời trang');
+
+    expect(screen.queryByRole('link', { name: 'Sửa' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Lưu trữ' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Khôi phục' })).toBeInTheDocument();
+  });
+
+  it('non-archived rows never show "Khôi phục", even with category:restore', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['category:restore', 'category:update', 'category:delete'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+
+    server.use(
+      http.get(`${API_BASE_URL}/categories`, () =>
+        HttpResponse.json(envelope({ items: [buildCategory()], total: 1, page: 1, limit: 20 })),
+      ),
+    );
+
+    renderTable();
+    await screen.findByText('Thời trang');
+
+    expect(screen.queryByRole('button', { name: 'Khôi phục' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sửa' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Lưu trữ' })).toBeInTheDocument();
+  });
+
+  it('hides "Khôi phục" on an ARCHIVED row for a user without category:restore', async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/categories`, () =>
+        HttpResponse.json(
+          envelope({
+            items: [buildCategory({ status: 'ARCHIVED', deletedAt: '2026-02-01T00:00:00.000Z' })],
+            total: 1,
+            page: 1,
+            limit: 20,
+          }),
+        ),
+      ),
+    );
+
+    renderTable();
+    await screen.findByText('Thời trang');
+
+    expect(screen.queryByRole('button', { name: 'Khôi phục' })).not.toBeInTheDocument();
+  });
+
+  it('clicking "Khôi phục" opens the restore confirmation dialog for that row\'s category', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['category:restore'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+
+    server.use(
+      http.get(`${API_BASE_URL}/categories`, () =>
+        HttpResponse.json(
+          envelope({
+            items: [buildCategory({ status: 'ARCHIVED', deletedAt: '2026-02-01T00:00:00.000Z' })],
+            total: 1,
+            page: 1,
+            limit: 20,
+          }),
+        ),
+      ),
+    );
+
+    renderTable();
+    await screen.findByText('Thời trang');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Khôi phục' }));
+
+    expect(screen.getByText('Khôi phục danh mục?')).toBeInTheDocument();
     expect(screen.getByText(/"Thời trang"/)).toBeInTheDocument();
   });
 
