@@ -74,6 +74,8 @@ jobs:
       REDIS_PORT: "6379"
       JWT_ACCESS_SECRET: ci-access-secret
       JWT_REFRESH_SECRET: ci-refresh-secret
+      # T043.05 — SPEC-PRODUCT-001 enforcement activation.
+      PRODUCT_REFACTOR_ENABLED: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -141,6 +143,8 @@ jobs:
       REDIS_PORT: "6379"
       JWT_ACCESS_SECRET: ci-e2e-access-secret
       JWT_REFRESH_SECRET: ci-e2e-refresh-secret
+      # T043.05 — SPEC-PRODUCT-001 enforcement activation.
+      PRODUCT_REFACTOR_ENABLED: "true"
     steps:
       - uses: actions/checkout@v4
 

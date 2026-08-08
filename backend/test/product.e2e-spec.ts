@@ -12,11 +12,14 @@ import { PERMISSION_CATALOG } from '../src/modules/rbac/infrastructure/permissio
 /**
  * Integration Test — Prisma + PostgreSQL thật + Transaction rollback (Prompt 016).
  *
- * CHỈ chạy được khi có DATABASE_URL trỏ tới Postgres thật đang sống (Gate B —
- * xem docs/release-gates.md). Sandbox hiện tại không có Docker nên file này
- * KHÔNG được tự chạy để xác nhận pass; chạy thủ công bằng:
- *   npm run test:e2e -- product.e2e-spec.ts
- * sau khi `docker compose up -d postgres redis && npx prisma migrate deploy`.
+ * Chạy tự động trong CI (`e2e` job, `.github/workflows/backend-ci.yml`) trên Postgres/Redis thật
+ * (service container GitHub Actions) — không còn PENDING như ghi chú T005 ban đầu. Chạy thủ công
+ * bằng: `npm run test:e2e -- product.e2e-spec.ts` sau khi
+ * `docker compose up -d postgres redis && npx prisma migrate deploy`.
+ *
+ * T043.05: `PRODUCT_REFACTOR_ENABLED=true` trong cả CI (`e2e` job) và `backend/.env.example` —
+ * các test bên dưới xác nhận Optimistic Lock / PRODUCT_008 / PRODUCT_012 THẬT SỰ được thực thi,
+ * không chỉ đúng ở unit test có mock (`product.service.spec.ts`).
  */
 describe('Product Module (e2e, integration)', () => {
   let app: INestApplication<App>;
@@ -26,6 +29,7 @@ describe('Product Module (e2e, integration)', () => {
   let categoryId: string;
   let brandId: string;
   let unitId: string;
+  let warehouseId: string;
 
   beforeAll(async () => {
     prisma = new PrismaClient();
@@ -123,6 +127,26 @@ describe('Product Module (e2e, integration)', () => {
       update: {},
     });
     unitId = unit.id;
+
+    // T043.05 — cần Branch/Warehouse thật để seed 1 dòng InventoryAdjustmentItem, dùng cho test
+    // PRODUCT_008 (hasTransactionHistory() truy vấn Postgres thật, không mock).
+    const branch = await prisma.branch.upsert({
+      where: { organizationId_code: { organizationId, code: 'E2E-BRANCH' } },
+      create: { organizationId, code: 'E2E-BRANCH', name: 'Chi nhánh E2E' },
+      update: {},
+    });
+
+    const warehouse = await prisma.warehouse.upsert({
+      where: { organizationId_code: { organizationId, code: 'E2E-WH' } },
+      create: {
+        organizationId,
+        branchId: branch.id,
+        code: 'E2E-WH',
+        name: 'Kho E2E',
+      },
+      update: {},
+    });
+    warehouseId = warehouse.id;
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -378,6 +402,124 @@ describe('Product Module (e2e, integration)', () => {
         .get(`/api/v1/products/${productId}`)
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
+    });
+  });
+
+  // T043.05 — trước sub-sprint này, PRODUCT_REFACTOR_ENABLED mặc định false trong mọi môi trường
+  // thật (kể cả CI), nên 3 rule dưới đây (đã có sẵn trong code từ T005, đã unit-test bằng mock)
+  // chưa từng thực sự chạy qua 1 request HTTP thật. Nhóm test này là bằng chứng thật đầu tiên.
+  describe('PRODUCT_REFACTOR_ENABLED=true — Optimistic Lock / Type guard / Archive guard', () => {
+    it('PATCH với version đã cũ (bị vượt qua bởi lần update trước) → 409 PRODUCT_013', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          type: 'STANDARD',
+          categoryId,
+          unitId,
+          name: 'Optimistic Lock E2E',
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(201);
+      const id = createRes.body.data.id;
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/products/${id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 1, name: 'Optimistic Lock E2E (sửa lần 1)' })
+        .expect(200);
+
+      const conflict = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 1, name: 'Optimistic Lock E2E (xung đột)' })
+        .expect(409);
+      expect(conflict.body.code).toBe('PRODUCT_013');
+    });
+
+    it('PATCH đổi type sau khi đã phát sinh giao dịch (InventoryAdjustmentItem) → 422 PRODUCT_008', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          type: 'STANDARD',
+          categoryId,
+          unitId,
+          name: 'Type Guard E2E',
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(201);
+      const id = createRes.body.data.id;
+
+      const adjustment = await prisma.inventoryAdjustment.create({
+        data: {
+          organizationId,
+          warehouseId,
+          code: `E2E-ADJ-${Date.now()}`,
+          status: 'DRAFT',
+          reason: 'OTHER',
+        },
+      });
+      await prisma.inventoryAdjustmentItem.create({
+        data: { adjustmentId: adjustment.id, productId: id, quantity: 5 },
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 1, type: 'SERVICE' })
+        .expect(422);
+      expect(res.body.code).toBe('PRODUCT_008');
+    });
+
+    it('DELETE Variant Parent còn Variant Child ACTIVE → 422 PRODUCT_012; sau khi Archive Child thì Archive Parent thành công', async () => {
+      const parentRes = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          type: 'VARIANT_PARENT',
+          categoryId,
+          unitId,
+          name: 'Variant Parent E2E',
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(201);
+      const parentId = parentRes.body.data.id;
+
+      const childRes = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          type: 'VARIANT_CHILD',
+          parentProductId: parentId,
+          categoryId,
+          unitId,
+          name: 'Variant Child E2E',
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(201);
+      const childId = childRes.body.data.id;
+      expect(childRes.body.data.status).toBe('ACTIVE');
+
+      const blocked = await request(app.getHttpServer())
+        .delete(`/api/v1/products/${parentId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(422);
+      expect(blocked.body.code).toBe('PRODUCT_012');
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/products/${childId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(204);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/products/${parentId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(204);
     });
   });
 });
