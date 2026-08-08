@@ -255,6 +255,53 @@ describe('PrismaBrandRepository', () => {
         expect.objectContaining({ orderBy: { code: 'desc' } }),
       );
     });
+
+    it('mặc định (archived không truyền) lọc deletedAt=null — hành vi cũ không đổi (T041.05)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search(baseParams);
+      expect(prisma.brand.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ deletedAt: null }),
+        }),
+      );
+    });
+
+    it('archived=false lọc deletedAt=null giống hệt mặc định (T041.05)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({ ...baseParams, archived: false });
+      expect(prisma.brand.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ deletedAt: null }),
+        }),
+      );
+    });
+
+    it('archived=true lọc deletedAt IS NOT NULL, không lọc status (T041.05)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({ ...baseParams, archived: true });
+      expect(prisma.brand.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ deletedAt: { not: null } }),
+        }),
+      );
+    });
+
+    it('archived=true kết hợp status vẫn AND độc lập cả hai điều kiện (T041.05)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({
+        ...baseParams,
+        archived: true,
+        status: 'INACTIVE',
+      });
+      expect(prisma.brand.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            deletedAt: { not: null },
+            AND: [{ status: 'INACTIVE' }],
+          }),
+        }),
+      );
+    });
   });
 
   describe('existsByCode', () => {

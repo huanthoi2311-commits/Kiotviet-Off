@@ -33,6 +33,12 @@ export interface BrandSearchParams {
   status?: BrandStatus;
   /** Filter alias tầng business, KHÔNG phải cột schema (Decision RQ1) — true => status=ACTIVE, false => status!=ACTIVE. */
   isActive?: boolean;
+  /**
+   * T041.05 (Decision AD-1/T041) — độc lập với `status`/`isActive`. Không có
+   * (undefined) hoặc `false` => `deletedAt: null` (hành vi mặc định, không đổi).
+   * `true` => `deletedAt: { not: null }` (chỉ trả brand đã xóa mềm — cho Restore).
+   */
+  archived?: boolean;
   page: number;
   limit: number;
   sortBy: BrandSortField;

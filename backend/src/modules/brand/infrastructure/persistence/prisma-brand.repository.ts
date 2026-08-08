@@ -139,7 +139,10 @@ export class PrismaBrandRepository implements IBrandRepository {
 
     const where: Prisma.BrandWhereInput = {
       organizationId: params.organizationId,
-      deletedAt: null,
+      // T041.05 (Decision AD-1/T041) — independent of status/isActive:
+      // archived=true finds only soft-deleted rows (for Restore); omitted
+      // or false keeps the original, unconditional deletedAt:null default.
+      deletedAt: params.archived ? { not: null } : null,
       ...(statusConditions.length > 0 ? { AND: statusConditions } : {}),
       ...(params.search
         ? {
