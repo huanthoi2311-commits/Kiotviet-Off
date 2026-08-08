@@ -44,6 +44,17 @@ export class BrandQueryDto {
   @IsBoolean()
   isActive?: boolean;
 
+  @ApiProperty({
+    required: false,
+    default: false,
+    description:
+      'T041.05 (Decision AD-1/T041) — độc lập với status/isActive. Không có hoặc false => chỉ trả brand chưa xóa mềm (deletedAt=null, hành vi mặc định không đổi). true => chỉ trả brand đã xóa mềm (deletedAt IS NOT NULL) — dùng để tìm brand cần Restore.',
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  archived?: boolean;
+
   @ApiProperty({ required: false, default: 1, minimum: 1 })
   @IsOptional()
   @Type(() => Number)

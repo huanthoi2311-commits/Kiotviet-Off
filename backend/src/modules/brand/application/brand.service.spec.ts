@@ -108,6 +108,19 @@ describe('BrandService', () => {
         }),
       );
     });
+
+    it('truyền archived xuống repository search params (T041.05)', async () => {
+      brandRepository.search.mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        limit: 20,
+      });
+      await service.search({ archived: true }, 'org-1');
+      expect(brandRepository.search).toHaveBeenCalledWith(
+        expect.objectContaining({ archived: true }),
+      );
+    });
   });
 
   describe('update', () => {

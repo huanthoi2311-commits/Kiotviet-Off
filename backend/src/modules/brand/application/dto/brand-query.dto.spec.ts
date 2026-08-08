@@ -53,4 +53,25 @@ describe('BrandQueryDto validation', () => {
     const errors = await validateDto({ status: 'ACTIVE', isActive: 'false' });
     expect(errors).toHaveLength(0);
   });
+
+  it('hợp lệ với archived=true (chuyển đổi từ query string) (T041.05)', async () => {
+    const dto = plainToInstance(BrandQueryDto, { archived: 'true' });
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+    expect(dto.archived).toBe(true);
+  });
+
+  it('archived mặc định là undefined khi không truyền (T041.05)', () => {
+    const dto = plainToInstance(BrandQueryDto, {});
+    expect(dto.archived).toBeUndefined();
+  });
+
+  it('archived và status/isActive có thể dùng đồng thời, độc lập nhau (T041.05)', async () => {
+    const errors = await validateDto({
+      archived: 'true',
+      status: 'ACTIVE',
+      isActive: 'true',
+    });
+    expect(errors).toHaveLength(0);
+  });
 });

@@ -78,6 +78,7 @@ export class BrandService {
       search: query.search,
       status: query.status,
       isActive: query.isActive,
+      archived: query.archived,
       page: query.page ?? 1,
       limit: query.limit ?? 20,
       sortBy: query.sortBy ?? 'name',
