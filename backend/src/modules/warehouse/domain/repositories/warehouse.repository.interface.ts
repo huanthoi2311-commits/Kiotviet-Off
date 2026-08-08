@@ -42,6 +42,8 @@ export interface WarehouseSearchParams {
   branchId?: string;
   type?: WarehouseType;
   status?: WarehouseStatus;
+  /** T044.05 — true: chỉ kho đã xóa mềm (để khôi phục). Mặc định/false: chỉ kho chưa xóa. */
+  archived?: boolean;
   page: number;
   limit: number;
   sortBy: WarehouseSortField;

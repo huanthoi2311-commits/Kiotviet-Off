@@ -111,7 +111,12 @@ export class PrismaWarehouseRepository implements IWarehouseRepository {
   async search(params: WarehouseSearchParams): Promise<WarehouseSearchResult> {
     const where: Prisma.WarehouseWhereInput = {
       organizationId: params.organizationId,
-      deletedAt: null,
+      // T044.05 — archived=true chỉ trả kho đã xóa mềm (để khôi phục); mặc định/false chỉ kho
+      // chưa xóa. Trước T044.05, deletedAt:null là bất biến, khiến không có cách nào tìm lại kho
+      // đã xóa để Restore (cùng dạng lỗ hổng đã sửa ở Category T038.05/Unit T042, khác chỗ:
+      // Warehouse chưa từng có giá trị filter nào khai báo trước, không phải bug trên giá trị có
+      // sẵn — nên đây là bổ sung tham số mới, không phải sửa lỗi hành vi đã công bố).
+      deletedAt: params.archived ? { not: null } : null,
       branchId: params.branchId,
       type: params.type,
       status: params.status,

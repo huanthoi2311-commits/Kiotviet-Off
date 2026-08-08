@@ -83,6 +83,7 @@ export class WarehouseService {
       branchId: query.branchId,
       type: query.type,
       status: query.status,
+      archived: query.archived,
       page: query.page ?? 1,
       limit: query.limit ?? 20,
       sortBy: query.sortBy ?? 'createdAt',
