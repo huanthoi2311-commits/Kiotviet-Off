@@ -44,9 +44,6 @@ const COPY: Record<
   },
 };
 
-/** Errors with a dedicated in-dialog message (SPEC-T038 AD-5) — every other error relies on the app-wide mutation-error toast (`query-provider.tsx`), same as this component would otherwise duplicate it. */
-const IN_DIALOG_ERROR_CODES = new Set(['CATEGORY_004', 'CATEGORY_007']);
-
 export function CategoryArchiveDialog({
   open,
   onOpenChange,
@@ -60,21 +57,23 @@ export function CategoryArchiveDialog({
 
   const archiveMutation = useCategoryControllerRemove<NormalizedError>({
     mutation: {
+      // T038.08B (SPEC-T038A) — this mutation always shows its error
+      // in-dialog (below); without this flag the global mutation-error
+      // toast would duplicate the same message on top of it.
+      meta: { suppressGlobalErrorToast: true },
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getCategoryControllerListQueryKey() });
         toast.success(copy.successMessage);
         setErrorMessage(null);
         onOpenChange(false);
       },
+      // Every error renders in-dialog (not just CATEGORY_004/007) — with
+      // the global toast now suppressed above, this is the only surface
+      // left for any error this mutation can produce, generic or not.
       onError: (error) => {
-        if (error.kind === 'api-error' && IN_DIALOG_ERROR_CODES.has(error.code)) {
-          setErrorMessage(error.message);
-        }
-        // Every other error (including CATEGORY_001/CATEGORY_005 and any
-        // non-api-error) is left to the global MutationCache's onError
-        // (query-provider.tsx) — it already shows a toast for any
-        // otherwise-unhandled mutation error. Calling toast.error() here
-        // too would double-surface the same message.
+        setErrorMessage(
+          error.kind === 'api-error' ? error.message : 'Đã xảy ra lỗi không xác định',
+        );
       },
     },
   });

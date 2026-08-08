@@ -1,12 +1,17 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import { server } from '@/mocks/server';
 import { useCategoryControllerList } from '@/generated/category/category';
+import { reportMutationError } from '@/providers/query-provider';
 import { CategoryArchiveDialog } from './category-archive-dialog';
+
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 const API_BASE_URL = 'http://localhost:3000/api/v1';
 const CATEGORY_ID = 'a1b2c3d4-0000-0000-0000-000000000001';
@@ -27,8 +32,12 @@ function errorEnvelope(code: string, message: string) {
 }
 
 function renderDialog(onOpenChange: (open: boolean) => void = vi.fn()) {
+  // T038.08B — the real MutationCache config (not a bare QueryClient), so
+  // the dialog's `meta: { suppressGlobalErrorToast: true }` is actually
+  // exercised end-to-end, not just present in source.
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    mutationCache: new MutationCache({ onError: reportMutationError }),
   });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -42,7 +51,13 @@ function renderDialog(onOpenChange: (open: boolean) => void = vi.fn()) {
   );
 }
 
-describe('CategoryArchiveDialog (T038.10)', () => {
+describe('CategoryArchiveDialog (T038.10 + T038.08B error dedup)', () => {
+  beforeEach(async () => {
+    const { toast } = await import('sonner');
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.success).mockClear();
+  });
+
   it('shows the category name in the confirmation copy', () => {
     renderDialog();
     expect(screen.getByText('Lưu trữ danh mục?')).toBeInTheDocument();
@@ -133,7 +148,8 @@ describe('CategoryArchiveDialog (T038.10)', () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
-  it('CATEGORY_004 keeps the dialog open and shows the backend message', async () => {
+  it('CATEGORY_004 keeps the dialog open, shows the backend message, and does not also show a global toast (T038.08B)', async () => {
+    const { toast } = await import('sonner');
     server.use(
       http.delete(`${API_BASE_URL}/categories/${CATEGORY_ID}`, () =>
         HttpResponse.json(
@@ -151,9 +167,15 @@ describe('CategoryArchiveDialog (T038.10)', () => {
       await screen.findByText('Không thể xóa danh mục đang có sản phẩm sử dụng'),
     ).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    // Before T038.08B, the global MutationCache handler would ALSO have
+    // called toast.error with this exact message — the duplicate T038.11
+    // found live in a browser. The suppressGlobalErrorToast meta flag
+    // must prevent that here.
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it('CATEGORY_007 keeps the dialog open and shows the backend message', async () => {
+  it('CATEGORY_007 keeps the dialog open, shows the backend message, and does not also show a global toast (T038.08B)', async () => {
+    const { toast } = await import('sonner');
     server.use(
       http.delete(`${API_BASE_URL}/categories/${CATEGORY_ID}`, () =>
         HttpResponse.json(
@@ -174,9 +196,11 @@ describe('CategoryArchiveDialog (T038.10)', () => {
       await screen.findByText('Không thể lưu trữ danh mục vì còn danh mục con đang hoạt động'),
     ).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it('any other error code keeps the dialog open without an in-dialog message (relies on the global mutation-error toast)', async () => {
+  it('any other error code keeps the dialog open and shows the message in-dialog too (T038.08B — the dialog is now the sole surface, no global toast to fall back on)', async () => {
+    const { toast } = await import('sonner');
     server.use(
       http.delete(`${API_BASE_URL}/categories/${CATEGORY_ID}`, () =>
         HttpResponse.json(errorEnvelope('CATEGORY_001', 'Không tìm thấy danh mục'), {
@@ -189,9 +213,9 @@ describe('CategoryArchiveDialog (T038.10)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Lưu trữ' }));
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Lưu trữ' })).not.toBeDisabled());
+    expect(await screen.findByText('Không tìm thấy danh mục')).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
-    expect(screen.queryByText('Không tìm thấy danh mục')).not.toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('has no accessibility violations', async () => {

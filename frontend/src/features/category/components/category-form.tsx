@@ -90,6 +90,11 @@ export function CategoryCreateForm() {
 
   const createMutation = useCategoryControllerCreate<NormalizedError>({
     mutation: {
+      // T038.08B (SPEC-T038A) — every branch below already renders the
+      // error in-context (a field or the form's own root alert); without
+      // this flag the global mutation-error toast duplicates the same
+      // message on top of it.
+      meta: { suppressGlobalErrorToast: true },
       onSuccess: () => {
         // SPEC-T037 §11/§20 AD-6 — retroactive fix: T036.10 never invalidated
         // the list cache, so a user landing back on /categories within the
