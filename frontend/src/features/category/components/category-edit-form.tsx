@@ -146,6 +146,11 @@ export function CategoryEditForm({ id }: { id: string }) {
 
   const updateMutation = useCategoryControllerUpdate<NormalizedError>({
     mutation: {
+      // T038.08B (SPEC-T038A) — every branch below already renders the
+      // error in-context (a field, the form's own root alert, or the
+      // CATEGORY_009 conflict alert); without this flag the global
+      // mutation-error toast duplicates the same message on top of it.
+      meta: { suppressGlobalErrorToast: true },
       onSuccess: (response) => {
         queryClient.invalidateQueries({ queryKey: getCategoryControllerListQueryKey() });
         queryClient.invalidateQueries({ queryKey: getCategoryControllerFindOneQueryKey(id) });

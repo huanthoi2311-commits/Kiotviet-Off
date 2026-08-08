@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { Column, ColumnDef, SortingState } from '@tanstack/react-table';
 import { FolderTree } from 'lucide-react';
@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { isNormalizedError, type NormalizedError } from '@/services/api-client';
+import { CategoryArchiveDialog } from './category-archive-dialog';
 
 const STATUS_FILTER_OPTIONS: { value: CategoryControllerListStatus | 'ALL'; label: string }[] = [
   { value: 'ALL', label: 'Tất cả trạng thái' },
@@ -60,47 +61,65 @@ function SortableHeader({
   );
 }
 
-const columns: ColumnDef<CategoryResponseDto, unknown>[] = [
-  {
-    accessorKey: 'name',
-    header: ({ column }) => <SortableHeader label="Tên" column={column} />,
-  },
-  { accessorKey: 'code', header: 'Mã' },
-  {
-    id: 'parentId',
-    header: 'Danh mục cha',
-    cell: ({ row }) => (row.original.parentId ? row.original.parentId.slice(0, 8) : '—'),
-  },
-  { accessorKey: 'status', header: 'Trạng thái' },
-  {
-    accessorKey: 'sortOrder',
-    header: ({ column }) => <SortableHeader label="Thứ tự" column={column} />,
-  },
-  {
-    id: 'actions',
-    header: 'Thao tác',
-    cell: ({ row }) => (
-      <PermissionButton
-        permission="category:update"
-        variant="outline"
-        size="sm"
-        render={<Link href={`/categories/${row.original.id}`}>Sửa</Link>}
-      />
-    ),
-  },
-];
-
 /**
- * T035.10 (list) + T037.10 (per-row Edit link, `category:update`-gated).
- * No Archive/Restore/Tree view yet. Search/status/pagination/sorting are
- * all server-driven via `CategoryControllerListParams`; component-local
- * state only (no URL sync in this package — out of scope).
+ * T035.10 (list) + T037.10 (per-row Edit link, `category:update`-gated) +
+ * T038.10 (per-row Archive action, `category:delete`-gated). No Restore/Tree
+ * view yet. Search/status/pagination/sorting are all server-driven via
+ * `CategoryControllerListParams`; component-local state only (no URL sync
+ * in this package — out of scope).
  */
 export function CategoryTable() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<CategoryControllerListStatus | 'ALL'>('ALL');
   const [page, setPage] = useState(1);
   const [sorting, setSorting] = useState<SortingState>([{ id: 'sortOrder', desc: false }]);
+  const [archiveTarget, setArchiveTarget] = useState<{ id: string; name: string } | null>(null);
+
+  // Column defs live inside the component (moved from module scope in
+  // T038.10) so the actions cell can close over `setArchiveTarget` — the
+  // Archive button opens `CategoryArchiveDialog` for that row's category.
+  const columns = useMemo<ColumnDef<CategoryResponseDto, unknown>[]>(
+    () => [
+      {
+        accessorKey: 'name',
+        header: ({ column }) => <SortableHeader label="Tên" column={column} />,
+      },
+      { accessorKey: 'code', header: 'Mã' },
+      {
+        id: 'parentId',
+        header: 'Danh mục cha',
+        cell: ({ row }) => (row.original.parentId ? row.original.parentId.slice(0, 8) : '—'),
+      },
+      { accessorKey: 'status', header: 'Trạng thái' },
+      {
+        accessorKey: 'sortOrder',
+        header: ({ column }) => <SortableHeader label="Thứ tự" column={column} />,
+      },
+      {
+        id: 'actions',
+        header: 'Thao tác',
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            <PermissionButton
+              permission="category:update"
+              variant="outline"
+              size="sm"
+              render={<Link href={`/categories/${row.original.id}`}>Sửa</Link>}
+            />
+            <PermissionButton
+              permission="category:delete"
+              variant="outline"
+              size="sm"
+              onClick={() => setArchiveTarget({ id: row.original.id, name: row.original.name })}
+            >
+              Lưu trữ
+            </PermissionButton>
+          </div>
+        ),
+      },
+    ],
+    [],
+  );
 
   const activeSort = sorting[0];
 
@@ -180,6 +199,16 @@ export function CategoryTable() {
         sorting={sorting}
         onSortingChange={setSorting}
       />
+      {archiveTarget && (
+        <CategoryArchiveDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setArchiveTarget(null);
+          }}
+          categoryId={archiveTarget.id}
+          categoryName={archiveTarget.name}
+        />
+      )}
     </div>
   );
 }

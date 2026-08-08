@@ -1,11 +1,16 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import { server } from '@/mocks/server';
+import { reportMutationError } from '@/providers/query-provider';
 import { CategoryCreateForm } from './category-form';
+
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 const API_BASE_URL = 'http://localhost:3000/api/v1';
 
@@ -39,8 +44,12 @@ function buildCategory(overrides: Record<string, unknown> = {}) {
 }
 
 function renderForm() {
+  // T038.08B — the real MutationCache config (not a bare QueryClient), so
+  // the form's `meta: { suppressGlobalErrorToast: true }` is actually
+  // exercised end-to-end, not just present in source.
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    mutationCache: new MutationCache({ onError: reportMutationError }),
   });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -57,10 +66,13 @@ function mockList(items: ReturnType<typeof buildCategory>[] = []) {
   );
 }
 
-describe('CategoryCreateForm (T036.10)', () => {
-  beforeEach(() => {
+describe('CategoryCreateForm (T036.10 + T038.08B error dedup)', () => {
+  beforeEach(async () => {
     push.mockClear();
     mockList([buildCategory()]);
+    const { toast } = await import('sonner');
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.success).mockClear();
   });
 
   it('renders every field with an accessible label', async () => {
@@ -170,7 +182,8 @@ describe('CategoryCreateForm (T036.10)', () => {
     expect(push).not.toHaveBeenCalled();
   });
 
-  it('shows a field-level error on code for CATEGORY_002 (duplicate)', async () => {
+  it('shows a field-level error on code for CATEGORY_002 (duplicate), with no duplicate global toast (T038.08B)', async () => {
+    const { toast } = await import('sonner');
     server.use(
       http.post(`${API_BASE_URL}/categories`, () =>
         HttpResponse.json(
@@ -197,6 +210,9 @@ describe('CategoryCreateForm (T036.10)', () => {
 
     expect(await screen.findByText('Mã danh mục đã tồn tại')).toBeInTheDocument();
     expect(push).not.toHaveBeenCalled();
+    // Before T038.08B, the global MutationCache handler would ALSO have
+    // toasted this exact message alongside the field error.
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('shows a field-level error on parentId for CATEGORY_006 (parent not found)', async () => {
@@ -227,7 +243,8 @@ describe('CategoryCreateForm (T036.10)', () => {
     expect(await screen.findByText('Không tìm thấy danh mục cha')).toBeInTheDocument();
   });
 
-  it('shows a root-level alert (not a field error) for any other error code', async () => {
+  it('shows a root-level alert (not a field error) for any other error code, with no duplicate global toast (T038.08B)', async () => {
+    const { toast } = await import('sonner');
     server.use(
       http.post(`${API_BASE_URL}/categories`, () =>
         HttpResponse.json(
@@ -253,6 +270,7 @@ describe('CategoryCreateForm (T036.10)', () => {
     await user.click(screen.getByRole('button', { name: 'Tạo danh mục' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Đã xảy ra lỗi hệ thống');
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('navigates immediately on Cancel when the form is pristine (T037.10 AD-4)', async () => {
