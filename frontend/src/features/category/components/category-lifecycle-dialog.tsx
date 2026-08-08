@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
+  getCategoryControllerGetTreeQueryKey,
   getCategoryControllerListQueryKey,
   useCategoryControllerRemove,
   useCategoryControllerRestore,
@@ -74,11 +75,14 @@ export function CategoryLifecycleDialog({
   const copy = COPY[mode];
 
   const handleSuccess = (successMessage: string) => {
-    // T039 AD-5 — invalidate the list only; no redirect, no full refresh.
-    // When the ARCHIVED filter is active, the row naturally disappears once
-    // this refetch resolves (restored rows are no longer ARCHIVED); the
-    // mirror is already true for Archive today.
+    // T039 AD-5 — invalidate the list; no redirect, no full refresh. When
+    // the ARCHIVED filter is active, the row naturally disappears once this
+    // refetch resolves (restored rows are no longer ARCHIVED); the mirror
+    // is already true for Archive today. T040 also invalidates the Tree
+    // query — archived categories must disappear from (and restored ones
+    // reappear in) the hierarchy view too, not just the flat list.
     queryClient.invalidateQueries({ queryKey: getCategoryControllerListQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getCategoryControllerGetTreeQueryKey() });
     toast.success(successMessage);
     setErrorMessage(null);
     onOpenChange(false);

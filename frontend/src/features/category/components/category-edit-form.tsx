@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { FolderTree } from 'lucide-react';
 import {
   getCategoryControllerFindOneQueryKey,
+  getCategoryControllerGetTreeQueryKey,
   getCategoryControllerListQueryKey,
   useCategoryControllerFindOne,
   useCategoryControllerList,
@@ -154,6 +155,9 @@ export function CategoryEditForm({ id }: { id: string }) {
       onSuccess: (response) => {
         queryClient.invalidateQueries({ queryKey: getCategoryControllerListQueryKey() });
         queryClient.invalidateQueries({ queryKey: getCategoryControllerFindOneQueryKey(id) });
+        // T040 — Tree is a sibling read-only view over the same data;
+        // without this it can show stale hierarchy for up to staleTime.
+        queryClient.invalidateQueries({ queryKey: getCategoryControllerGetTreeQueryKey() });
         form.reset(toFormValues(response));
         toast.success('Đã cập nhật danh mục');
       },

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
+import { getCategoryControllerGetTreeQueryKey } from '@/generated/category/category';
 import { server } from '@/mocks/server';
 import { reportMutationError } from '@/providers/query-provider';
 import { CategoryCreateForm } from './category-form';
@@ -158,6 +159,37 @@ describe('CategoryCreateForm (T036.10 + T038.08B error dedup)', () => {
     // query) triggers an immediate background refetch — a second GET call
     // beyond the initial mount is direct evidence invalidation actually fired.
     await waitFor(() => expect(listCallCount).toBeGreaterThan(callsAfterMount));
+  });
+
+  it('also invalidates the Tree query cache on successful create (T040)', async () => {
+    server.use(
+      http.post(`${API_BASE_URL}/categories`, () =>
+        HttpResponse.json(envelope(buildCategory({ id: 'new-1' })), { status: 201 }),
+      ),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      mutationCache: new MutationCache({ onError: reportMutationError }),
+    });
+    queryClient.setQueryData(getCategoryControllerGetTreeQueryKey(), []);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CategoryCreateForm />
+      </QueryClientProvider>,
+    );
+    await screen.findByLabelText('Mã danh mục');
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Mã danh mục'), 'ABC');
+    await user.type(screen.getByLabelText('Tên danh mục'), 'Danh mục mới');
+    await user.click(screen.getByRole('button', { name: 'Tạo danh mục' }));
+
+    await waitFor(() =>
+      expect(queryClient.getQueryState(getCategoryControllerGetTreeQueryKey())?.isInvalidated).toBe(
+        true,
+      ),
+    );
   });
 
   it('blocks submission and makes zero network calls when a required field is invalid', async () => {

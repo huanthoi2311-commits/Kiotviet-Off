@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
+  getCategoryControllerGetTreeQueryKey,
   getCategoryControllerListQueryKey,
   useCategoryControllerCreate,
   useCategoryControllerList,
@@ -101,6 +102,9 @@ export function CategoryCreateForm() {
         // 30s staleTime saw the pre-creation list. Orval-generated factory,
         // no custom query key.
         queryClient.invalidateQueries({ queryKey: getCategoryControllerListQueryKey() });
+        // T040 — Tree is a sibling read-only view over the same data;
+        // without this it can show stale hierarchy for up to staleTime.
+        queryClient.invalidateQueries({ queryKey: getCategoryControllerGetTreeQueryKey() });
         toast.success('Đã tạo danh mục');
         router.push('/categories');
       },

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
+import { getCategoryControllerGetTreeQueryKey } from '@/generated/category/category';
 import { server } from '@/mocks/server';
 import { reportMutationError } from '@/providers/query-provider';
 import { useAuthStore } from '@/stores/auth-store';
@@ -292,6 +293,35 @@ describe('CategoryEditForm (T037.10 + T038.08B error dedup)', () => {
       // Toaster is mounted in this isolated test, matching category-form's
       // own test file precedent — toast text isn't asserted here either.)
       expect(push).not.toHaveBeenCalled();
+    });
+
+    it('also invalidates the Tree query cache on successful update (T040)', async () => {
+      mockFindOne();
+      mockList();
+      server.use(
+        http.patch(`${API_BASE_URL}/categories/${CURRENT_ID}`, () =>
+          HttpResponse.json(envelope(buildCategory({ version: 2 })), { status: 200 }),
+        ),
+      );
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+        mutationCache: new MutationCache({ onError: reportMutationError }),
+      });
+      queryClient.setQueryData(getCategoryControllerGetTreeQueryKey(), []);
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <CategoryEditForm id={CURRENT_ID} />
+        </QueryClientProvider>,
+      );
+      await screen.findByLabelText('Mã danh mục');
+      await userEvent.click(screen.getByRole('button', { name: 'Lưu' }));
+
+      await waitFor(() =>
+        expect(
+          queryClient.getQueryState(getCategoryControllerGetTreeQueryKey())?.isInvalidated,
+        ).toBe(true),
+      );
     });
 
     it('maps CATEGORY_002 to the code field, with no duplicate global toast (T038.08B)', async () => {
