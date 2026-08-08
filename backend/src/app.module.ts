@@ -39,6 +39,7 @@ import { SupplierModule } from './modules/supplier/supplier.module';
 import { TransferModule } from './modules/transfer/transfer.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { ProductModule } from './modules/product/product.module';
+import { ProductPriceModule } from './modules/product-price/product-price.module';
 import { UnitModule } from './modules/unit/unit.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -70,6 +71,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     OrganizationModule,
     BranchModule,
     ProductModule,
+    ProductPriceModule,
     CategoryModule,
     BrandModule,
     UnitModule,

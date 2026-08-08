@@ -522,4 +522,148 @@ describe('Product Module (e2e, integration)', () => {
         .expect(204);
     });
   });
+
+  // T043.07 — SPEC-T043.07 §14/§17. Xác nhận Product Price Contract (Architect Decision T043.06:
+  // Option 2, set-level versioning, bulk-replace) hoạt động thật qua HTTP + Postgres thật, và quan
+  // trọng nhất: Product.version (core) KHÔNG đổi khi chỉ sửa price — bằng chứng 2 concurrency
+  // boundary thực sự độc lập, không chỉ đặt tên khác nhau.
+  describe('Product Price Contract (T043.07) — GET/PATCH /products/:id/prices', () => {
+    async function createProduct(prices: { type: string; price: number }[]) {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          type: 'STANDARD',
+          categoryId,
+          unitId,
+          name: `Price Contract E2E ${Date.now()}`,
+          costPrice: 10000,
+          prices,
+        })
+        .expect(201);
+      return res.body.data.id as string;
+    }
+
+    it('GET trả về price set vừa tạo, priceVersion = 1', async () => {
+      const id = await createProduct([{ type: 'RETAIL', price: 100000 }]);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/products/${id}/prices`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      expect(res.body.data.productId).toBe(id);
+      expect(res.body.data.priceVersion).toBe(1);
+      expect(res.body.data.prices).toHaveLength(1);
+      expect(res.body.data.prices[0].type).toBe('RETAIL');
+    });
+
+    it('PATCH với priceVersion đúng thay thế toàn bộ set, tăng priceVersion; Product.version (core) KHÔNG đổi', async () => {
+      const id = await createProduct([{ type: 'RETAIL', price: 100000 }]);
+
+      const before = await request(app.getHttpServer())
+        .get(`/api/v1/products/${id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      const coreVersionBefore = before.body.data.version;
+
+      const patched = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${id}/prices`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          priceVersion: 1,
+          prices: [
+            { type: 'RETAIL', price: 120000 },
+            { type: 'WHOLESALE', price: 90000 },
+          ],
+        })
+        .expect(200);
+
+      expect(patched.body.data.priceVersion).toBe(2);
+      expect(patched.body.data.prices).toHaveLength(2);
+
+      const after = await request(app.getHttpServer())
+        .get(`/api/v1/products/${id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      expect(after.body.data.version).toBe(coreVersionBefore);
+    });
+
+    it('PATCH với priceVersion cũ → 409 PRODUCT_PRICE_001', async () => {
+      const id = await createProduct([{ type: 'RETAIL', price: 100000 }]);
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/products/${id}/prices`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ priceVersion: 1, prices: [{ type: 'RETAIL', price: 110000 }] })
+        .expect(200);
+
+      const conflict = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${id}/prices`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ priceVersion: 1, prices: [{ type: 'RETAIL', price: 130000 }] })
+        .expect(409);
+      expect(conflict.body.code).toBe('PRODUCT_PRICE_001');
+    });
+
+    it('PATCH với 2 dòng cùng type → 422 PRODUCT_PRICE_002, không đổi set hiện tại', async () => {
+      const id = await createProduct([{ type: 'RETAIL', price: 100000 }]);
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${id}/prices`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          priceVersion: 1,
+          prices: [
+            { type: 'RETAIL', price: 100000 },
+            { type: 'RETAIL', price: 200000 },
+          ],
+        })
+        .expect(422);
+      expect(res.body.code).toBe('PRODUCT_PRICE_002');
+
+      const unchanged = await request(app.getHttpServer())
+        .get(`/api/v1/products/${id}/prices`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      expect(unchanged.body.data.priceVersion).toBe(1);
+    });
+
+    it('PATCH bỏ hết RETAIL → 422 PRODUCT_007, không đổi set hiện tại', async () => {
+      const id = await createProduct([{ type: 'RETAIL', price: 100000 }]);
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${id}/prices`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          priceVersion: 1,
+          prices: [{ type: 'WHOLESALE', price: 90000 }],
+        })
+        .expect(422);
+      expect(res.body.code).toBe('PRODUCT_007');
+
+      const unchanged = await request(app.getHttpServer())
+        .get(`/api/v1/products/${id}/prices`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      expect(unchanged.body.data.priceVersion).toBe(1);
+      expect(unchanged.body.data.prices[0].type).toBe('RETAIL');
+    });
+
+    it('GET/PATCH trên productId không tồn tại → 404 PRODUCT_001', async () => {
+      const missingId = '00000000-0000-0000-0000-000000000000';
+      const getRes = await request(app.getHttpServer())
+        .get(`/api/v1/products/${missingId}/prices`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(404);
+      expect(getRes.body.code).toBe('PRODUCT_001');
+
+      const patchRes = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${missingId}/prices`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ priceVersion: 1, prices: [{ type: 'RETAIL', price: 100000 }] })
+        .expect(404);
+      expect(patchRes.body.code).toBe('PRODUCT_001');
+    });
+  });
 });
