@@ -267,6 +267,36 @@ describe('PrismaUnitRepository', () => {
         expect.objectContaining({ orderBy: { code: 'desc' } }),
       );
     });
+
+    it('mặc định (không truyền status) lọc deletedAt=null (T042, đúng hành vi cũ)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search(baseParams);
+      expect(prisma.unit.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ deletedAt: null }),
+        }),
+      );
+    });
+
+    it('status=ACTIVE lọc deletedAt=null (T042)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({ ...baseParams, status: 'ACTIVE' });
+      expect(prisma.unit.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ deletedAt: null }),
+        }),
+      );
+    });
+
+    it('status=ARCHIVED lọc deletedAt IS NOT NULL — sửa lỗi search() luôn trả rỗng (T042)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({ ...baseParams, status: 'ARCHIVED' });
+      expect(prisma.unit.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ deletedAt: { not: null } }),
+        }),
+      );
+    });
   });
 
   describe('existsByCode', () => {
