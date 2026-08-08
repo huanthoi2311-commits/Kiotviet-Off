@@ -275,6 +275,115 @@ describe('PrismaCategoryRepository', () => {
 
       expect(prisma.$transaction).toHaveBeenCalled();
     });
+
+    describe('deletedAt theo status (T038.05 — sửa lỗi ARCHIVED không bao giờ trả kết quả)', () => {
+      it('không truyền status → deletedAt: null (mặc định như trước, chỉ trả category chưa xóa)', async () => {
+        prisma.$transaction.mockResolvedValue([[], 0]);
+
+        await repository.search({ ...baseParams });
+
+        expect(prisma.category.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ deletedAt: null }),
+          }),
+        );
+      });
+
+      it('status=ACTIVE → deletedAt: null', async () => {
+        prisma.$transaction.mockResolvedValue([[], 0]);
+
+        await repository.search({ ...baseParams, status: 'ACTIVE' });
+
+        expect(prisma.category.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              status: 'ACTIVE',
+            }),
+          }),
+        );
+      });
+
+      it('status=INACTIVE → deletedAt: null', async () => {
+        prisma.$transaction.mockResolvedValue([[], 0]);
+
+        await repository.search({ ...baseParams, status: 'INACTIVE' });
+
+        expect(prisma.category.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              status: 'INACTIVE',
+            }),
+          }),
+        );
+      });
+
+      it('status=ARCHIVED → deletedAt: { not: null } (trước T038.05 luôn là null, không bao giờ khớp)', async () => {
+        const archivedRow = {
+          ...rawCategory,
+          id: 'cat-archived',
+          status: 'ARCHIVED',
+          deletedAt: new Date('2026-02-01'),
+        };
+        prisma.$transaction.mockResolvedValue([[archivedRow], 1]);
+
+        const result = await repository.search({
+          ...baseParams,
+          status: 'ARCHIVED',
+        });
+
+        expect(prisma.category.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: { not: null },
+              status: 'ARCHIVED',
+            }),
+          }),
+        );
+        // Bộ dữ liệu trộn: mock trả về đúng 1 category đã lưu trữ — xác nhận
+        // kết quả thực sự đi qua được (không chỉ where-clause đúng mà còn
+        // ánh xạ đúng entity có deletedAt khác null).
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0].status).toBe('ARCHIVED');
+        expect(result.items[0].deletedAt).toEqual(new Date('2026-02-01'));
+      });
+
+      it('phân trang không đổi khi status=ARCHIVED (skip/take vẫn được áp dụng đúng)', async () => {
+        prisma.$transaction.mockResolvedValue([[], 0]);
+
+        await repository.search({
+          ...baseParams,
+          status: 'ARCHIVED',
+          page: 3,
+          limit: 10,
+        });
+
+        expect(prisma.category.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ skip: 20, take: 10 }),
+        );
+        expect(prisma.category.count).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ deletedAt: { not: null } }),
+          }),
+        );
+      });
+
+      it('sắp xếp không đổi khi status=ARCHIVED (orderBy vẫn theo sortBy/sortOrder truyền vào)', async () => {
+        prisma.$transaction.mockResolvedValue([[], 0]);
+
+        await repository.search({
+          ...baseParams,
+          status: 'ARCHIVED',
+          sortBy: 'name',
+          sortOrder: 'desc',
+        });
+
+        expect(prisma.category.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ orderBy: { name: 'desc' } }),
+        );
+      });
+    });
   });
 
   describe('existsByCode / existsBySlug', () => {

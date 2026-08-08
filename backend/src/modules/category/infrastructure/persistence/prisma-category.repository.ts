@@ -149,7 +149,10 @@ export class PrismaCategoryRepository implements ICategoryRepository {
   async search(params: CategorySearchParams): Promise<CategorySearchResult> {
     const where: Prisma.CategoryWhereInput = {
       organizationId: params.organizationId,
-      deletedAt: null,
+      // T038.05 — `status: 'ARCHIVED'` is only ever true for soft-deleted rows
+      // (softDelete() always sets both together); a blanket `deletedAt: null`
+      // made that filter combination permanently unsatisfiable.
+      deletedAt: params.status === 'ARCHIVED' ? { not: null } : null,
       status: params.status,
       parentId: params.parentId,
       isActive: params.isActive,
