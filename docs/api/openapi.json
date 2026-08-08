@@ -5895,6 +5895,16 @@
             }
           },
           {
+            "name": "archived",
+            "required": false,
+            "in": "query",
+            "description": "T044.05 — false/mặc định: chỉ kho chưa xóa. true: chỉ kho đã xóa mềm (để khôi phục).",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          {
             "name": "page",
             "required": false,
             "in": "query",

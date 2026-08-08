@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -56,6 +57,17 @@ export class WarehouseQueryDto {
   @IsOptional()
   @IsEnum(WAREHOUSE_STATUSES)
   status?: (typeof WAREHOUSE_STATUSES)[number];
+
+  @ApiProperty({
+    required: false,
+    default: false,
+    description:
+      'T044.05 — false/mặc định: chỉ kho chưa xóa. true: chỉ kho đã xóa mềm (để khôi phục).',
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  archived?: boolean;
 
   @ApiProperty({ required: false, default: 1, minimum: 1 })
   @IsOptional()

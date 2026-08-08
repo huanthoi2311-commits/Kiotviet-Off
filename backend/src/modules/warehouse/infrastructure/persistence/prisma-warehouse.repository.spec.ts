@@ -195,6 +195,56 @@ describe('PrismaWarehouseRepository', () => {
       });
       expect(prisma.$transaction).toHaveBeenCalled();
     });
+
+    it('mặc định (không truyền archived) lọc deletedAt=null (T044.05)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({
+        organizationId: 'org-1',
+        page: 1,
+        limit: 20,
+        sortBy: 'name',
+        sortOrder: 'asc',
+      });
+      expect(prisma.warehouse.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ deletedAt: null }),
+        }),
+      );
+    });
+
+    it('archived=false lọc deletedAt=null (T044.05)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({
+        organizationId: 'org-1',
+        archived: false,
+        page: 1,
+        limit: 20,
+        sortBy: 'name',
+        sortOrder: 'asc',
+      });
+      expect(prisma.warehouse.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ deletedAt: null }),
+        }),
+      );
+    });
+
+    it('archived=true lọc deletedAt IS NOT NULL — cho phép tìm lại kho đã xóa để khôi phục (T044.05)', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0]);
+      await repository.search({
+        organizationId: 'org-1',
+        archived: true,
+        page: 1,
+        limit: 20,
+        sortBy: 'name',
+        sortOrder: 'asc',
+      });
+      expect(prisma.warehouse.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ deletedAt: { not: null } }),
+        }),
+      );
+    });
   });
 
   describe('existsByCode', () => {
