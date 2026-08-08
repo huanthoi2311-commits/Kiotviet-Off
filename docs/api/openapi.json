@@ -2934,6 +2934,186 @@
         ]
       }
     },
+    "/api/v1/products/{productId}/prices": {
+      "get": {
+        "operationId": "ProductPriceController_findSet",
+        "parameters": [
+          {
+            "name": "productId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductPriceSetResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập / token không hợp lệ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu quyền truy cập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Không tìm thấy tài nguyên",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Lỗi hệ thống",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Đọc toàn bộ price set hiện tại của sản phẩm",
+        "tags": [
+          "Product Price"
+        ]
+      },
+      "patch": {
+        "operationId": "ProductPriceController_replaceSet",
+        "parameters": [
+          {
+            "name": "productId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceProductPriceSetDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductPriceSetResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập / token không hợp lệ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu quyền truy cập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Không tìm thấy tài nguyên",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Dữ liệu trùng lặp (VD: SKU, slug, barcode đã tồn tại)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Vi phạm quy tắc nghiệp vụ (VD: thiếu giá RETAIL)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Lỗi hệ thống",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Thay thế toàn bộ price set (bulk-replace) — Optimistic Lock qua priceVersion, tách khỏi Product.version",
+        "tags": [
+          "Product Price"
+        ]
+      }
+    },
     "/api/v1/categories": {
       "post": {
         "operationId": "CategoryController_create",
@@ -16317,6 +16497,72 @@
         },
         "required": [
           "version"
+        ]
+      },
+      "ProductPriceSetResponseDto": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "priceVersion": {
+            "type": "number",
+            "description": "Optimistic Lock cho toàn bộ price set (T043.07, tách khỏi Product.version)"
+          },
+          "prices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductPriceResponseDto"
+            }
+          }
+        },
+        "required": [
+          "productId",
+          "priceVersion",
+          "prices"
+        ]
+      },
+      "ReplaceProductPriceItemDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "RETAIL",
+              "WHOLESALE",
+              "VIP",
+              "DEALER"
+            ],
+            "example": "RETAIL"
+          },
+          "price": {
+            "type": "number",
+            "example": 150000
+          }
+        },
+        "required": [
+          "type",
+          "price"
+        ]
+      },
+      "ReplaceProductPriceSetDto": {
+        "type": "object",
+        "properties": {
+          "priceVersion": {
+            "type": "number",
+            "description": "Optimistic Lock cho toàn bộ price set — bắt buộc (SPEC-T043.07 §4)"
+          },
+          "prices": {
+            "description": "Toàn bộ price set mong muốn — bulk-replace, không phải patch từng dòng",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReplaceProductPriceItemDto"
+            }
+          }
+        },
+        "required": [
+          "priceVersion",
+          "prices"
         ]
       },
       "CreateCategoryDto": {
