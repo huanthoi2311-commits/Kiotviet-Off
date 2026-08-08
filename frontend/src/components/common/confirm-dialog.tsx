@@ -63,13 +63,36 @@ export function ConfirmDialog({
           </Alert>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isConfirming}>
+          {/*
+           * T038.08D — native `disabled` on the *currently focused* button
+           * (the one just clicked, right as `isConfirming` turns true)
+           * forces the browser to blur it to `document.body`; nothing in
+           * base-ui's own focus trap (FloatingFocusManager) intervenes in
+           * that specific browser-forced blur, so on error settlement focus
+           * was left outside the still-open dialog. `aria-disabled` + a
+           * click-guard achieves the same "can't confirm/cancel while
+           * pending" behavior without ever removing the button from the
+           * focus/tab order, so no forced blur ever occurs.
+           */}
+          <Button
+            variant="outline"
+            aria-disabled={isConfirming}
+            className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+            onClick={() => {
+              if (isConfirming) return;
+              onOpenChange(false);
+            }}
+          >
             {cancelLabel}
           </Button>
           <Button
             variant={danger ? 'destructive' : 'default'}
-            onClick={onConfirm}
-            disabled={isConfirming}
+            aria-disabled={isConfirming}
+            className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+            onClick={() => {
+              if (isConfirming) return;
+              onConfirm();
+            }}
           >
             {confirmLabel}
           </Button>

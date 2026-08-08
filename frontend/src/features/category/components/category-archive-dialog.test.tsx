@@ -218,6 +218,37 @@ describe('CategoryArchiveDialog (T038.10 + T038.08B error dedup)', () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
+  it('never natively disables the Confirm button, and focus remains inside the dialog after a mutation error settles (T038.08D)', async () => {
+    server.use(
+      http.delete(`${API_BASE_URL}/categories/${CATEGORY_ID}`, () =>
+        HttpResponse.json(
+          errorEnvelope('CATEGORY_004', 'Không thể xóa danh mục đang có sản phẩm sử dụng'),
+          { status: 422 },
+        ),
+      ),
+    );
+    renderDialog();
+
+    const confirmButton = screen.getByRole('button', { name: 'Lưu trữ' });
+    await userEvent.click(confirmButton);
+
+    await screen.findByText('Không thể xóa danh mục đang có sản phẩm sử dụng');
+
+    // NOTE — this assertion alone does not reproduce T038.08C's defect:
+    // verified (by temporarily reverting to `disabled={isConfirming}` and
+    // re-running this exact test) that jsdom does NOT simulate the real
+    // browser's "disabled forces blur to document.body" behavior, so this
+    // test passes against both the buggy and fixed code equally. It is kept
+    // as a direct assertion of the intended, correct behavior (never
+    // natively disabled, focus stays inside the dialog) — genuine
+    // regression coverage for the actual defect comes only from the
+    // real-browser Playwright check (T038.08D implementation report §6),
+    // which jsdom cannot provide.
+    expect(confirmButton).not.toBeDisabled();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true);
+  });
+
   it('has no accessibility violations', async () => {
     const { container } = renderDialog();
     expect(await axe(container)).toHaveNoViolations();

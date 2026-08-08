@@ -42,7 +42,39 @@ describe('ConfirmDialog (T034.01 §5/§21)', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('disables both buttons while isConfirming is true', () => {
+  it('marks both buttons aria-disabled (not natively disabled) while isConfirming is true, and blocks their actions (T038.08D)', async () => {
+    const onConfirm = vi.fn();
+    const onOpenChange = vi.fn();
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={onOpenChange}
+        title="Lưu trữ danh mục?"
+        description="Danh mục sẽ được lưu trữ."
+        onConfirm={onConfirm}
+        isConfirming
+      />,
+    );
+
+    const confirmButton = screen.getByRole('button', { name: 'Xác nhận' });
+    const cancelButton = screen.getByRole('button', { name: 'Hủy' });
+
+    // Native `disabled` (not just aria-disabled) forces the browser to blur
+    // the currently-focused button to document.body, escaping the dialog's
+    // focus trap (T038.08C's finding) — so these must stay natively enabled
+    // and merely aria-disabled, remaining focusable/tabbable throughout.
+    expect(confirmButton).not.toBeDisabled();
+    expect(cancelButton).not.toBeDisabled();
+    expect(confirmButton).toHaveAttribute('aria-disabled', 'true');
+    expect(cancelButton).toHaveAttribute('aria-disabled', 'true');
+
+    await userEvent.click(confirmButton);
+    await userEvent.click(cancelButton);
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it('remains focusable while isConfirming is true (T038.08D)', () => {
     render(
       <ConfirmDialog
         open
@@ -54,8 +86,9 @@ describe('ConfirmDialog (T034.01 §5/§21)', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Xác nhận' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Hủy' })).toBeDisabled();
+    const confirmButton = screen.getByRole('button', { name: 'Xác nhận' });
+    confirmButton.focus();
+    expect(confirmButton).toHaveFocus();
   });
 
   it('accepts custom labels', () => {
