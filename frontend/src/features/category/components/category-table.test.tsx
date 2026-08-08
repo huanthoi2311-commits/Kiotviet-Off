@@ -47,7 +47,7 @@ function buildCategory(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('CategoryTable (T035.10 + T037.10 Edit link)', () => {
+describe('CategoryTable (T035.10 + T037.10 Edit link + T038.10 Archive action)', () => {
   beforeEach(() => {
     useAuthStore.getState().clear();
   });
@@ -86,6 +86,92 @@ describe('CategoryTable (T035.10 + T037.10 Edit link)', () => {
     await screen.findByText('Thời trang');
 
     expect(screen.queryByRole('link', { name: 'Sửa' })).not.toBeInTheDocument();
+  });
+
+  it('shows a "Lưu trữ" button per row for a user with category:delete', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['category:delete'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+
+    server.use(
+      http.get(`${API_BASE_URL}/categories`, () =>
+        HttpResponse.json(envelope({ items: [buildCategory()], total: 1, page: 1, limit: 20 })),
+      ),
+    );
+
+    renderTable();
+    await screen.findByText('Thời trang');
+
+    expect(screen.getByRole('button', { name: 'Lưu trữ' })).toBeInTheDocument();
+  });
+
+  it('hides the "Lưu trữ" button for a user without category:delete', async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/categories`, () =>
+        HttpResponse.json(envelope({ items: [buildCategory()], total: 1, page: 1, limit: 20 })),
+      ),
+    );
+
+    renderTable();
+    await screen.findByText('Thời trang');
+
+    expect(screen.queryByRole('button', { name: 'Lưu trữ' })).not.toBeInTheDocument();
+  });
+
+  it('clicking "Lưu trữ" opens the archive confirmation dialog for that row\'s category', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['category:delete'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+
+    server.use(
+      http.get(`${API_BASE_URL}/categories`, () =>
+        HttpResponse.json(envelope({ items: [buildCategory()], total: 1, page: 1, limit: 20 })),
+      ),
+    );
+
+    renderTable();
+    await screen.findByText('Thời trang');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu trữ' }));
+
+    expect(screen.getByText('Lưu trữ danh mục?')).toBeInTheDocument();
+    expect(screen.getByText(/"Thời trang"/)).toBeInTheDocument();
+  });
+
+  it('ARCHIVED status filter returns archived rows (regression check for the T038.05 backend fix)', async () => {
+    let lastUrl: URL | undefined;
+    server.use(
+      http.get(`${API_BASE_URL}/categories`, ({ request }) => {
+        lastUrl = new URL(request.url);
+        const filteringArchived = lastUrl.searchParams.get('status') === 'ARCHIVED';
+        const items = filteringArchived
+          ? [buildCategory({ status: 'ARCHIVED', deletedAt: '2026-02-01T00:00:00.000Z' })]
+          : [buildCategory()];
+        return HttpResponse.json(envelope({ items, total: items.length, page: 1, limit: 20 }));
+      }),
+    );
+
+    renderTable();
+    await screen.findByText('Thời trang');
+
+    await userEvent.click(screen.getByRole('combobox'));
+    await userEvent.click(await screen.findByRole('option', { name: 'Đã lưu trữ' }));
+
+    await waitFor(() => expect(lastUrl?.searchParams.get('status')).toBe('ARCHIVED'));
+    // Before T038.05, the backend always ANDed deletedAt: null regardless of
+    // this filter, so an ARCHIVED-filtered request could never return a row.
+    // This MSW mock only returns the archived row once status=ARCHIVED is
+    // actually sent — the row appearing is direct evidence the frontend
+    // correctly requests and renders it now that the backend supports it.
+    // Scoped to `role: 'cell'` (not plain `getByText`) since the status
+    // filter's own trigger also displays the literal text "ARCHIVED".
+    expect(await screen.findByRole('cell', { name: 'ARCHIVED' })).toBeInTheDocument();
   });
 
   it('renders skeleton rows while loading', () => {

@@ -87,4 +87,47 @@ describe('ConfirmDialog (T034.01 §5/§21)', () => {
     );
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  it('does not render an error alert when errorMessage is omitted (T038.10, additive/backward-compatible)', () => {
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={vi.fn()}
+        title="Lưu trữ danh mục?"
+        description="Danh mục sẽ được lưu trữ."
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('renders the errorMessage as an alert when provided (T038.10)', () => {
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={vi.fn()}
+        title="Lưu trữ danh mục?"
+        description="Danh mục sẽ được lưu trữ."
+        onConfirm={vi.fn()}
+        errorMessage="Không thể xóa danh mục đang có sản phẩm sử dụng"
+      />,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Không thể xóa danh mục đang có sản phẩm sử dụng',
+    );
+  });
+
+  it('has no accessibility violations while showing errorMessage', async () => {
+    const { container } = render(
+      <ConfirmDialog
+        open
+        onOpenChange={vi.fn()}
+        title="Lưu trữ danh mục?"
+        description="Danh mục sẽ được lưu trữ."
+        onConfirm={vi.fn()}
+        errorMessage="Không thể xóa danh mục đang có sản phẩm sử dụng"
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
 });

@@ -1,5 +1,6 @@
 'use client';
 
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -21,6 +22,13 @@ export interface ConfirmDialogProps {
   /** Destructive-style confirm button (e.g. archive) vs. a neutral one (e.g. restore) — T034.01 §5. */
   danger?: boolean;
   isConfirming?: boolean;
+  /**
+   * T038.10 — a business-rule failure (e.g. Category's CATEGORY_004/007)
+   * renders here, inside the still-open dialog, instead of closing it.
+   * Optional and additive: omitted by every existing caller (Create/Edit's
+   * unsaved-changes guard), so their behavior is unchanged.
+   */
+  errorMessage?: string | null;
 }
 
 /**
@@ -40,6 +48,7 @@ export function ConfirmDialog({
   onConfirm,
   danger = false,
   isConfirming = false,
+  errorMessage = null,
 }: ConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -48,6 +57,11 @@ export function ConfirmDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+        {errorMessage && (
+          <Alert variant="destructive">
+            <AlertDescription>{errorMessage}</AlertDescription>
+          </Alert>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isConfirming}>
             {cancelLabel}
