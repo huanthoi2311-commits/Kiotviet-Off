@@ -220,12 +220,15 @@ All 9 variables below are **script-level required/optional**, not part of `env.v
 
 ## 10. Dev-Only Feature Flags
 
-### `PRODUCT_REFACTOR_ENABLED`
+### `PRODUCT_REFACTOR_ENABLED` — activated by T043.05
 - **Consumer(s)**: `backend/src/modules/product/product-refactor.flag.ts:13`; test-only reads in `product.service.spec.ts` (10 line references)
-- **Required/Optional**: Optional | **Default**: `false` (any value other than exact string `'true'`)
+- **Required/Optional**: Optional | **Code default if unset**: `false` (any value other than exact string `'true'`) — unchanged, `isProductRefactorEnabled()` itself was not modified
 - **Sensitivity**: Non-sensitive
-- **Validation status**: Unvalidated, absent from `.env.example`
-- **Deprecation/Unused**: Active, explicitly dev-only per its own doc-comment (flagged for eventual removal, not by this package)
+- **Validation status**: Unvalidated, still absent from `env.validation.ts`'s `EnvironmentVariables` schema (unchanged — out of this package's scope)
+- **Real-environment value (as of T043.05)**: now `true` in every repository-controlled environment — `backend/.env.example` (line added), `.github/workflows/backend-ci.yml` (`ci` and `e2e` job `env:` blocks). Docker Compose picks it up transitively via `env_file: ./backend/.env` (sourced from `.env.example`) — deliberately **not** hardcoded in `docker-compose.yml`'s `environment:` override block, so a developer can still set `PRODUCT_REFACTOR_ENABLED=false` in their own local `backend/.env` to reproduce pre-T043.05 behavior without editing tracked files.
+- **What changed at T043.05**: Optimistic Lock (client `version` now actually enforced), `PRODUCT_008` (Product Type change blocked once transaction history exists), `PRODUCT_012` (Archive blocked while an active Variant Child references the product) are now real, reachable backend behavior — previously true only under a test-only override (`product.service.spec.ts`'s explicit `process.env.PRODUCT_REFACTOR_ENABLED = 'true'` per test). Verified end-to-end in `test/product.e2e-spec.ts` (new `describe` block, T043.05) against real Postgres in the `e2e` CI job — not just the pre-existing mocked unit tests.
+- **Rollback**: set `PRODUCT_REFACTOR_ENABLED=false` (or unset) in the target environment's own `.env`/CI `env:` — the flag mechanism itself was deliberately left in place (not deleted) specifically so this remains a one-line, repository-independent revert. Full flag/conditional removal remains deferred (per the flag's own doc-comment: "khi refactor đã ổn định") — not performed by T043.05.
+- **Deprecation/Unused**: Active — dev-only per its own doc-comment, still intended for eventual full removal once real-world stability is observed. Not yet scheduled.
 
 ---
 
