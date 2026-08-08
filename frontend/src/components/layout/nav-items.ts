@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { FolderTree, LayoutDashboard, Tag } from 'lucide-react';
+import { FolderTree, LayoutDashboard, Ruler, Tag } from 'lucide-react';
 
 export interface NavItem {
   label: string;
@@ -39,6 +39,12 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/brands',
         icon: Tag,
         permission: 'brand:view',
+      },
+      {
+        label: 'Units',
+        href: '/units',
+        icon: Ruler,
+        permission: 'unit:view',
       },
     ],
   },

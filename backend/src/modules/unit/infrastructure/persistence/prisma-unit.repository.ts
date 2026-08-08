@@ -143,7 +143,11 @@ export class PrismaUnitRepository implements IUnitRepository {
 
     const where: Prisma.UnitWhereInput = {
       organizationId: params.organizationId,
-      deletedAt: null,
+      // T042 — mirrors Category's T038.05 fix: `status: 'ARCHIVED'` is only
+      // ever true for soft-deleted rows (`softDelete()` always sets both
+      // together), so a blanket `deletedAt: null` made that filter
+      // combination permanently unsatisfiable.
+      deletedAt: params.status === 'ARCHIVED' ? { not: null } : null,
       ...(statusConditions.length > 0 ? { AND: statusConditions } : {}),
       ...(params.search
         ? {
