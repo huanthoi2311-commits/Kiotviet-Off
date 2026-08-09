@@ -304,6 +304,134 @@ describe('PrismaCustomerRepository', () => {
       });
       expect(prisma.$transaction).toHaveBeenCalled();
     });
+
+    describe('deletedAt theo status (T048.05 — sửa lỗi ARCHIVED không bao giờ trả kết quả)', () => {
+      const baseParams = {
+        organizationId: 'org-1',
+        page: 1,
+        limit: 20,
+        sortBy: 'fullName' as const,
+        sortOrder: 'asc' as const,
+      };
+
+      it('không truyền status → deletedAt: null (mặc định như trước, chỉ trả khách hàng chưa xóa)', async () => {
+        prisma.$transaction.mockResolvedValueOnce([[], 0]);
+        await repository.search({ ...baseParams });
+        expect(prisma.customer.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ deletedAt: null }),
+          }),
+        );
+      });
+
+      it('status=ACTIVE → deletedAt: null', async () => {
+        prisma.$transaction.mockResolvedValueOnce([[], 0]);
+        await repository.search({ ...baseParams, status: 'ACTIVE' });
+        expect(prisma.customer.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              status: 'ACTIVE',
+            }),
+          }),
+        );
+      });
+
+      it('status=INACTIVE → deletedAt: null', async () => {
+        prisma.$transaction.mockResolvedValueOnce([[], 0]);
+        await repository.search({ ...baseParams, status: 'INACTIVE' });
+        expect(prisma.customer.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: null,
+              status: 'INACTIVE',
+            }),
+          }),
+        );
+      });
+
+      it('status=ARCHIVED → deletedAt: { not: null } (trước T048.05 luôn là null, không bao giờ khớp)', async () => {
+        const archivedRow = {
+          ...rawCustomer,
+          id: 'cus-archived',
+          status: 'ARCHIVED',
+          deletedAt: new Date('2026-02-01'),
+        };
+        prisma.$transaction.mockResolvedValueOnce([[archivedRow], 1]);
+
+        const result = await repository.search({
+          ...baseParams,
+          status: 'ARCHIVED',
+        });
+
+        expect(prisma.customer.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              deletedAt: { not: null },
+              status: 'ARCHIVED',
+            }),
+          }),
+        );
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0].status).toBe('ARCHIVED');
+        expect(result.items[0].deletedAt).toEqual(new Date('2026-02-01'));
+      });
+
+      it('organizationId scoping không đổi khi status=ARCHIVED', async () => {
+        prisma.$transaction.mockResolvedValueOnce([[], 0]);
+        await repository.search({ ...baseParams, status: 'ARCHIVED' });
+        expect(prisma.customer.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ organizationId: 'org-1' }),
+          }),
+        );
+      });
+
+      it('customerType filter không đổi khi status=ARCHIVED', async () => {
+        prisma.$transaction.mockResolvedValueOnce([[], 0]);
+        await repository.search({
+          ...baseParams,
+          status: 'ARCHIVED',
+          customerType: 'VIP',
+        });
+        expect(prisma.customer.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ customerType: 'VIP' }),
+          }),
+        );
+      });
+
+      it('phân trang không đổi khi status=ARCHIVED (skip/take vẫn được áp dụng đúng)', async () => {
+        prisma.$transaction.mockResolvedValueOnce([[], 0]);
+        await repository.search({
+          ...baseParams,
+          status: 'ARCHIVED',
+          page: 3,
+          limit: 10,
+        });
+        expect(prisma.customer.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ skip: 20, take: 10 }),
+        );
+        expect(prisma.customer.count).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ deletedAt: { not: null } }),
+          }),
+        );
+      });
+
+      it('sắp xếp không đổi khi status=ARCHIVED (orderBy vẫn theo sortBy/sortOrder truyền vào)', async () => {
+        prisma.$transaction.mockResolvedValueOnce([[], 0]);
+        await repository.search({
+          ...baseParams,
+          status: 'ARCHIVED',
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+        expect(prisma.customer.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ orderBy: { createdAt: 'desc' } }),
+        );
+      });
+    });
   });
 
   describe('existsByCode', () => {

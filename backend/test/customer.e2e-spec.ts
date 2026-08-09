@@ -221,6 +221,170 @@ describe('Customer Module (e2e, integration)', () => {
       .expect(422);
   });
 
+  it('ARCHIVED-VISIBILITY (T048.05): create → archive → mặc định không thấy → status=ARCHIVED thấy → restore → status=ARCHIVED hết thấy → mặc định thấy lại', async () => {
+    const phone = `05${Date.now().toString().slice(-8)}`;
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/customers')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ fullName: 'Khách hàng lưu trữ T048.05', phone })
+      .expect(201);
+    const customerId = created.body.data.id;
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/customers/${customerId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: created.body.data.version })
+      .expect(204);
+
+    const defaultAfterArchive = await request(app.getHttpServer())
+      .get('/api/v1/customers')
+      .query({ search: 'Khách hàng lưu trữ T048.05' })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(
+      defaultAfterArchive.body.data.items.some(
+        (c: { id: string }) => c.id === customerId,
+      ),
+    ).toBe(false);
+
+    const archivedList = await request(app.getHttpServer())
+      .get('/api/v1/customers')
+      .query({ search: 'Khách hàng lưu trữ T048.05', status: 'ARCHIVED' })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(
+      archivedList.body.data.items.some(
+        (c: { id: string }) => c.id === customerId,
+      ),
+    ).toBe(true);
+
+    const afterDelete = await prisma.customer.findUnique({
+      where: { id: customerId },
+    });
+    await request(app.getHttpServer())
+      .post(`/api/v1/customers/${customerId}/restore`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: afterDelete!.version })
+      .expect(201);
+
+    const archivedAfterRestore = await request(app.getHttpServer())
+      .get('/api/v1/customers')
+      .query({ search: 'Khách hàng lưu trữ T048.05', status: 'ARCHIVED' })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(
+      archivedAfterRestore.body.data.items.some(
+        (c: { id: string }) => c.id === customerId,
+      ),
+    ).toBe(false);
+
+    const defaultAfterRestore = await request(app.getHttpServer())
+      .get('/api/v1/customers')
+      .query({ search: 'Khách hàng lưu trữ T048.05' })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(
+      defaultAfterRestore.body.data.items.some(
+        (c: { id: string }) => c.id === customerId,
+      ),
+    ).toBe(true);
+  });
+
+  it('ARCHIVED-VISIBILITY tenant isolation (T048.05): status=ARCHIVED không lộ khách hàng lưu trữ của Organization khác', async () => {
+    const otherOrganization = await prisma.organization.upsert({
+      where: { slug: 'customer-e2e-other' },
+      create: {
+        code: 'CUSTOMER-E2E-OTHER',
+        displayName: 'Customer E2E Other Org',
+        slug: 'customer-e2e-other',
+      },
+      update: {},
+    });
+    const otherPasswordHash = await argon2.hash('E2ePass@123', {
+      type: argon2.argon2id,
+    });
+    const otherUser = await prisma.user.upsert({
+      where: {
+        organizationId_email: {
+          organizationId: otherOrganization.id,
+          email: 'cus-e2e-other@pos-erp.local',
+        },
+      },
+      create: {
+        organizationId: otherOrganization.id,
+        username: 'cus-e2e-other',
+        email: 'cus-e2e-other@pos-erp.local',
+        passwordHash: otherPasswordHash,
+      },
+      update: {},
+    });
+    const otherRole = await prisma.role.upsert({
+      where: {
+        organizationId_code: {
+          organizationId: otherOrganization.id,
+          code: 'customer_e2e_role',
+        },
+      },
+      create: {
+        organizationId: otherOrganization.id,
+        code: 'customer_e2e_role',
+        name: 'Customer E2E Role',
+      },
+      update: {},
+    });
+    const customerPermissions = await prisma.permission.findMany({
+      where: { code: { startsWith: 'customer:' } },
+    });
+    await prisma.rolePermission.deleteMany({
+      where: { roleId: otherRole.id },
+    });
+    await prisma.rolePermission.createMany({
+      data: customerPermissions.map((p) => ({
+        roleId: otherRole.id,
+        permissionId: p.id,
+      })),
+      skipDuplicates: true,
+    });
+    await prisma.userRole.upsert({
+      where: {
+        userId_roleId: { userId: otherUser.id, roleId: otherRole.id },
+      },
+      create: { userId: otherUser.id, roleId: otherRole.id },
+      update: {},
+    });
+    const otherAccessToken = app.get(JwtService).sign({
+      sub: otherUser.id,
+      organizationId: otherOrganization.id,
+      branchId: null,
+      email: otherUser.email,
+      permissions: customerPermissions.map((p) => p.code),
+      permissionVersion: otherUser.permissionVersion,
+    });
+
+    const phone = `04${Date.now().toString().slice(-8)}`;
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/customers')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ fullName: 'Khách hàng cách ly Org T048.05', phone })
+      .expect(201);
+    await request(app.getHttpServer())
+      .delete(`/api/v1/customers/${created.body.data.id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: created.body.data.version })
+      .expect(204);
+
+    const otherOrgArchivedList = await request(app.getHttpServer())
+      .get('/api/v1/customers')
+      .query({ status: 'ARCHIVED' })
+      .set('Authorization', `Bearer ${otherAccessToken}`)
+      .expect(200);
+    expect(
+      otherOrgArchivedList.body.data.items.some(
+        (c: { id: string }) => c.id === created.body.data.id,
+      ),
+    ).toBe(false);
+  });
+
   it('GET /customers hỗ trợ lọc theo customerType', async () => {
     const phone = `06${Date.now().toString().slice(-8)}`;
     await request(app.getHttpServer())
