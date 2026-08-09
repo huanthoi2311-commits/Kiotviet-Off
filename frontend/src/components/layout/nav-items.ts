@@ -1,5 +1,16 @@
 import type { LucideIcon } from 'lucide-react';
-import { FolderTree, LayoutDashboard, Package, Ruler, Tag } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  ClipboardCheck,
+  ClipboardEdit,
+  FolderTree,
+  LayoutDashboard,
+  Package,
+  PackageSearch,
+  Ruler,
+  Tag,
+  Warehouse,
+} from 'lucide-react';
 
 export interface NavItem {
   label: string;
@@ -51,6 +62,41 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/products',
         icon: Package,
         permission: 'product:view',
+      },
+    ],
+  },
+  {
+    label: 'Kho vận',
+    items: [
+      {
+        label: 'Warehouses',
+        href: '/warehouses',
+        icon: Warehouse,
+        permission: 'warehouse:view',
+      },
+      {
+        label: 'Inventory',
+        href: '/inventory',
+        icon: PackageSearch,
+        permission: 'inventory:view',
+      },
+      {
+        label: 'Transfers',
+        href: '/transfers',
+        icon: ArrowLeftRight,
+        permission: 'transfer:view',
+      },
+      {
+        label: 'Inventory Adjustments',
+        href: '/inventory-adjustments',
+        icon: ClipboardEdit,
+        permission: 'inventory:view',
+      },
+      {
+        label: 'Stock Count',
+        href: '/stock-count',
+        icon: ClipboardCheck,
+        permission: 'stock_count:view',
       },
     ],
   },
