@@ -38,9 +38,9 @@ const STATUS_FILTER_OPTIONS: { value: InvoiceControllerSearchStatus | 'ALL'; lab
   { value: InvoiceControllerSearchStatus.PAID, label: 'Đã thanh toán' },
 ];
 
-export function InvoiceTable() {
+export function InvoiceTable({ initialCustomerId }: { initialCustomerId?: string } = {}) {
   const [status, setStatus] = useState<InvoiceControllerSearchStatus | 'ALL'>('ALL');
-  const [customerId, setCustomerId] = useState<string | 'ALL'>('ALL');
+  const [customerId, setCustomerId] = useState<string | 'ALL'>(initialCustomerId ?? 'ALL');
   const [page, setPage] = useState(1);
 
   const { customerOptions } = useCustomerOptions();
