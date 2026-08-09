@@ -334,10 +334,17 @@ describe('Supplier Module (e2e, integration)', () => {
       // `declare interface Buffer extends ArrayBuffer {}`, xung đột với Buffer thật của Node.
       await workbook.xlsx.read(Readable.from(res.body as Buffer));
       const worksheet = workbook.worksheets[0];
+      // Tra cột theo header text (giống hệt cách adapter.ts tự đọc import) — một worksheet
+      // vừa .read() từ buffer KHÔNG giữ lại `column.key` đã set lúc export (chỉ có vị trí/số
+      // cột), nên getCell('companyName') không tra được theo key và ném lỗi "Out of bounds".
+      let companyNameColumnIndex: number | undefined;
+      worksheet.getRow(1).eachCell((cell, colNumber) => {
+        if (cell.value === 'Tên công ty') companyNameColumnIndex = colNumber;
+      });
       const names: string[] = [];
       worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber === 1) return;
-        const value = row.getCell('companyName').value;
+        if (rowNumber === 1 || !companyNameColumnIndex) return;
+        const value = row.getCell(companyNameColumnIndex).value;
         if (typeof value === 'string') names.push(value);
       });
       return names;
