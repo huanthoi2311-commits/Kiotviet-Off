@@ -136,6 +136,12 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: Receipt,
         permission: 'invoice:view',
       },
+      {
+        label: 'Sales Returns',
+        href: '/sales-returns',
+        icon: Undo2,
+        permission: 'sales_return:view',
+      },
     ],
   },
 ];
