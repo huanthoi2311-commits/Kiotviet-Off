@@ -8,7 +8,9 @@ import {
   Package,
   PackageSearch,
   Ruler,
+  ShoppingCart,
   Tag,
+  Undo2,
   Warehouse,
 } from 'lucide-react';
 
@@ -97,6 +99,23 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/stock-count',
         icon: ClipboardCheck,
         permission: 'stock_count:view',
+      },
+    ],
+  },
+  {
+    label: 'Mua hàng',
+    items: [
+      {
+        label: 'Purchase Orders',
+        href: '/purchase-orders',
+        icon: ShoppingCart,
+        permission: 'purchase:view',
+      },
+      {
+        label: 'Purchase Returns',
+        href: '/purchase-returns',
+        icon: Undo2,
+        permission: 'purchase_return:view',
       },
     ],
   },
