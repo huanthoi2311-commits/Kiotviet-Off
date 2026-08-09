@@ -47,13 +47,13 @@ function stubRelationLists() {
   );
 }
 
-function renderTable() {
+function renderTable(props: { initialCustomerId?: string } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <InvoiceTable />
+      <InvoiceTable {...props} />
     </QueryClientProvider>,
   );
 }
@@ -110,6 +110,21 @@ describe('InvoiceTable (T046 §6)', () => {
     await userEvent.click(await screen.findByRole('option', { name: 'Nguyễn Văn A' }));
 
     await waitFor(() => expect(lastCustomerId).toBe('cust-1'));
+  });
+
+  it('pre-filters by customerId when linked from Customer Detail (T048 §9)', async () => {
+    let lastCustomerId: string | null = null;
+    server.use(
+      http.get(`${API_BASE_URL}/invoices`, ({ request }) => {
+        lastCustomerId = new URL(request.url).searchParams.get('customerId');
+        return HttpResponse.json(envelope(paginated([buildInvoice()])));
+      }),
+    );
+
+    renderTable({ initialCustomerId: 'cust-1' });
+    await screen.findByText('HD0001');
+
+    expect(lastCustomerId).toBe('cust-1');
   });
 
   it('renders the empty state when no invoices exist and no filter is active', async () => {

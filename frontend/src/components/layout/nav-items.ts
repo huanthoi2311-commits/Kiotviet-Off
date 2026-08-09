@@ -13,6 +13,7 @@ import {
   Store,
   Tag,
   Undo2,
+  Users,
   Warehouse,
 } from 'lucide-react';
 
@@ -66,6 +67,17 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/products',
         icon: Package,
         permission: 'product:view',
+      },
+    ],
+  },
+  {
+    label: 'CRM',
+    items: [
+      {
+        label: 'Customers',
+        href: '/customers',
+        icon: Users,
+        permission: 'customer:view',
       },
     ],
   },
