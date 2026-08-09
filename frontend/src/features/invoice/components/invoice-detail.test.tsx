@@ -4,6 +4,8 @@ import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { axe } from 'vitest-axe';
 import { server } from '@/mocks/server';
+import { useAuthStore } from '@/stores/auth-store';
+import { buildAccessToken } from '@/test/build-access-token';
 import { InvoiceDetail } from './invoice-detail';
 
 const API_BASE_URL = 'http://localhost:3000/api/v1';
@@ -102,6 +104,7 @@ function renderDetail() {
 describe('InvoiceDetail (T046 §6/§11)', () => {
   beforeEach(() => {
     stubRelationLists();
+    useAuthStore.getState().clear();
   });
 
   it('shows the "not found" empty state for INVOICE_001', async () => {
@@ -146,6 +149,37 @@ describe('InvoiceDetail (T046 §6/§11)', () => {
     renderDetail();
 
     expect(await screen.findByText('Khách lẻ')).toBeInTheDocument();
+  });
+
+  it('hides the "Trả hàng" link for a user without sales_return:create', async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/invoices/${INVOICE_ID}`, () =>
+        HttpResponse.json(envelope(buildInvoice())),
+      ),
+    );
+    renderDetail();
+    await screen.findByText('HD0001');
+    expect(screen.queryByRole('link', { name: 'Trả hàng' })).not.toBeInTheDocument();
+  });
+
+  it('shows the "Trả hàng" link, pointing at Sales Return Create with invoiceId, given sales_return:create', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['sales_return:create'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+    server.use(
+      http.get(`${API_BASE_URL}/invoices/${INVOICE_ID}`, () =>
+        HttpResponse.json(envelope(buildInvoice())),
+      ),
+    );
+    renderDetail();
+
+    expect(await screen.findByRole('link', { name: 'Trả hàng' })).toHaveAttribute(
+      'href',
+      `/sales-returns/new?invoiceId=${INVOICE_ID}`,
+    );
   });
 
   it('has no accessibility violations once loaded', async () => {

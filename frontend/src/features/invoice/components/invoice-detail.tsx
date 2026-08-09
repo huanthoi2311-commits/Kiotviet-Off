@@ -8,6 +8,7 @@ import { usePaymentControllerGetByInvoiceId } from '@/generated/payment/payment'
 import type { InvoiceResponseDto } from '@/generated/pOSERPEnterpriseAPI.schemas';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/common/empty-state';
+import { PermissionButton } from '@/components/common/permission-button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -185,6 +186,14 @@ export function InvoiceDetail({ id }: { id: string }) {
           ))}
         </TableBody>
       </Table>
+
+      <div className="flex gap-2">
+        <PermissionButton
+          permission="sales_return:create"
+          variant="outline"
+          render={<Link href={`/sales-returns/new?invoiceId=${invoice.id}`}>Trả hàng</Link>}
+        />
+      </div>
     </div>
   );
 }
