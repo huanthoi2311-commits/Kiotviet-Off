@@ -242,7 +242,10 @@ export class PrismaCustomerRepository implements ICustomerRepository {
   ): Prisma.CustomerWhereInput {
     return {
       organizationId: params.organizationId,
-      deletedAt: null,
+      // T048.05 — ARCHIVED luôn có deletedAt khác null (softDelete() set cả hai cùng lúc);
+      // hardcode `deletedAt: null` khiến status=ARCHIVED không bao giờ khớp được (đúng lỗi
+      // đã sửa ở Category T038.05).
+      deletedAt: params.status === 'ARCHIVED' ? { not: null } : null,
       customerType: params.customerType,
       status: params.status,
       ...(params.search
