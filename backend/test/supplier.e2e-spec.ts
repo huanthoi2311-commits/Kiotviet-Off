@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import ExcelJS from 'exceljs';
+import { Readable } from 'stream';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { createE2eApp } from './helpers/create-e2e-app';
@@ -278,6 +279,203 @@ describe('Supplier Module (e2e, integration)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
     expect(afterRemove.body.data).toHaveLength(0);
+  });
+
+  it('ARCHIVED-VISIBILITY (T049.05): create → archive → mặc định không thấy (list+export) → status=ARCHIVED thấy (list+export) → restore → hết thấy trong ARCHIVED, thấy lại mặc định', async () => {
+    const companyName = `NCC lưu trữ T049.05 ${Date.now()}`;
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/suppliers')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ code: `ARCH-${Date.now()}`, companyName })
+      .expect(201);
+    const id = created.body.data.id;
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/suppliers/${id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: created.body.data.version })
+      .expect(204);
+
+    const defaultListAfterArchive = await request(app.getHttpServer())
+      .get('/api/v1/suppliers')
+      .query({ search: companyName })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(
+      defaultListAfterArchive.body.data.items.some(
+        (s: { id: string }) => s.id === id,
+      ),
+    ).toBe(false);
+
+    const archivedList = await request(app.getHttpServer())
+      .get('/api/v1/suppliers')
+      .query({ search: companyName, status: 'ARCHIVED' })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(
+      archivedList.body.data.items.some((s: { id: string }) => s.id === id),
+    ).toBe(true);
+
+    const fetchExportedCompanyNames = async (status?: string) => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/suppliers/export')
+        .query(status ? { status } : {})
+        .set('Authorization', `Bearer ${accessToken}`)
+        .buffer(true)
+        .parse((response, callback) => {
+          const chunks: Buffer[] = [];
+          response.on('data', (chunk) => chunks.push(chunk));
+          response.on('end', () => callback(null, Buffer.concat(chunks)));
+        })
+        .expect(200);
+      const workbook = new ExcelJS.Workbook();
+      // read(stream) thay vì load(buffer) — cùng lý do đã ghi ở
+      // exceljs-supplier-excel.adapter.ts: exceljs/index.d.ts tự khai báo
+      // `declare interface Buffer extends ArrayBuffer {}`, xung đột với Buffer thật của Node.
+      await workbook.xlsx.read(Readable.from(res.body as Buffer));
+      const worksheet = workbook.worksheets[0];
+      const names: string[] = [];
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+        const value = row.getCell('companyName').value;
+        if (typeof value === 'string') names.push(value);
+      });
+      return names;
+    };
+
+    expect(await fetchExportedCompanyNames('ARCHIVED')).toContain(companyName);
+    expect(await fetchExportedCompanyNames()).not.toContain(companyName);
+
+    const afterDelete = await prisma.supplier.findUnique({ where: { id } });
+    await request(app.getHttpServer())
+      .post(`/api/v1/suppliers/${id}/restore`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: afterDelete!.version })
+      .expect(201);
+
+    const archivedListAfterRestore = await request(app.getHttpServer())
+      .get('/api/v1/suppliers')
+      .query({ search: companyName, status: 'ARCHIVED' })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(
+      archivedListAfterRestore.body.data.items.some(
+        (s: { id: string }) => s.id === id,
+      ),
+    ).toBe(false);
+
+    const defaultListAfterRestore = await request(app.getHttpServer())
+      .get('/api/v1/suppliers')
+      .query({ search: companyName })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(
+      defaultListAfterRestore.body.data.items.some(
+        (s: { id: string }) => s.id === id,
+      ),
+    ).toBe(true);
+
+    expect(await fetchExportedCompanyNames('ARCHIVED')).not.toContain(
+      companyName,
+    );
+    expect(await fetchExportedCompanyNames()).toContain(companyName);
+  });
+
+  it('ARCHIVED-VISIBILITY tenant isolation (T049.05): status=ARCHIVED không lộ nhà cung cấp lưu trữ của Organization khác', async () => {
+    const otherOrganization = await prisma.organization.upsert({
+      where: { slug: 'supplier-e2e-other' },
+      create: {
+        code: 'SUPPLIER-E2E-OTHER',
+        displayName: 'Supplier E2E Other Org',
+        slug: 'supplier-e2e-other',
+      },
+      update: {},
+    });
+    const otherPasswordHash = await argon2.hash('E2ePass@123', {
+      type: argon2.argon2id,
+    });
+    const otherUser = await prisma.user.upsert({
+      where: {
+        organizationId_email: {
+          organizationId: otherOrganization.id,
+          email: 'supplier-e2e-other@pos-erp.local',
+        },
+      },
+      create: {
+        organizationId: otherOrganization.id,
+        username: 'supplier-e2e-other',
+        email: 'supplier-e2e-other@pos-erp.local',
+        passwordHash: otherPasswordHash,
+      },
+      update: {},
+    });
+    const otherRole = await prisma.role.upsert({
+      where: {
+        organizationId_code: {
+          organizationId: otherOrganization.id,
+          code: 'supplier_e2e_role',
+        },
+      },
+      create: {
+        organizationId: otherOrganization.id,
+        code: 'supplier_e2e_role',
+        name: 'Supplier E2E Role',
+      },
+      update: {},
+    });
+    const supplierPermissions = await prisma.permission.findMany({
+      where: { code: { startsWith: 'supplier:' } },
+    });
+    await prisma.rolePermission.deleteMany({
+      where: { roleId: otherRole.id },
+    });
+    await prisma.rolePermission.createMany({
+      data: supplierPermissions.map((p) => ({
+        roleId: otherRole.id,
+        permissionId: p.id,
+      })),
+      skipDuplicates: true,
+    });
+    await prisma.userRole.upsert({
+      where: {
+        userId_roleId: { userId: otherUser.id, roleId: otherRole.id },
+      },
+      create: { userId: otherUser.id, roleId: otherRole.id },
+      update: {},
+    });
+    const otherAccessToken = app.get(JwtService).sign({
+      sub: otherUser.id,
+      organizationId: otherOrganization.id,
+      branchId: null,
+      email: otherUser.email,
+      permissions: supplierPermissions.map((p) => p.code),
+      permissionVersion: otherUser.permissionVersion,
+    });
+
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/suppliers')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        code: `ISO-${Date.now()}`,
+        companyName: 'NCC cách ly Org T049.05',
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .delete(`/api/v1/suppliers/${created.body.data.id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: created.body.data.version })
+      .expect(204);
+
+    const otherOrgArchivedList = await request(app.getHttpServer())
+      .get('/api/v1/suppliers')
+      .query({ status: 'ARCHIVED' })
+      .set('Authorization', `Bearer ${otherAccessToken}`)
+      .expect(200);
+    expect(
+      otherOrgArchivedList.body.data.items.some(
+        (s: { id: string }) => s.id === created.body.data.id,
+      ),
+    ).toBe(false);
   });
 
   it('EXPORT: xuất danh sách nhà cung cấp ra file Excel hợp lệ', async () => {

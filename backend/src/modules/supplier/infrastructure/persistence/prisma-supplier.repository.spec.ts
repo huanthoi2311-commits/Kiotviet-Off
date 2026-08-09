@@ -297,6 +297,208 @@ describe('PrismaSupplierRepository', () => {
       expect(result).toHaveLength(2);
       expect(prisma.supplier.count).not.toHaveBeenCalled();
     });
+
+    describe('deletedAt theo status (T049.05 — sửa lỗi ARCHIVED không bao giờ trả kết quả)', () => {
+      const baseSearchParams = {
+        organizationId: 'org-1',
+        page: 1,
+        limit: 20,
+        sortBy: 'createdAt' as const,
+        sortOrder: 'desc' as const,
+      };
+      const baseExportParams = {
+        organizationId: 'org-1',
+        sortBy: 'createdAt' as const,
+        sortOrder: 'desc' as const,
+      };
+
+      describe('search()', () => {
+        it('không truyền status → deletedAt: null', async () => {
+          prisma.$transaction.mockResolvedValueOnce([[], 0]);
+          await repository.search({ ...baseSearchParams });
+          expect(prisma.supplier.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({ deletedAt: null }),
+            }),
+          );
+        });
+
+        it('status=ACTIVE → deletedAt: null', async () => {
+          prisma.$transaction.mockResolvedValueOnce([[], 0]);
+          await repository.search({ ...baseSearchParams, status: 'ACTIVE' });
+          expect(prisma.supplier.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({
+                deletedAt: null,
+                status: 'ACTIVE',
+              }),
+            }),
+          );
+        });
+
+        it('status=INACTIVE → deletedAt: null', async () => {
+          prisma.$transaction.mockResolvedValueOnce([[], 0]);
+          await repository.search({ ...baseSearchParams, status: 'INACTIVE' });
+          expect(prisma.supplier.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({
+                deletedAt: null,
+                status: 'INACTIVE',
+              }),
+            }),
+          );
+        });
+
+        it('status=ARCHIVED → deletedAt: { not: null } (trước T049.05 luôn là null, không bao giờ khớp)', async () => {
+          const archivedRow = {
+            ...rawSupplier,
+            id: 'sup-archived',
+            status: 'ARCHIVED',
+            deletedAt: new Date('2026-02-01'),
+          };
+          prisma.$transaction.mockResolvedValueOnce([[archivedRow], 1]);
+
+          const result = await repository.search({
+            ...baseSearchParams,
+            status: 'ARCHIVED',
+          });
+
+          expect(prisma.supplier.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({
+                deletedAt: { not: null },
+                status: 'ARCHIVED',
+              }),
+            }),
+          );
+          expect(result.items).toHaveLength(1);
+          expect(result.items[0].status).toBe('ARCHIVED');
+        });
+
+        it('organizationId/search/province/phân trang/sắp xếp không đổi khi status=ARCHIVED', async () => {
+          prisma.$transaction.mockResolvedValueOnce([[], 0]);
+          await repository.search({
+            ...baseSearchParams,
+            status: 'ARCHIVED',
+            search: 'Đức An',
+            province: 'Hà Nội',
+            page: 3,
+            limit: 10,
+            sortBy: 'companyName',
+            sortOrder: 'asc',
+          });
+          expect(prisma.supplier.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({
+                organizationId: 'org-1',
+                province: 'Hà Nội',
+                OR: expect.any(Array),
+              }),
+              skip: 20,
+              take: 10,
+              orderBy: { companyName: 'asc' },
+            }),
+          );
+          expect(prisma.supplier.count).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({ deletedAt: { not: null } }),
+            }),
+          );
+        });
+      });
+
+      describe('findAllForExport()', () => {
+        it('không truyền status (export mặc định) → deletedAt: null', async () => {
+          prisma.supplier.findMany.mockResolvedValue([]);
+          await repository.findAllForExport({ ...baseExportParams });
+          expect(prisma.supplier.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({ deletedAt: null }),
+            }),
+          );
+        });
+
+        it('status=ACTIVE (export) → deletedAt: null', async () => {
+          prisma.supplier.findMany.mockResolvedValue([]);
+          await repository.findAllForExport({
+            ...baseExportParams,
+            status: 'ACTIVE',
+          });
+          expect(prisma.supplier.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({
+                deletedAt: null,
+                status: 'ACTIVE',
+              }),
+            }),
+          );
+        });
+
+        it('status=INACTIVE (export) → deletedAt: null', async () => {
+          prisma.supplier.findMany.mockResolvedValue([]);
+          await repository.findAllForExport({
+            ...baseExportParams,
+            status: 'INACTIVE',
+          });
+          expect(prisma.supplier.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({
+                deletedAt: null,
+                status: 'INACTIVE',
+              }),
+            }),
+          );
+        });
+
+        it('status=ARCHIVED (export) → deletedAt: { not: null } — trước T049.05 export cũng không bao giờ trả archived', async () => {
+          const archivedRow = {
+            ...rawSupplier,
+            id: 'sup-archived',
+            status: 'ARCHIVED',
+            deletedAt: new Date('2026-02-01'),
+          };
+          prisma.supplier.findMany.mockResolvedValue([archivedRow]);
+
+          const result = await repository.findAllForExport({
+            ...baseExportParams,
+            status: 'ARCHIVED',
+          });
+
+          expect(prisma.supplier.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({
+                deletedAt: { not: null },
+                status: 'ARCHIVED',
+              }),
+            }),
+          );
+          expect(result).toHaveLength(1);
+          expect(result[0].status).toBe('ARCHIVED');
+        });
+
+        it('organizationId/search/province/sắp xếp không đổi khi status=ARCHIVED (export)', async () => {
+          prisma.supplier.findMany.mockResolvedValue([]);
+          await repository.findAllForExport({
+            ...baseExportParams,
+            status: 'ARCHIVED',
+            search: 'Đức An',
+            province: 'Hà Nội',
+            sortBy: 'code',
+            sortOrder: 'asc',
+          });
+          expect(prisma.supplier.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: expect.objectContaining({
+                organizationId: 'org-1',
+                province: 'Hà Nội',
+                OR: expect.any(Array),
+              }),
+              orderBy: { code: 'asc' },
+            }),
+          );
+        });
+      });
+    });
   });
 
   describe('existsByCode', () => {

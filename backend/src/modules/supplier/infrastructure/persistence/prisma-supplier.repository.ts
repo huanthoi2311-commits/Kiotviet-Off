@@ -312,7 +312,11 @@ export class PrismaSupplierRepository implements ISupplierRepository {
   ): Prisma.SupplierWhereInput {
     return {
       organizationId: params.organizationId,
-      deletedAt: null,
+      // T049.05 — ARCHIVED luôn có deletedAt khác null (softDelete() set cả hai cùng lúc);
+      // hardcode `deletedAt: null` khiến status=ARCHIVED không bao giờ khớp được (đúng lỗi đã
+      // sửa ở Category T038.05/Customer T048.05). buildWhere() dùng chung cho cả search() lẫn
+      // findAllForExport() — sửa một chỗ áp dụng cho cả list và export.
+      deletedAt: params.status === 'ARCHIVED' ? { not: null } : null,
       status: params.status,
       province: params.province,
       ...(params.search
