@@ -1,13 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { server } from '@/mocks/server';
 import * as apiClientModule from '@/services/api-client';
 import { useSupplierExport } from './use-supplier-export';
-
-const API_BASE_URL = 'http://localhost:3000/api/v1';
 
 function TestHarness({ filters }: { filters: Record<string, string | undefined> }) {
   const exportMutation = useSupplierExport();
@@ -78,24 +74,10 @@ describe('useSupplierExport (T049 AD-1 §6)', () => {
   });
 
   it('forwards the current search/status/province/sort filters as query params', async () => {
-    let lastUrl: URL | undefined;
-    server.use(
-      http.get(`${API_BASE_URL}/suppliers/export`, ({ request }) => {
-        lastUrl = new URL(request.url);
-        // Plain string body, not `new Blob([...])` — MSW's node-side XHR interceptor
-        // constructs a `Response` internally to fulfill the request, and Node's undici
-        // `extractBody` calls `.stream()` on a Blob body; the Blob implementation in this
-        // Vitest/jsdom/Node combination doesn't implement it ("object.stream is not a
-        // function"), an environment-level MSW/undici/jsdom interaction, not a production
-        // concern. This test only needs the request URL, never processes the response body.
-        return new HttpResponse('fake-xlsx-bytes', {
-          headers: {
-            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'Content-Disposition': 'attachment; filename="suppliers.xlsx"',
-          },
-        });
-      }),
-    );
+    const getSpy = mockApiClientGet({
+      data: new Blob(['fake-xlsx-bytes']),
+      headers: { 'content-disposition': 'attachment; filename="suppliers.xlsx"' },
+    });
 
     renderHarness({
       search: 'Đức An',
@@ -106,12 +88,20 @@ describe('useSupplierExport (T049 AD-1 §6)', () => {
     });
     await userEvent.click(screen.getByRole('button', { name: 'Xuất Excel' }));
 
-    await waitFor(() => expect(lastUrl).toBeDefined());
-    expect(lastUrl?.searchParams.get('search')).toBe('Đức An');
-    expect(lastUrl?.searchParams.get('status')).toBe('ARCHIVED');
-    expect(lastUrl?.searchParams.get('province')).toBe('Hà Nội');
-    expect(lastUrl?.searchParams.get('sortBy')).toBe('companyName');
-    expect(lastUrl?.searchParams.get('sortOrder')).toBe('asc');
+    await waitFor(() => expect(getSpy).toHaveBeenCalled());
+    expect(getSpy).toHaveBeenCalledWith(
+      '/suppliers/export',
+      expect.objectContaining({
+        params: {
+          search: 'Đức An',
+          status: 'ARCHIVED',
+          province: 'Hà Nội',
+          sortBy: 'companyName',
+          sortOrder: 'asc',
+        },
+        responseType: 'blob',
+      }),
+    );
   });
 
   it('downloads the blob using the Content-Disposition filename and revokes the object URL', async () => {
