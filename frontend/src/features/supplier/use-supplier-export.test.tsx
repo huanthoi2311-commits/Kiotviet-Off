@@ -49,7 +49,8 @@ describe('useSupplierExport (T049 AD-1 §6)', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (URL as any).revokeObjectURL = revokeObjectURLSpy;
     clickSpy = vi.fn();
-    HTMLAnchorElement.prototype.click = clickSpy;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (HTMLAnchorElement.prototype as any).click = clickSpy;
   });
 
   afterEach(() => {
