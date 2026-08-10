@@ -235,19 +235,21 @@ describe('PrismaPurchaseOrderRepository', () => {
     function makeTx(options: {
       claimCount?: number;
       statusAfterFailedClaim?: string;
+      versionAfterFailedClaim?: number;
     }) {
       const tx = {
         purchaseOrder: {
           updateMany: jest
             .fn()
             .mockResolvedValue({ count: options.claimCount ?? 1 }),
-          findFirst: jest
-            .fn()
-            .mockResolvedValue(
-              options.claimCount === 0
-                ? { status: options.statusAfterFailedClaim ?? 'DRAFT' }
-                : approvedOrder,
-            ),
+          findFirst: jest.fn().mockResolvedValue(
+            options.claimCount === 0
+              ? {
+                  status: options.statusAfterFailedClaim ?? 'DRAFT',
+                  version: options.versionAfterFailedClaim ?? 3,
+                }
+              : approvedOrder,
+          ),
           findFirstOrThrow: jest.fn().mockResolvedValue(approvedOrder),
         },
         purchaseItem: { update: jest.fn().mockResolvedValue({}) },
@@ -279,15 +281,23 @@ describe('PrismaPurchaseOrderRepository', () => {
       });
     });
 
-    it('ném StatusConflictError khi claim thất bại VÀ trạng thái hiện tại không phải APPROVED', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'DRAFT' });
+    it('ném StatusConflictError khi claim thất bại, version KHỚP nhưng trạng thái hiện tại không phải APPROVED (invalid-transition thật)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'DRAFT',
+        versionAfterFailedClaim: 3,
+      });
       await expect(
         repository.receive('po-1', 'org-1', 3, 'user-1'),
       ).rejects.toThrow(PurchaseOrderStatusConflictError);
     });
 
-    it('T051.02: ném PurchaseOrderConcurrencyConflictError khi claim thất bại NHƯNG trạng thái vẫn là APPROVED (stale version)', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'APPROVED' });
+    it('T051.02: ném PurchaseOrderConcurrencyConflictError khi claim thất bại vì version lệch (kể cả khi status hiện tại vẫn nằm trong tập hợp lệ do request thắng cuộc đã đổi status)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'RECEIVED',
+        versionAfterFailedClaim: 4,
+      });
       await expect(
         repository.receive('po-1', 'org-1', 1, 'user-1'),
       ).rejects.toThrow(PurchaseOrderConcurrencyConflictError);
@@ -328,7 +338,11 @@ describe('PrismaPurchaseOrderRepository', () => {
     });
 
     it('claim thất bại KHÔNG chạy vòng lặp Inventory (zero business side effects cho request thua)', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'APPROVED' });
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'RECEIVED',
+        versionAfterFailedClaim: 4,
+      });
       await expect(
         repository.receive('po-1', 'org-1', 1, 'user-1'),
       ).rejects.toThrow(PurchaseOrderConcurrencyConflictError);

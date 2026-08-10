@@ -197,6 +197,7 @@ describe('PrismaStockCountRepository', () => {
     function makeTx(options: {
       claimCount?: number;
       statusAfterFailedClaim?: string;
+      versionAfterFailedClaim?: number;
       currentForLoop?: unknown;
     }) {
       const current = options.currentForLoop ?? countingStockCount;
@@ -205,13 +206,14 @@ describe('PrismaStockCountRepository', () => {
           updateMany: jest
             .fn()
             .mockResolvedValue({ count: options.claimCount ?? 1 }),
-          findFirst: jest
-            .fn()
-            .mockResolvedValue(
-              options.claimCount === 0
-                ? { status: options.statusAfterFailedClaim ?? 'DRAFT' }
-                : current,
-            ),
+          findFirst: jest.fn().mockResolvedValue(
+            options.claimCount === 0
+              ? {
+                  status: options.statusAfterFailedClaim ?? 'DRAFT',
+                  version: options.versionAfterFailedClaim ?? 2,
+                }
+              : current,
+          ),
           findFirstOrThrow: jest.fn().mockResolvedValue(current),
         },
         stockCountItem: { update: jest.fn().mockResolvedValue({}) },
@@ -248,8 +250,12 @@ describe('PrismaStockCountRepository', () => {
       });
     });
 
-    it('ném StockCountStatusConflictError khi claim thất bại VÀ trạng thái hiện tại không phải COUNTING', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'DRAFT' });
+    it('ném StockCountStatusConflictError khi claim thất bại, version KHỚP nhưng trạng thái hiện tại không phải COUNTING (invalid-transition thật)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'DRAFT',
+        versionAfterFailedClaim: 2,
+      });
       await expect(
         repository.complete(
           'sc-1',
@@ -261,8 +267,12 @@ describe('PrismaStockCountRepository', () => {
       ).rejects.toThrow(StockCountStatusConflictError);
     });
 
-    it('T051.02: ném StockCountConcurrencyConflictError khi claim thất bại NHƯNG trạng thái vẫn là COUNTING (stale version)', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'COUNTING' });
+    it('T051.02: ném StockCountConcurrencyConflictError khi claim thất bại vì version lệch (kể cả khi status hiện tại đã đổi do request thắng cuộc)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'COMPLETED',
+        versionAfterFailedClaim: 3,
+      });
       await expect(
         repository.complete(
           'sc-1',
@@ -275,7 +285,11 @@ describe('PrismaStockCountRepository', () => {
     });
 
     it('claim thất bại KHÔNG chạy vòng lặp Inventory (zero business side effects cho request thua)', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'COUNTING' });
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'COMPLETED',
+        versionAfterFailedClaim: 3,
+      });
       await expect(
         repository.complete(
           'sc-1',

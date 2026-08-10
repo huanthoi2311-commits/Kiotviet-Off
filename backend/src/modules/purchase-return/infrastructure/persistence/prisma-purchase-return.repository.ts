@@ -209,16 +209,20 @@ export class PrismaPurchaseReturnRepository implements IPurchaseReturnRepository
       });
 
       if (claim.count === 0) {
-        const currentStatus = await tx.purchaseReturn.findFirst({
+        const current = await tx.purchaseReturn.findFirst({
           where: { id, organizationId },
-          select: { status: true },
+          select: { status: true, version: true },
         });
-        if (!currentStatus || currentStatus.status !== 'APPROVED') {
-          throw new PurchaseReturnStatusConflictError(
-            (currentStatus?.status as PurchaseReturnStatus) ?? null,
-          );
+        if (!current) {
+          throw new PurchaseReturnStatusConflictError(null);
         }
-        throw new PurchaseReturnConcurrencyConflictError(id);
+        // T051.02: version lệch => request khác đã ghi đè kể từ lần đọc gần nhất của caller —
+        // luôn là version conflict (409), bất kể status hiện tại. Chỉ khi version khớp mà claim
+        // vẫn thất bại mới là lỗi nghiệp vụ thật (422).
+        if (current.version !== expectedVersion) {
+          throw new PurchaseReturnConcurrencyConflictError(id);
+        }
+        throw new PurchaseReturnStatusConflictError(current.status);
       }
 
       const current = await tx.purchaseReturn.findFirst({

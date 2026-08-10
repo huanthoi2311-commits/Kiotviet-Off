@@ -47,6 +47,7 @@ describe('PurchaseReport Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/purchase-orders/${purchaseOrderId}/receive`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(200);
 
     return purchaseOrderId;

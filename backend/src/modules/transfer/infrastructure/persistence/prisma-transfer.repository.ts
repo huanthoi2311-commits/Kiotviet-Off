@@ -153,19 +153,20 @@ export class PrismaTransferRepository implements ITransferRepository {
       });
 
       if (claim.count === 0) {
-        const currentStatus = await tx.transfer.findFirst({
+        const current = await tx.transfer.findFirst({
           where: { id, organizationId },
-          select: { status: true },
+          select: { status: true, version: true },
         });
-        if (
-          !currentStatus ||
-          !expectedStatuses.includes(currentStatus.status)
-        ) {
-          throw new TransferStatusConflictError(
-            currentStatus?.status ?? 'CANCELLED',
-          );
+        if (!current) {
+          throw new TransferStatusConflictError('CANCELLED');
         }
-        throw new TransferConcurrencyConflictError(id);
+        // T051.02: version lệch => request khác đã ghi đè kể từ lần đọc gần nhất của caller —
+        // luôn là version conflict (409), bất kể status hiện tại. Chỉ khi version khớp mà claim
+        // vẫn thất bại mới là lỗi nghiệp vụ thật (422) — status không nằm trong tập cho phép.
+        if (current.version !== expectedVersion) {
+          throw new TransferConcurrencyConflictError(id);
+        }
+        throw new TransferStatusConflictError(current.status);
       }
 
       const current = await tx.transfer.findFirst({

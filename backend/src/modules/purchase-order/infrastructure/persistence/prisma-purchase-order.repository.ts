@@ -184,14 +184,20 @@ export class PrismaPurchaseOrderRepository implements IPurchaseOrderRepository {
       if (claim.count === 0) {
         const current = await tx.purchaseOrder.findFirst({
           where: { id, organizationId },
-          select: { status: true },
+          select: { status: true, version: true },
         });
-        if (!current || current.status !== 'APPROVED') {
-          throw new PurchaseOrderStatusConflictError(
-            (current?.status as PurchaseOrderStatus) ?? null,
-          );
+        if (!current) {
+          throw new PurchaseOrderStatusConflictError(null);
         }
-        throw new PurchaseOrderConcurrencyConflictError(id);
+        // Version khác kỳ vọng => có request khác đã ghi đè kể từ lần đọc gần nhất của
+        // caller — LUÔN LÀ version conflict (409), bất kể status hiện tại là gì (T051.02:
+        // caller thua cuộc trong race cũng thấy status đã đổi, không được nhầm thành lỗi
+        // invalid-transition). Chỉ khi version khớp mà claim vẫn thất bại mới là lỗi
+        // nghiệp vụ thật (422) — do status không nằm trong tập cho phép.
+        if (current.version !== expectedVersion) {
+          throw new PurchaseOrderConcurrencyConflictError(id);
+        }
+        throw new PurchaseOrderStatusConflictError(current.status);
       }
 
       const current = await tx.purchaseOrder.findFirst({

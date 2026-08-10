@@ -408,17 +408,17 @@ describe('PurchaseOrder Module (e2e, integration)', () => {
     expect(inventoryAfter?.quantity.toNumber()).toBe(qtyBefore + 7);
 
     // Movement ghi đúng 1 lần — không có dòng orphan/partial nào từ request thua cuộc.
+    // Endpoint không hỗ trợ lọc theo referenceId nên lọc thủ công trên kết quả trả về
+    // (warehouseId/productId dùng chung giữa các test trong file này).
     const history = await request(app.getHttpServer())
       .get('/api/v1/inventory/history')
-      .query({
-        warehouseId,
-        productId,
-        movementType: 'PURCHASE',
-        referenceId: purchaseOrderId,
-      })
+      .query({ warehouseId, productId, movementType: 'PURCHASE', limit: 100 })
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    expect(history.body.data.total).toBe(1);
+    const movementsForThisOrder = (
+      history.body.data.items as { referenceId: string }[]
+    ).filter((item) => item.referenceId === purchaseOrderId);
+    expect(movementsForThisOrder).toHaveLength(1);
 
     // Debt (payable) ghi đúng 1 lần.
     const debts = await prisma.debt.findMany({
@@ -458,15 +458,13 @@ describe('PurchaseOrder Module (e2e, integration)', () => {
 
     const history = await request(app.getHttpServer())
       .get('/api/v1/inventory/history')
-      .query({
-        warehouseId,
-        productId,
-        movementType: 'PURCHASE',
-        referenceId: purchaseOrderId,
-      })
+      .query({ warehouseId, productId, movementType: 'PURCHASE', limit: 100 })
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    expect(history.body.data.total).toBe(1);
+    const movementsForThisOrder = (
+      history.body.data.items as { referenceId: string }[]
+    ).filter((item) => item.referenceId === purchaseOrderId);
+    expect(movementsForThisOrder).toHaveLength(1);
 
     const debts = await prisma.debt.findMany({
       where: { refType: 'PurchaseOrder', refId: purchaseOrderId },

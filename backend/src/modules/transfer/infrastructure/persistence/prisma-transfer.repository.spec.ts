@@ -160,6 +160,7 @@ describe('PrismaTransferRepository', () => {
     function makeTx(options: {
       claimCount?: number;
       statusAfterFailedClaim?: string | null;
+      versionAfterFailedClaim?: number;
       currentForLoop?: unknown;
     }) {
       const current = options.currentForLoop ?? rawTransfer;
@@ -168,15 +169,16 @@ describe('PrismaTransferRepository', () => {
           updateMany: jest
             .fn()
             .mockResolvedValue({ count: options.claimCount ?? 1 }),
-          findFirst: jest
-            .fn()
-            .mockResolvedValue(
-              options.claimCount === 0
-                ? options.statusAfterFailedClaim === null
-                  ? null
-                  : { status: options.statusAfterFailedClaim ?? 'CANCELLED' }
-                : current,
-            ),
+          findFirst: jest.fn().mockResolvedValue(
+            options.claimCount === 0
+              ? options.statusAfterFailedClaim === null
+                ? null
+                : {
+                    status: options.statusAfterFailedClaim ?? 'CANCELLED',
+                    version: options.versionAfterFailedClaim ?? 1,
+                  }
+              : current,
+          ),
           findFirstOrThrow: jest.fn().mockResolvedValue(current),
         },
         transferItem: { update: jest.fn().mockResolvedValue({}) },
@@ -217,8 +219,12 @@ describe('PrismaTransferRepository', () => {
       });
     });
 
-    it('ném TransferStatusConflictError khi claim thất bại VÀ trạng thái hiện tại không khớp expected', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'CANCELLED' });
+    it('ném TransferStatusConflictError khi claim thất bại, version KHỚP nhưng trạng thái hiện tại không khớp expected (invalid-transition thật)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'CANCELLED',
+        versionAfterFailedClaim: 1,
+      });
       await expect(
         repository.transitionStatus(
           'transfer-1',
@@ -247,8 +253,12 @@ describe('PrismaTransferRepository', () => {
       ).rejects.toThrow(TransferStatusConflictError);
     });
 
-    it('T051.02: ném TransferConcurrencyConflictError khi claim thất bại NHƯNG trạng thái vẫn khớp expected (stale version)', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'PENDING' });
+    it('T051.02: ném TransferConcurrencyConflictError khi claim thất bại vì version lệch (kể cả khi status hiện tại đã đổi do request thắng cuộc)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'APPROVED',
+        versionAfterFailedClaim: 2,
+      });
       await expect(
         repository.transitionStatus(
           'transfer-1',
@@ -263,7 +273,11 @@ describe('PrismaTransferRepository', () => {
     });
 
     it('claim thất bại KHÔNG chạy vòng lặp Inventory (zero business side effects cho request thua)', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'PENDING' });
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'APPROVED',
+        versionAfterFailedClaim: 2,
+      });
       await expect(
         repository.transitionStatus(
           'transfer-1',

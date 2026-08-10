@@ -266,19 +266,21 @@ describe('PrismaPurchaseReturnRepository', () => {
     function makeTx(options: {
       claimCount?: number;
       statusAfterFailedClaim?: string;
+      versionAfterFailedClaim?: number;
     }) {
       const tx = {
         purchaseReturn: {
           updateMany: jest
             .fn()
             .mockResolvedValue({ count: options.claimCount ?? 1 }),
-          findFirst: jest
-            .fn()
-            .mockResolvedValue(
-              options.claimCount === 0
-                ? { status: options.statusAfterFailedClaim ?? 'DRAFT' }
-                : approvedReturn,
-            ),
+          findFirst: jest.fn().mockResolvedValue(
+            options.claimCount === 0
+              ? {
+                  status: options.statusAfterFailedClaim ?? 'DRAFT',
+                  version: options.versionAfterFailedClaim ?? 2,
+                }
+              : approvedReturn,
+          ),
           findFirstOrThrow: jest.fn().mockResolvedValue(approvedReturn),
         },
         debt: { create: jest.fn().mockResolvedValue({}) },
@@ -309,22 +311,34 @@ describe('PrismaPurchaseReturnRepository', () => {
       });
     });
 
-    it('ném StatusConflictError khi claim thất bại VÀ trạng thái hiện tại không phải APPROVED', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'DRAFT' });
+    it('ném StatusConflictError khi claim thất bại, version KHỚP nhưng trạng thái hiện tại không phải APPROVED (invalid-transition thật)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'DRAFT',
+        versionAfterFailedClaim: 2,
+      });
       await expect(
         repository.complete('pr-1', 'org-1', 2, 'user-1'),
       ).rejects.toThrow(PurchaseReturnStatusConflictError);
     });
 
-    it('T051.02: ném PurchaseReturnConcurrencyConflictError khi claim thất bại NHƯNG trạng thái vẫn là APPROVED (stale version)', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'APPROVED' });
+    it('T051.02: ném PurchaseReturnConcurrencyConflictError khi claim thất bại vì version lệch (kể cả khi status hiện tại đã đổi do request thắng cuộc)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'COMPLETED',
+        versionAfterFailedClaim: 3,
+      });
       await expect(
         repository.complete('pr-1', 'org-1', 1, 'user-1'),
       ).rejects.toThrow(PurchaseReturnConcurrencyConflictError);
     });
 
     it('claim thất bại KHÔNG chạy vòng lặp Inventory (zero business side effects cho request thua)', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'APPROVED' });
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'COMPLETED',
+        versionAfterFailedClaim: 3,
+      });
       await expect(
         repository.complete('pr-1', 'org-1', 1, 'user-1'),
       ).rejects.toThrow(PurchaseReturnConcurrencyConflictError);

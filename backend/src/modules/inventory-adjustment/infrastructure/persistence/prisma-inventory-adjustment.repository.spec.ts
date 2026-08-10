@@ -199,19 +199,21 @@ describe('PrismaInventoryAdjustmentRepository', () => {
     function makeTx(options: {
       claimCount?: number;
       statusAfterFailedClaim?: string;
+      versionAfterFailedClaim?: number;
     }) {
       const tx = {
         inventoryAdjustment: {
           updateMany: jest
             .fn()
             .mockResolvedValue({ count: options.claimCount ?? 1 }),
-          findFirst: jest
-            .fn()
-            .mockResolvedValue(
-              options.claimCount === 0
-                ? { status: options.statusAfterFailedClaim ?? 'DRAFT' }
-                : approvedAdjustment,
-            ),
+          findFirst: jest.fn().mockResolvedValue(
+            options.claimCount === 0
+              ? {
+                  status: options.statusAfterFailedClaim ?? 'DRAFT',
+                  version: options.versionAfterFailedClaim ?? 2,
+                }
+              : approvedAdjustment,
+          ),
           findFirstOrThrow: jest.fn().mockResolvedValue(approvedAdjustment),
         },
       };
@@ -241,22 +243,34 @@ describe('PrismaInventoryAdjustmentRepository', () => {
       });
     });
 
-    it('ném StatusConflictError khi claim thất bại VÀ trạng thái hiện tại không phải APPROVED', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'DRAFT' });
+    it('ném StatusConflictError khi claim thất bại, version KHỚP nhưng trạng thái hiện tại không phải APPROVED (invalid-transition thật)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'DRAFT',
+        versionAfterFailedClaim: 2,
+      });
       await expect(
         repository.complete('adj-1', 'org-1', 2, 'user-1'),
       ).rejects.toThrow(InventoryAdjustmentStatusConflictError);
     });
 
-    it('T051.02: ném InventoryAdjustmentConcurrencyConflictError khi claim thất bại NHƯNG trạng thái vẫn là APPROVED (stale version)', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'APPROVED' });
+    it('T051.02: ném InventoryAdjustmentConcurrencyConflictError khi claim thất bại vì version lệch (kể cả khi status hiện tại đã đổi do request thắng cuộc)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'COMPLETED',
+        versionAfterFailedClaim: 3,
+      });
       await expect(
         repository.complete('adj-1', 'org-1', 1, 'user-1'),
       ).rejects.toThrow(InventoryAdjustmentConcurrencyConflictError);
     });
 
     it('claim thất bại KHÔNG chạy vòng lặp Inventory (zero business side effects cho request thua)', async () => {
-      makeTx({ claimCount: 0, statusAfterFailedClaim: 'APPROVED' });
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'COMPLETED',
+        versionAfterFailedClaim: 3,
+      });
       await expect(
         repository.complete('adj-1', 'org-1', 1, 'user-1'),
       ).rejects.toThrow(InventoryAdjustmentConcurrencyConflictError);

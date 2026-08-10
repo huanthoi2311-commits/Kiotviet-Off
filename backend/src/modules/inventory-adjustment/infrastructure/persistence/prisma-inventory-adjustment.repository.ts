@@ -171,16 +171,20 @@ export class PrismaInventoryAdjustmentRepository implements IInventoryAdjustment
       });
 
       if (claim.count === 0) {
-        const currentStatus = await tx.inventoryAdjustment.findFirst({
+        const current = await tx.inventoryAdjustment.findFirst({
           where: { id, organizationId },
-          select: { status: true },
+          select: { status: true, version: true },
         });
-        if (!currentStatus || currentStatus.status !== 'APPROVED') {
-          throw new InventoryAdjustmentStatusConflictError(
-            currentStatus?.status ?? null,
-          );
+        if (!current) {
+          throw new InventoryAdjustmentStatusConflictError(null);
         }
-        throw new InventoryAdjustmentConcurrencyConflictError(id);
+        // T051.02: version lệch => request khác đã ghi đè kể từ lần đọc gần nhất của caller —
+        // luôn là version conflict (409), bất kể status hiện tại. Chỉ khi version khớp mà claim
+        // vẫn thất bại mới là lỗi nghiệp vụ thật (422).
+        if (current.version !== expectedVersion) {
+          throw new InventoryAdjustmentConcurrencyConflictError(id);
+        }
+        throw new InventoryAdjustmentStatusConflictError(current.status);
       }
 
       const current = await tx.inventoryAdjustment.findFirst({
