@@ -36,6 +36,26 @@ function renderHarness(filters: Record<string, string | undefined> = {}) {
   );
 }
 
+/** jsdom's XMLHttpRequest does not reliably resolve `responseType: 'blob'` requests (a known
+ * jsdom limitation, not a production bug — real browsers handle this fine) — verified by CI: the
+ * request/response exchange itself completes (MSW sees and can capture it), but axios's Promise
+ * processing the blob body hangs indefinitely under jsdom. Real network transport is therefore
+ * only exercised for the "filters are forwarded" case below (which only needs the request to be
+ * sent, not the blob body to be processed). Every test exercising the actual download side effect
+ * (createObjectURL/click/filename/revoke/dedup) instead mocks `apiClient.get` directly, so it
+ * verifies `use-supplier-export.ts`'s own logic without depending on jsdom's blob-XHR support. */
+function mockApiClientGet(
+  response: { data: Blob; headers: Record<string, string> },
+  options?: { delayMs?: number },
+) {
+  return vi.spyOn(apiClientModule.apiClient, 'get').mockImplementation(async () => {
+    if (options?.delayMs) {
+      await new Promise((resolve) => setTimeout(resolve, options.delayMs));
+    }
+    return response;
+  });
+}
+
 describe('useSupplierExport (T049 AD-1 §6)', () => {
   let createObjectURLSpy: ReturnType<typeof vi.fn>;
   let revokeObjectURLSpy: ReturnType<typeof vi.fn>;
@@ -89,18 +109,10 @@ describe('useSupplierExport (T049 AD-1 §6)', () => {
   });
 
   it('downloads the blob using the Content-Disposition filename and revokes the object URL', async () => {
-    server.use(
-      http.get(
-        `${API_BASE_URL}/suppliers/export`,
-        () =>
-          new HttpResponse(new Blob(['fake-xlsx-bytes']), {
-            headers: {
-              'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-              'Content-Disposition': 'attachment; filename="suppliers-filtered.xlsx"',
-            },
-          }),
-      ),
-    );
+    mockApiClientGet({
+      data: new Blob(['fake-xlsx-bytes']),
+      headers: { 'content-disposition': 'attachment; filename="suppliers-filtered.xlsx"' },
+    });
 
     renderHarness({});
     await userEvent.click(screen.getByRole('button', { name: 'Xuất Excel' }));
@@ -111,17 +123,7 @@ describe('useSupplierExport (T049 AD-1 §6)', () => {
   });
 
   it('falls back to the known static filename when Content-Disposition is unavailable', async () => {
-    server.use(
-      http.get(
-        `${API_BASE_URL}/suppliers/export`,
-        () =>
-          new HttpResponse(new Blob(['fake-xlsx-bytes']), {
-            headers: {
-              'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            },
-          }),
-      ),
-    );
+    mockApiClientGet({ data: new Blob(['fake-xlsx-bytes']), headers: {} });
 
     let capturedDownload = '';
     const originalCreateElement = document.createElement.bind(document);
@@ -146,18 +148,12 @@ describe('useSupplierExport (T049 AD-1 §6)', () => {
   });
 
   it('duplicate-click protection: a second click while pending does not fire a second request', async () => {
-    let requestCount = 0;
-    server.use(
-      http.get(`${API_BASE_URL}/suppliers/export`, async () => {
-        requestCount += 1;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        return new HttpResponse(new Blob(['fake-xlsx-bytes']), {
-          headers: {
-            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'Content-Disposition': 'attachment; filename="suppliers.xlsx"',
-          },
-        });
-      }),
+    const getSpy = mockApiClientGet(
+      {
+        data: new Blob(['fake-xlsx-bytes']),
+        headers: { 'content-disposition': 'attachment; filename="suppliers.xlsx"' },
+      },
+      { delayMs: 100 },
     );
 
     renderHarness({});
@@ -167,23 +163,15 @@ describe('useSupplierExport (T049 AD-1 §6)', () => {
     await userEvent.click(button);
 
     await waitFor(() => expect(clickSpy).toHaveBeenCalled());
-    expect(requestCount).toBe(1);
+    expect(getSpy).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT route through apiClientMutator (the shared JSON-envelope unwrapper)', async () => {
     const mutatorSpy = vi.spyOn(apiClientModule, 'apiClientMutator');
-    server.use(
-      http.get(
-        `${API_BASE_URL}/suppliers/export`,
-        () =>
-          new HttpResponse(new Blob(['fake-xlsx-bytes']), {
-            headers: {
-              'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-              'Content-Disposition': 'attachment; filename="suppliers.xlsx"',
-            },
-          }),
-      ),
-    );
+    mockApiClientGet({
+      data: new Blob(['fake-xlsx-bytes']),
+      headers: { 'content-disposition': 'attachment; filename="suppliers.xlsx"' },
+    });
 
     renderHarness({});
     await userEvent.click(screen.getByRole('button', { name: 'Xuất Excel' }));
