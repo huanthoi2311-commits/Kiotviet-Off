@@ -7,6 +7,7 @@ import {
   InventoryInsufficientStockError,
 } from '../../../inventory/domain/errors/inventory.errors';
 import {
+  InventoryAdjustmentConcurrencyConflictError,
   InventoryAdjustmentNegativeStockError,
   InventoryAdjustmentStatusConflictError,
 } from '../../domain/repositories/inventory-adjustment.repository.interface';
@@ -39,6 +40,7 @@ const rawAdjustment = {
   status: 'DRAFT',
   reason: 'LOST',
   note: null,
+  version: 1,
   createdAt: new Date('2026-01-01'),
   updatedAt: new Date('2026-01-01'),
   deletedAt: null,
@@ -187,17 +189,30 @@ describe('PrismaInventoryAdjustmentRepository', () => {
     });
   });
 
-  describe('complete', () => {
-    function makeTx(overrides: { currentAdjustment?: unknown }) {
-      const adjustmentUpdate = jest.fn().mockResolvedValue(rawAdjustment);
-      const currentAdjustment =
-        'currentAdjustment' in overrides
-          ? overrides.currentAdjustment
-          : { ...rawAdjustment, status: 'APPROVED' };
+  describe('complete (T051.02 — Optimistic Lock CAS-first)', () => {
+    const approvedAdjustment = {
+      ...rawAdjustment,
+      status: 'APPROVED',
+      version: 2,
+    };
+
+    function makeTx(options: {
+      claimCount?: number;
+      statusAfterFailedClaim?: string;
+    }) {
       const tx = {
         inventoryAdjustment: {
-          findFirst: jest.fn().mockResolvedValue(currentAdjustment),
-          update: adjustmentUpdate,
+          updateMany: jest
+            .fn()
+            .mockResolvedValue({ count: options.claimCount ?? 1 }),
+          findFirst: jest
+            .fn()
+            .mockResolvedValue(
+              options.claimCount === 0
+                ? { status: options.statusAfterFailedClaim ?? 'DRAFT' }
+                : approvedAdjustment,
+            ),
+          findFirstOrThrow: jest.fn().mockResolvedValue(approvedAdjustment),
         },
       };
       prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
@@ -206,17 +221,52 @@ describe('PrismaInventoryAdjustmentRepository', () => {
       return tx;
     }
 
-    it('ném StatusConflictError khi không ở trạng thái APPROVED', async () => {
-      makeTx({ currentAdjustment: { ...rawAdjustment, status: 'DRAFT' } });
+    it('claim thành công: updateMany với where kèm status=APPROVED và version=expectedVersion', async () => {
+      const tx = makeTx({});
+
+      await repository.complete('adj-1', 'org-1', 2, 'user-1');
+
+      expect(tx.inventoryAdjustment.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'adj-1',
+          organizationId: 'org-1',
+          status: 'APPROVED',
+          version: 2,
+        },
+        data: {
+          status: 'COMPLETED',
+          version: { increment: 1 },
+          updatedBy: 'user-1',
+        },
+      });
+    });
+
+    it('ném StatusConflictError khi claim thất bại VÀ trạng thái hiện tại không phải APPROVED', async () => {
+      makeTx({ claimCount: 0, statusAfterFailedClaim: 'DRAFT' });
       await expect(
-        repository.complete('adj-1', 'org-1', 'user-1'),
+        repository.complete('adj-1', 'org-1', 2, 'user-1'),
       ).rejects.toThrow(InventoryAdjustmentStatusConflictError);
     });
 
-    it('gọi InventoryDomainService.adjust() đúng tham số cho từng dòng hàng', async () => {
+    it('T051.02: ném InventoryAdjustmentConcurrencyConflictError khi claim thất bại NHƯNG trạng thái vẫn là APPROVED (stale version)', async () => {
+      makeTx({ claimCount: 0, statusAfterFailedClaim: 'APPROVED' });
+      await expect(
+        repository.complete('adj-1', 'org-1', 1, 'user-1'),
+      ).rejects.toThrow(InventoryAdjustmentConcurrencyConflictError);
+    });
+
+    it('claim thất bại KHÔNG chạy vòng lặp Inventory (zero business side effects cho request thua)', async () => {
+      makeTx({ claimCount: 0, statusAfterFailedClaim: 'APPROVED' });
+      await expect(
+        repository.complete('adj-1', 'org-1', 1, 'user-1'),
+      ).rejects.toThrow(InventoryAdjustmentConcurrencyConflictError);
+      expect(inventoryDomainService.adjust).not.toHaveBeenCalled();
+    });
+
+    it('claim thành công MỚI gọi InventoryDomainService.adjust() đúng tham số cho từng dòng hàng', async () => {
       const tx = makeTx({});
 
-      await repository.complete('adj-1', 'org-1', 'user-1');
+      await repository.complete('adj-1', 'org-1', 2, 'user-1');
 
       expect(inventoryDomainService.adjust).toHaveBeenCalledWith(
         tx,
@@ -231,25 +281,17 @@ describe('PrismaInventoryAdjustmentRepository', () => {
           createdBy: 'user-1',
         }),
       );
-
-      expect(tx.inventoryAdjustment.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'adj-1' },
-          data: { status: 'COMPLETED', updatedBy: 'user-1' },
-        }),
-      );
     });
 
     it('dịch InventoryInsufficientStockError sang InventoryAdjustmentNegativeStockError', async () => {
-      const tx = makeTx({});
+      makeTx({});
       inventoryDomainService.adjust.mockRejectedValueOnce(
         new InventoryInsufficientStockError('product-1', '2'),
       );
 
       await expect(
-        repository.complete('adj-1', 'org-1', 'user-1'),
+        repository.complete('adj-1', 'org-1', 2, 'user-1'),
       ).rejects.toThrow(InventoryAdjustmentNegativeStockError);
-      expect(tx.inventoryAdjustment.update).not.toHaveBeenCalled();
     });
 
     it('lan truyền nguyên trạng InventoryConcurrencyConflictError (không dịch)', async () => {
@@ -259,7 +301,7 @@ describe('PrismaInventoryAdjustmentRepository', () => {
       );
 
       await expect(
-        repository.complete('adj-1', 'org-1', 'user-1'),
+        repository.complete('adj-1', 'org-1', 2, 'user-1'),
       ).rejects.toThrow(InventoryConcurrencyConflictError);
     });
   });

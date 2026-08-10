@@ -216,8 +216,10 @@ describe('InventoryAdjustment Module (e2e, integration)', () => {
     const completed = await request(app.getHttpServer())
       .patch(`/api/v1/inventory-adjustments/${adjustmentId}/complete`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(200);
     expect(completed.body.data.status).toBe('COMPLETED');
+    expect(completed.body.data.version).toBe(2);
 
     const stock = await request(app.getHttpServer())
       .get('/api/v1/inventory')
@@ -259,6 +261,7 @@ describe('InventoryAdjustment Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/inventory-adjustments/${adjustmentId}/complete`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(422);
   });
 
@@ -316,6 +319,7 @@ describe('InventoryAdjustment Module (e2e, integration)', () => {
     const completed = await request(app.getHttpServer())
       .patch(`/api/v1/inventory-adjustments/${adjustmentId}/complete`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(200);
     expect(completed.body.data.status).toBe('COMPLETED');
   });
@@ -346,5 +350,60 @@ describe('InventoryAdjustment Module (e2e, integration)', () => {
     expect(
       res.body.data.items.every((a: { reason: string }) => a.reason === 'LOST'),
     ).toBe(true);
+  });
+
+  it('T051.02 CONCURRENCY: hai request complete() cùng version, gửi ĐỒNG THỜI — đúng 1 thành công, cái kia nhận INVENTORY_ADJUSTMENT_008', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/inventory-adjustments')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        warehouseId,
+        reason: 'OTHER',
+        items: [{ productId, quantity: -2, remark: 'T051.02 concurrency' }],
+      })
+      .expect(201);
+    const adjustmentId = created.body.data.id;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/inventory-adjustments/${adjustmentId}/submit`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/inventory-adjustments/${adjustmentId}/approve`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    const inventoryBefore = await prisma.inventory.findFirst({
+      where: { warehouseId, productId },
+    });
+    const qtyBefore = inventoryBefore?.quantity.toNumber() ?? 0;
+
+    const [resA, resB] = await Promise.all([
+      request(app.getHttpServer())
+        .patch(`/api/v1/inventory-adjustments/${adjustmentId}/complete`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 1 }),
+      request(app.getHttpServer())
+        .patch(`/api/v1/inventory-adjustments/${adjustmentId}/complete`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 1 }),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    const loser = resA.status === 409 ? resA : resB;
+    expect(loser.body.code).toBe('INVENTORY_ADJUSTMENT_008');
+
+    const final = await request(app.getHttpServer())
+      .get(`/api/v1/inventory-adjustments/${adjustmentId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(final.body.data.status).toBe('COMPLETED');
+    expect(final.body.data.version).toBe(2);
+
+    const inventoryAfter = await prisma.inventory.findFirst({
+      where: { warehouseId, productId },
+    });
+    expect(inventoryAfter?.quantity.toNumber()).toBe(qtyBefore - 2);
   });
 });

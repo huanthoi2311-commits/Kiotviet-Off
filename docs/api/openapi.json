@@ -7033,6 +7033,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferVersionDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "",
@@ -7110,7 +7120,7 @@
             "bearer": []
           }
         ],
-        "summary": "Duyệt phiếu — trừ tồn kho nguồn (PENDING → APPROVED)",
+        "summary": "Duyệt phiếu — trừ tồn kho nguồn (PENDING → APPROVED). T051.02: body.version là Optimistic Lock bắt buộc (đọc từ GET trước đó), sai version → 409.",
         "tags": [
           "Transfer"
         ]
@@ -7129,6 +7139,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferVersionDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "",
@@ -7206,7 +7226,7 @@
             "bearer": []
           }
         ],
-        "summary": "Nhận hàng — cộng tồn kho đích (APPROVED → RECEIVED)",
+        "summary": "Nhận hàng — cộng tồn kho đích (APPROVED → RECEIVED). T051.02: body.version là Optimistic Lock bắt buộc.",
         "tags": [
           "Transfer"
         ]
@@ -7225,6 +7245,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferVersionDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "",
@@ -7302,7 +7332,7 @@
             "bearer": []
           }
         ],
-        "summary": "Hủy phiếu (hoàn kho nguồn nếu đã Approve)",
+        "summary": "Hủy phiếu (hoàn kho nguồn nếu đã Approve). T051.02: body.version là Optimistic Lock bắt buộc.",
         "tags": [
           "Transfer"
         ]
@@ -7795,7 +7825,7 @@
             "bearer": []
           }
         ],
-        "summary": "Hoàn tất kiểm kê — ghi actualQty, sinh Adjustment/Movement nếu lệch",
+        "summary": "Hoàn tất kiểm kê — ghi actualQty, sinh Adjustment/Movement nếu lệch. T051.02: body.version là Optimistic Lock bắt buộc (đọc từ GET trước đó), sai version → 409.",
         "tags": [
           "StockCount"
         ]
@@ -8312,6 +8342,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteInventoryAdjustmentDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "",
@@ -8389,7 +8429,7 @@
             "bearer": []
           }
         ],
-        "summary": "Hoàn tất — sinh InventoryMovement, đồng bộ tồn kho (APPROVED → COMPLETED)",
+        "summary": "Hoàn tất — sinh InventoryMovement, đồng bộ tồn kho (APPROVED → COMPLETED). T051.02: body.version là Optimistic Lock bắt buộc (đọc từ GET trước đó), sai version → 409.",
         "tags": [
           "InventoryAdjustment"
         ]
@@ -10159,6 +10199,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceivePurchaseOrderDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "",
@@ -10236,7 +10286,7 @@
             "bearer": []
           }
         ],
-        "summary": "Nhận hàng — sinh InventoryMovement, đồng bộ tồn kho + Average Cost (APPROVED → RECEIVED)",
+        "summary": "Nhận hàng — sinh InventoryMovement, đồng bộ tồn kho + Average Cost (APPROVED → RECEIVED). T051.02: body.version là Optimistic Lock bắt buộc (đọc từ GET trước đó), sai version → 409.",
         "tags": [
           "PurchaseOrder"
         ]
@@ -10746,6 +10796,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompletePurchaseReturnDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "",
@@ -10823,7 +10883,7 @@
             "bearer": []
           }
         ],
-        "summary": "Hoàn tất — Inventory Out (InventoryMovement RETURN) + giảm công nợ NCC (APPROVED → COMPLETED)",
+        "summary": "Hoàn tất — Inventory Out (InventoryMovement RETURN) + giảm công nợ NCC (APPROVED → COMPLETED). T051.02: body.version là Optimistic Lock bắt buộc (đọc từ GET trước đó), sai version → 409.",
         "tags": [
           "PurchaseReturn"
         ]
@@ -17777,6 +17837,10 @@
               "$ref": "#/components/schemas/TransferItemResponseDto"
             }
           },
+          "version": {
+            "type": "number",
+            "description": "Optimistic Lock (T051.02) — gửi lại giá trị này khi gọi approve/receive/cancel"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -17794,6 +17858,7 @@
           "status",
           "note",
           "items",
+          "version",
           "createdAt",
           "updatedAt"
         ]
@@ -17822,6 +17887,18 @@
           "total",
           "page",
           "limit"
+        ]
+      },
+      "TransferVersionDto": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "description": "Optimistic Lock (T051.02) — gửi lại đúng version đã đọc trước đó; sai version bị từ chối (409)"
+          }
+        },
+        "required": [
+          "version"
         ]
       },
       "CreateStockCountDto": {
@@ -17906,6 +17983,10 @@
               "$ref": "#/components/schemas/StockCountItemResponseDto"
             }
           },
+          "version": {
+            "type": "number",
+            "description": "Optimistic Lock (T051.02) — gửi lại giá trị này khi gọi complete"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -17922,6 +18003,7 @@
           "status",
           "note",
           "items",
+          "version",
           "createdAt",
           "updatedAt"
         ]
@@ -17976,6 +18058,10 @@
       "CompleteStockCountDto": {
         "type": "object",
         "properties": {
+          "version": {
+            "type": "number",
+            "description": "Optimistic Lock (T051.02) — gửi lại đúng version đã đọc trước đó; sai version bị từ chối (409)"
+          },
           "items": {
             "type": "array",
             "items": {
@@ -17984,6 +18070,7 @@
           }
         },
         "required": [
+          "version",
           "items"
         ]
       },
@@ -18093,6 +18180,10 @@
               "$ref": "#/components/schemas/InventoryAdjustmentItemResponseDto"
             }
           },
+          "version": {
+            "type": "number",
+            "description": "Optimistic Lock (T051.02) — gửi lại giá trị này khi gọi complete"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -18110,6 +18201,7 @@
           "reason",
           "note",
           "items",
+          "version",
           "createdAt",
           "updatedAt"
         ]
@@ -18138,6 +18230,18 @@
           "total",
           "page",
           "limit"
+        ]
+      },
+      "CompleteInventoryAdjustmentDto": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "description": "Optimistic Lock (T051.02) — gửi lại đúng version đã đọc trước đó; sai version bị từ chối (409)"
+          }
+        },
+        "required": [
+          "version"
         ]
       },
       "CreateSupplierDto": {
@@ -18658,6 +18762,10 @@
               "$ref": "#/components/schemas/PurchaseItemResponseDto"
             }
           },
+          "version": {
+            "type": "number",
+            "description": "Optimistic Lock (T051.02) — gửi lại giá trị này khi gọi receive"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -18677,6 +18785,7 @@
           "paidAmount",
           "expectedAt",
           "items",
+          "version",
           "createdAt",
           "updatedAt"
         ]
@@ -18705,6 +18814,18 @@
           "total",
           "page",
           "limit"
+        ]
+      },
+      "ReceivePurchaseOrderDto": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "description": "Optimistic Lock (T051.02) — gửi lại đúng version đã đọc trước đó; sai version bị từ chối (409)"
+          }
+        },
+        "required": [
+          "version"
         ]
       },
       "CreatePurchaseReturnItemDto": {
@@ -18824,6 +18945,10 @@
               "$ref": "#/components/schemas/PurchaseReturnItemResponseDto"
             }
           },
+          "version": {
+            "type": "number",
+            "description": "Optimistic Lock (T051.02) — gửi lại giá trị này khi gọi complete"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -18843,6 +18968,7 @@
           "totalAmount",
           "note",
           "items",
+          "version",
           "createdAt",
           "updatedAt"
         ]
@@ -18871,6 +18997,18 @@
           "total",
           "page",
           "limit"
+        ]
+      },
+      "CompletePurchaseReturnDto": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "description": "Optimistic Lock (T051.02) — gửi lại đúng version đã đọc trước đó; sai version bị từ chối (409)"
+          }
+        },
+        "required": [
+          "version"
         ]
       },
       "SupplierDebtResponseDto": {

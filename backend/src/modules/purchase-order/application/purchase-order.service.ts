@@ -13,6 +13,7 @@ import { PurchaseOrderEntity } from '../domain/entities/purchase-order.entity';
 import {
   CreatePurchaseItemInput,
   PURCHASE_ORDER_REPOSITORY,
+  PurchaseOrderConcurrencyConflictError,
   PurchaseOrderStatusConflictError,
 } from '../domain/repositories/purchase-order.repository.interface';
 import type { IPurchaseOrderRepository } from '../domain/repositories/purchase-order.repository.interface';
@@ -158,9 +159,14 @@ export class PurchaseOrderService {
     return PurchaseOrderMapper.toResponseDto(updated);
   }
 
-  /** APPROVED → RECEIVED — sinh InventoryMovement (PURCHASE) cho từng dòng hàng, đồng bộ Inventory + Average Cost. */
+  /**
+   * APPROVED → RECEIVED — sinh InventoryMovement (PURCHASE) cho từng dòng hàng, đồng bộ Inventory +
+   * Average Cost. T051.02: `expectedVersion` là Optimistic Lock CAS bắt buộc — client phải gửi lại
+   * đúng `version` đã đọc trước đó (từ GET), sai version bị từ chối 409.
+   */
   async receive(
     id: string,
+    expectedVersion: number,
     actor: ActorContext,
   ): Promise<PurchaseOrderResponseDto> {
     const order = await this.purchaseOrderRepository.findById(
@@ -173,6 +179,7 @@ export class PurchaseOrderService {
       this.purchaseOrderRepository.receive(
         id,
         actor.organizationId,
+        expectedVersion,
         actor.userId,
       ),
     );
@@ -241,6 +248,11 @@ export class PurchaseOrderService {
       if (error instanceof InventoryConcurrencyConflictError) {
         throw new ConflictException(
           withCode(ErrorCode.PURCHASE_ORDER_INVENTORY_CONFLICT, error.message),
+        );
+      }
+      if (error instanceof PurchaseOrderConcurrencyConflictError) {
+        throw new ConflictException(
+          withCode(ErrorCode.PURCHASE_ORDER_VERSION_CONFLICT, error.message),
         );
       }
       throw error;

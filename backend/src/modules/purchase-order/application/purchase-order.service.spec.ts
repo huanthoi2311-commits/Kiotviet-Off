@@ -8,6 +8,7 @@ import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors
 import { PurchaseOrderEntity } from '../domain/entities/purchase-order.entity';
 import {
   IPurchaseOrderRepository,
+  PurchaseOrderConcurrencyConflictError,
   PurchaseOrderStatusConflictError,
 } from '../domain/repositories/purchase-order.repository.interface';
 import { IPurchaseOrderCodeGenerator } from '../domain/services/purchase-order-code-generator.interface';
@@ -33,6 +34,7 @@ describe('PurchaseOrderService', () => {
     totalAmount: '1000000',
     paidAmount: '0',
     expectedAt: null,
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -231,24 +233,26 @@ describe('PurchaseOrderService', () => {
   describe('receive', () => {
     it('ném NotFoundException khi không tồn tại', async () => {
       purchaseOrderRepository.findById.mockResolvedValue(null);
-      await expect(service.receive('missing', actor)).rejects.toThrow(
+      await expect(service.receive('missing', 1, actor)).rejects.toThrow(
         NotFoundException,
       );
     });
 
-    it('gọi repository.receive và ghi audit log', async () => {
+    it('gọi repository.receive kèm expectedVersion và ghi audit log', async () => {
       purchaseOrderRepository.findById.mockResolvedValue(
-        makeOrder({ status: 'APPROVED' }),
+        makeOrder({ status: 'APPROVED', version: 3 }),
       );
       purchaseOrderRepository.receive.mockResolvedValue(
-        makeOrder({ status: 'RECEIVED' }),
+        makeOrder({ status: 'RECEIVED', version: 4 }),
       );
 
-      const result = await service.receive('po-1', actor);
+      const result = await service.receive('po-1', 3, actor);
       expect(result.status).toBe('RECEIVED');
+      expect(result.version).toBe(4);
       expect(purchaseOrderRepository.receive).toHaveBeenCalledWith(
         'po-1',
         'org-1',
+        3,
         'user-1',
       );
       expect(auditLogService.log).toHaveBeenCalledWith(
@@ -261,7 +265,7 @@ describe('PurchaseOrderService', () => {
       purchaseOrderRepository.receive.mockRejectedValue(
         new PurchaseOrderStatusConflictError('DRAFT'),
       );
-      await expect(service.receive('po-1', actor)).rejects.toThrow(
+      await expect(service.receive('po-1', 1, actor)).rejects.toThrow(
         UnprocessableEntityException,
       );
     });
@@ -271,8 +275,27 @@ describe('PurchaseOrderService', () => {
       purchaseOrderRepository.receive.mockRejectedValue(
         new InventoryConcurrencyConflictError('product-1'),
       );
-      await expect(service.receive('po-1', actor)).rejects.toThrow(
+      await expect(service.receive('po-1', 1, actor)).rejects.toThrow(
         ConflictException,
+      );
+    });
+
+    it('T051.02: dịch PurchaseOrderConcurrencyConflictError sang ConflictException (PURCHASE_ORDER_005)', async () => {
+      purchaseOrderRepository.findById.mockResolvedValue(
+        makeOrder({ status: 'APPROVED', version: 1 }),
+      );
+      purchaseOrderRepository.receive.mockRejectedValue(
+        new PurchaseOrderConcurrencyConflictError('po-1'),
+      );
+      let caught: ConflictException | undefined;
+      try {
+        await service.receive('po-1', 1, actor);
+      } catch (error) {
+        caught = error as ConflictException;
+      }
+      expect(caught).toBeInstanceOf(ConflictException);
+      expect((caught?.getResponse() as { errorCode?: string })?.errorCode).toBe(
+        'PURCHASE_ORDER_005',
       );
     });
   });

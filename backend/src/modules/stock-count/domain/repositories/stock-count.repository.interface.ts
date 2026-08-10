@@ -51,6 +51,20 @@ export class StockCountItemMismatchError extends Error {
   }
 }
 
+/**
+ * T051.02 — Ném bởi `complete()` khi `expectedVersion` (client gửi lên) không khớp `version` hiện
+ * tại của StockCount — phiếu đang ở đúng trạng thái COUNTING nhưng vừa bị 1 request khác complete
+ * giữa lúc client đọc và lúc gửi thao tác này. `start()` là status-predicate updateMany atomic sẵn,
+ * không đụng Inventory, không cần version.
+ */
+export class StockCountConcurrencyConflictError extends Error {
+  constructor(public readonly stockCountId: string) {
+    super(
+      `Phiếu kiểm kê vừa bị thay đổi bởi giao dịch khác, vui lòng tải lại và thử lại`,
+    );
+  }
+}
+
 export interface IStockCountRepository {
   create(input: CreateStockCountInput): Promise<StockCountEntity>;
   findById(
@@ -66,13 +80,17 @@ export interface IStockCountRepository {
     updatedBy: string,
   ): Promise<StockCountEntity>;
   /**
-   * COUNTING → COMPLETED trong 1 transaction: ghi actualQty/difference cho từng item,
-   * và với item có difference ≠ 0, ghi 1 InventoryMovement (COUNT) + đồng bộ Inventory.
-   * Không sửa Inventory theo cách nào khác ngoài đường này.
+   * COUNTING → COMPLETED trong 1 transaction. T051.02: Optimistic Lock CAS trên `(id,
+   * organizationId, status: COUNTING, version: expectedVersion)` được claim TRƯỚC vòng lặp Inventory
+   * — request thua cuộc ném `StockCountConcurrencyConflictError` ngay tại bước claim, KHÔNG chạy
+   * vòng lặp Inventory. Request thắng cuộc mới tiếp tục: ghi actualQty/difference cho từng item, và
+   * với item có difference ≠ 0, ghi 1 InventoryMovement (COUNT) + đồng bộ Inventory. Không sửa
+   * Inventory theo cách nào khác ngoài đường này.
    */
   complete(
     id: string,
     organizationId: string,
+    expectedVersion: number,
     items: CompleteStockCountItemInput[],
     updatedBy: string,
   ): Promise<StockCountEntity>;

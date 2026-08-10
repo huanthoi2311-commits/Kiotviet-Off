@@ -94,39 +94,47 @@ describe('TransferController', () => {
     expect(result).toEqual({ id: 'transfer-1' });
   });
 
-  it('approve ủy quyền cho service.approve kèm actor context', async () => {
+  it('approve ủy quyền cho service.approve kèm version và actor context', async () => {
     transferService.approve.mockResolvedValue({
       id: 'transfer-1',
       status: 'APPROVED',
     } as never);
-    const result = await controller.approve('transfer-1', user as never, req);
+    const result = await controller.approve(
+      'transfer-1',
+      { version: 1 },
+      user as never,
+      req,
+    );
     expect(transferService.approve).toHaveBeenCalledWith(
       'transfer-1',
+      1,
       expect.any(Object),
     );
     expect(result).toEqual({ id: 'transfer-1', status: 'APPROVED' });
   });
 
-  it('receive ủy quyền cho service.receive kèm actor context', async () => {
+  it('receive ủy quyền cho service.receive kèm version và actor context', async () => {
     transferService.receive.mockResolvedValue({
       id: 'transfer-1',
       status: 'RECEIVED',
     } as never);
-    await controller.receive('transfer-1', user as never, req);
+    await controller.receive('transfer-1', { version: 2 }, user as never, req);
     expect(transferService.receive).toHaveBeenCalledWith(
       'transfer-1',
+      2,
       expect.any(Object),
     );
   });
 
-  it('cancel ủy quyền cho service.cancel kèm actor context', async () => {
+  it('cancel ủy quyền cho service.cancel kèm version và actor context', async () => {
     transferService.cancel.mockResolvedValue({
       id: 'transfer-1',
       status: 'CANCELLED',
     } as never);
-    await controller.cancel('transfer-1', user as never, req);
+    await controller.cancel('transfer-1', { version: 1 }, user as never, req);
     expect(transferService.cancel).toHaveBeenCalledWith(
       'transfer-1',
+      1,
       expect.any(Object),
     );
   });

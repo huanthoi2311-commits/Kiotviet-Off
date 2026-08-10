@@ -8,6 +8,7 @@ import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors
 import { InventoryAdjustmentEntity } from '../domain/entities/inventory-adjustment.entity';
 import {
   IInventoryAdjustmentRepository,
+  InventoryAdjustmentConcurrencyConflictError,
   InventoryAdjustmentNegativeStockError,
   InventoryAdjustmentStatusConflictError,
 } from '../domain/repositories/inventory-adjustment.repository.interface';
@@ -35,6 +36,7 @@ describe('InventoryAdjustmentService', () => {
     status: 'DRAFT',
     reason: 'LOST',
     note: null,
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -173,19 +175,21 @@ describe('InventoryAdjustmentService', () => {
   });
 
   describe('complete', () => {
-    it('gọi repository.complete và ghi audit log', async () => {
+    it('gọi repository.complete kèm expectedVersion và ghi audit log', async () => {
       adjustmentRepository.findById.mockResolvedValue(
-        makeAdjustment({ status: 'APPROVED' }),
+        makeAdjustment({ status: 'APPROVED', version: 2 }),
       );
       adjustmentRepository.complete.mockResolvedValue(
-        makeAdjustment({ status: 'COMPLETED' }),
+        makeAdjustment({ status: 'COMPLETED', version: 3 }),
       );
 
-      const result = await service.complete('adj-1', actor);
+      const result = await service.complete('adj-1', 2, actor);
       expect(result.status).toBe('COMPLETED');
+      expect(result.version).toBe(3);
       expect(adjustmentRepository.complete).toHaveBeenCalledWith(
         'adj-1',
         'org-1',
+        2,
         'user-1',
       );
       expect(auditLogService.log).toHaveBeenCalledWith(
@@ -200,7 +204,7 @@ describe('InventoryAdjustmentService', () => {
       adjustmentRepository.complete.mockRejectedValue(
         new InventoryAdjustmentNegativeStockError('product-1'),
       );
-      await expect(service.complete('adj-1', actor)).rejects.toThrow(
+      await expect(service.complete('adj-1', 1, actor)).rejects.toThrow(
         UnprocessableEntityException,
       );
     });
@@ -212,8 +216,27 @@ describe('InventoryAdjustmentService', () => {
       adjustmentRepository.complete.mockRejectedValue(
         new InventoryConcurrencyConflictError('product-1'),
       );
-      await expect(service.complete('adj-1', actor)).rejects.toThrow(
+      await expect(service.complete('adj-1', 1, actor)).rejects.toThrow(
         ConflictException,
+      );
+    });
+
+    it('T051.02: dịch InventoryAdjustmentConcurrencyConflictError sang ConflictException (INVENTORY_ADJUSTMENT_008)', async () => {
+      adjustmentRepository.findById.mockResolvedValue(
+        makeAdjustment({ status: 'APPROVED', version: 1 }),
+      );
+      adjustmentRepository.complete.mockRejectedValue(
+        new InventoryAdjustmentConcurrencyConflictError('adj-1'),
+      );
+      let caught: ConflictException | undefined;
+      try {
+        await service.complete('adj-1', 1, actor);
+      } catch (error) {
+        caught = error as ConflictException;
+      }
+      expect(caught).toBeInstanceOf(ConflictException);
+      expect((caught?.getResponse() as { errorCode?: string })?.errorCode).toBe(
+        'INVENTORY_ADJUSTMENT_008',
       );
     });
   });

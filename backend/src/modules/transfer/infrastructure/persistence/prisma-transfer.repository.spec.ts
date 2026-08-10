@@ -7,6 +7,7 @@ import {
   InventoryInsufficientStockError,
 } from '../../../inventory/domain/errors/inventory.errors';
 import {
+  TransferConcurrencyConflictError,
   TransferNegativeStockError,
   TransferStatusConflictError,
 } from '../../domain/repositories/transfer.repository.interface';
@@ -39,6 +40,7 @@ const rawTransfer = {
   code: 'PDC000001',
   status: 'PENDING',
   note: null,
+  version: 1,
   createdAt: new Date('2026-01-01'),
   updatedAt: new Date('2026-01-01'),
   deletedAt: null,
@@ -154,17 +156,28 @@ describe('PrismaTransferRepository', () => {
     });
   });
 
-  describe('transitionStatus', () => {
-    function makeTx(overrides: { currentTransfer?: unknown }) {
-      const transferUpdate = jest.fn().mockResolvedValue(rawTransfer);
-      const currentTransfer =
-        'currentTransfer' in overrides
-          ? overrides.currentTransfer
-          : rawTransfer;
+  describe('transitionStatus (T051.02 — Optimistic Lock CAS-first)', () => {
+    function makeTx(options: {
+      claimCount?: number;
+      statusAfterFailedClaim?: string | null;
+      currentForLoop?: unknown;
+    }) {
+      const current = options.currentForLoop ?? rawTransfer;
       const tx = {
         transfer: {
-          findUnique: jest.fn().mockResolvedValue(currentTransfer),
-          update: transferUpdate,
+          updateMany: jest
+            .fn()
+            .mockResolvedValue({ count: options.claimCount ?? 1 }),
+          findFirst: jest
+            .fn()
+            .mockResolvedValue(
+              options.claimCount === 0
+                ? options.statusAfterFailedClaim === null
+                  ? null
+                  : { status: options.statusAfterFailedClaim ?? 'CANCELLED' }
+                : current,
+            ),
+          findFirstOrThrow: jest.fn().mockResolvedValue(current),
         },
         transferItem: { update: jest.fn().mockResolvedValue({}) },
       };
@@ -174,13 +187,45 @@ describe('PrismaTransferRepository', () => {
       return tx;
     }
 
-    it('ném TransferStatusConflictError khi trạng thái hiện tại không khớp expected', async () => {
-      makeTx({ currentTransfer: { ...rawTransfer, status: 'CANCELLED' } });
+    it('claim thành công: updateMany với where kèm status IN expectedStatuses và version=expectedVersion', async () => {
+      const tx = makeTx({
+        currentForLoop: { ...rawTransfer, status: 'PENDING' },
+      });
+
+      await repository.transitionStatus(
+        'transfer-1',
+        'org-1',
+        ['PENDING'],
+        'APPROVED',
+        1,
+        [],
+        'user-1',
+      );
+
+      expect(tx.transfer.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'transfer-1',
+          organizationId: 'org-1',
+          status: { in: ['PENDING'] },
+          version: 1,
+        },
+        data: {
+          status: 'APPROVED',
+          version: { increment: 1 },
+          updatedBy: 'user-1',
+        },
+      });
+    });
+
+    it('ném TransferStatusConflictError khi claim thất bại VÀ trạng thái hiện tại không khớp expected', async () => {
+      makeTx({ claimCount: 0, statusAfterFailedClaim: 'CANCELLED' });
       await expect(
         repository.transitionStatus(
           'transfer-1',
+          'org-1',
           ['PENDING'],
           'APPROVED',
+          1,
           [],
           'user-1',
         ),
@@ -188,27 +233,71 @@ describe('PrismaTransferRepository', () => {
     });
 
     it('ném TransferStatusConflictError khi transfer không còn tồn tại', async () => {
-      makeTx({ currentTransfer: null });
+      makeTx({ claimCount: 0, statusAfterFailedClaim: null });
       await expect(
         repository.transitionStatus(
           'transfer-1',
+          'org-1',
           ['PENDING'],
           'APPROVED',
+          1,
           [],
           'user-1',
         ),
       ).rejects.toThrow(TransferStatusConflictError);
     });
 
-    it('approve: gọi InventoryDomainService.transfer() direction=OUT, ghi lại avgCostAfter vào TransferItem.unitCost', async () => {
+    it('T051.02: ném TransferConcurrencyConflictError khi claim thất bại NHƯNG trạng thái vẫn khớp expected (stale version)', async () => {
+      makeTx({ claimCount: 0, statusAfterFailedClaim: 'PENDING' });
+      await expect(
+        repository.transitionStatus(
+          'transfer-1',
+          'org-1',
+          ['PENDING'],
+          'APPROVED',
+          1,
+          [],
+          'user-1',
+        ),
+      ).rejects.toThrow(TransferConcurrencyConflictError);
+    });
+
+    it('claim thất bại KHÔNG chạy vòng lặp Inventory (zero business side effects cho request thua)', async () => {
+      makeTx({ claimCount: 0, statusAfterFailedClaim: 'PENDING' });
+      await expect(
+        repository.transitionStatus(
+          'transfer-1',
+          'org-1',
+          ['PENDING'],
+          'APPROVED',
+          1,
+          [
+            {
+              transferItemId: 'item-1',
+              warehouseId: 'wh-a',
+              productId: 'product-1',
+              quantity: 10,
+              direction: 'OUT',
+              captureUnitCostToItem: true,
+            },
+          ],
+          'user-1',
+        ),
+      ).rejects.toThrow(TransferConcurrencyConflictError);
+      expect(inventoryDomainService.transfer).not.toHaveBeenCalled();
+    });
+
+    it('approve: claim thành công MỚI gọi InventoryDomainService.transfer() direction=OUT, ghi lại avgCostAfter vào TransferItem.unitCost', async () => {
       const tx = makeTx({
-        currentTransfer: { ...rawTransfer, status: 'PENDING' },
+        currentForLoop: { ...rawTransfer, status: 'PENDING' },
       });
 
       await repository.transitionStatus(
         'transfer-1',
+        'org-1',
         ['PENDING'],
         'APPROVED',
+        1,
         [
           {
             transferItemId: 'item-1',
@@ -244,24 +333,19 @@ describe('PrismaTransferRepository', () => {
             .unitCost as Prisma.Decimal
         ).toString(),
       ).toBe('50');
-
-      expect(tx.transfer.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'transfer-1' },
-          data: { status: 'APPROVED', updatedBy: 'user-1' },
-        }),
-      );
     });
 
     it('receive: gọi InventoryDomainService.transfer() direction=IN với unitCost đã ghi lại lúc Approve, không đụng TransferItem', async () => {
       const tx = makeTx({
-        currentTransfer: { ...rawTransfer, status: 'APPROVED' },
+        currentForLoop: { ...rawTransfer, status: 'APPROVED' },
       });
 
       await repository.transitionStatus(
         'transfer-1',
+        'org-1',
         ['APPROVED'],
         'RECEIVED',
+        2,
         [
           {
             transferItemId: 'item-1',
@@ -289,7 +373,7 @@ describe('PrismaTransferRepository', () => {
     });
 
     it('dịch InventoryInsufficientStockError (từ lượt OUT) sang TransferNegativeStockError', async () => {
-      makeTx({ currentTransfer: { ...rawTransfer, status: 'PENDING' } });
+      makeTx({ currentForLoop: { ...rawTransfer, status: 'PENDING' } });
       inventoryDomainService.transfer.mockRejectedValueOnce(
         new InventoryInsufficientStockError('product-1', '5'),
       );
@@ -297,8 +381,10 @@ describe('PrismaTransferRepository', () => {
       await expect(
         repository.transitionStatus(
           'transfer-1',
+          'org-1',
           ['PENDING'],
           'APPROVED',
+          1,
           [
             {
               transferItemId: 'item-1',
@@ -315,7 +401,7 @@ describe('PrismaTransferRepository', () => {
     });
 
     it('lan truyền nguyên trạng InventoryConcurrencyConflictError (không dịch thành TransferNegativeStockError)', async () => {
-      makeTx({ currentTransfer: { ...rawTransfer, status: 'PENDING' } });
+      makeTx({ currentForLoop: { ...rawTransfer, status: 'PENDING' } });
       inventoryDomainService.transfer.mockRejectedValueOnce(
         new InventoryConcurrencyConflictError('product-1'),
       );
@@ -323,8 +409,10 @@ describe('PrismaTransferRepository', () => {
       await expect(
         repository.transitionStatus(
           'transfer-1',
+          'org-1',
           ['PENDING'],
           'APPROVED',
+          1,
           [
             {
               transferItemId: 'item-1',
@@ -342,21 +430,27 @@ describe('PrismaTransferRepository', () => {
 
     it('cancel không kèm movement chỉ đổi trạng thái, không gọi InventoryDomainService', async () => {
       const tx = makeTx({
-        currentTransfer: { ...rawTransfer, status: 'PENDING' },
+        currentForLoop: { ...rawTransfer, status: 'PENDING' },
       });
 
       await repository.transitionStatus(
         'transfer-1',
+        'org-1',
         ['PENDING'],
         'CANCELLED',
+        1,
         [],
         'user-1',
       );
 
       expect(inventoryDomainService.transfer).not.toHaveBeenCalled();
-      expect(tx.transfer.update).toHaveBeenCalledWith(
+      expect(tx.transfer.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { status: 'CANCELLED', updatedBy: 'user-1' },
+          data: {
+            status: 'CANCELLED',
+            version: { increment: 1 },
+            updatedBy: 'user-1',
+          },
         }),
       );
     });

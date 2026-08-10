@@ -21,6 +21,11 @@ export class PurchaseReturnResponseDto {
   @ApiProperty({ nullable: true }) note: string | null;
   @ApiProperty({ type: [PurchaseReturnItemResponseDto] })
   items: PurchaseReturnItemResponseDto[];
+  @ApiProperty({
+    description:
+      'Optimistic Lock (T051.02) — gửi lại giá trị này khi gọi complete',
+  })
+  version: number;
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
 }

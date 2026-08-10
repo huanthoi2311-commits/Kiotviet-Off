@@ -10,6 +10,7 @@ import { IPurchaseOrderRepository } from '../../purchase-order/domain/repositori
 import { PurchaseReturnEntity } from '../domain/entities/purchase-return.entity';
 import {
   IPurchaseReturnRepository,
+  PurchaseReturnConcurrencyConflictError,
   PurchaseReturnExceedsReceivedError,
   PurchaseReturnNegativeStockError,
   PurchaseReturnStatusConflictError,
@@ -38,6 +39,7 @@ describe('PurchaseReturnService', () => {
     totalAmount: '1000000',
     paidAmount: '0',
     expectedAt: null,
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -69,6 +71,7 @@ describe('PurchaseReturnService', () => {
     reason: 'DAMAGED',
     totalAmount: '50000',
     note: null,
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -270,16 +273,23 @@ describe('PurchaseReturnService', () => {
   });
 
   describe('complete', () => {
-    it('gọi repository.complete và ghi audit log', async () => {
+    it('gọi repository.complete kèm expectedVersion và ghi audit log', async () => {
       purchaseReturnRepository.findById.mockResolvedValue(
-        makeReturn({ status: 'APPROVED' }),
+        makeReturn({ status: 'APPROVED', version: 2 }),
       );
       purchaseReturnRepository.complete.mockResolvedValue(
-        makeReturn({ status: 'COMPLETED' }),
+        makeReturn({ status: 'COMPLETED', version: 3 }),
       );
 
-      const result = await service.complete('pr-1', actor);
+      const result = await service.complete('pr-1', 2, actor);
       expect(result.status).toBe('COMPLETED');
+      expect(result.version).toBe(3);
+      expect(purchaseReturnRepository.complete).toHaveBeenCalledWith(
+        'pr-1',
+        'org-1',
+        2,
+        'user-1',
+      );
       expect(auditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'purchase_return.complete' }),
       );
@@ -292,7 +302,7 @@ describe('PurchaseReturnService', () => {
       purchaseReturnRepository.complete.mockRejectedValue(
         new PurchaseReturnNegativeStockError('product-1'),
       );
-      await expect(service.complete('pr-1', actor)).rejects.toThrow(
+      await expect(service.complete('pr-1', 1, actor)).rejects.toThrow(
         UnprocessableEntityException,
       );
     });
@@ -304,8 +314,27 @@ describe('PurchaseReturnService', () => {
       purchaseReturnRepository.complete.mockRejectedValue(
         new InventoryConcurrencyConflictError('product-1'),
       );
-      await expect(service.complete('pr-1', actor)).rejects.toThrow(
+      await expect(service.complete('pr-1', 1, actor)).rejects.toThrow(
         ConflictException,
+      );
+    });
+
+    it('T051.02: dịch PurchaseReturnConcurrencyConflictError sang ConflictException (PURCHASE_RETURN_010)', async () => {
+      purchaseReturnRepository.findById.mockResolvedValue(
+        makeReturn({ status: 'APPROVED', version: 1 }),
+      );
+      purchaseReturnRepository.complete.mockRejectedValue(
+        new PurchaseReturnConcurrencyConflictError('pr-1'),
+      );
+      let caught: ConflictException | undefined;
+      try {
+        await service.complete('pr-1', 1, actor);
+      } catch (error) {
+        caught = error as ConflictException;
+      }
+      expect(caught).toBeInstanceOf(ConflictException);
+      expect((caught?.getResponse() as { errorCode?: string })?.errorCode).toBe(
+        'PURCHASE_RETURN_010',
       );
     });
   });

@@ -16,6 +16,8 @@ export interface StockCountEntity {
   code: string;
   status: StockCountStatus;
   note: string | null;
+  /** T051.02 — Optimistic Lock, chỉ được CAS/tăng trong `complete()`. */
+  version: number;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;

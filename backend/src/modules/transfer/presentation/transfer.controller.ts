@@ -29,6 +29,7 @@ import { RequirePermissions } from '../../rbac/presentation/permissions.decorato
 import { ActorContext, TransferService } from '../application/transfer.service';
 import { CreateTransferDto } from '../application/dto/create-transfer.dto';
 import { TransferQueryDto } from '../application/dto/transfer-query.dto';
+import { TransferVersionDto } from '../application/dto/transfer-version.dto';
 import {
   PaginatedTransferResponseDto,
   TransferResponseDto,
@@ -82,44 +83,67 @@ export class TransferController {
   @Patch(':id/approve')
   @RequirePermissions('transfer:approve')
   @ApiOperation({
-    summary: 'Duyệt phiếu — trừ tồn kho nguồn (PENDING → APPROVED)',
+    summary:
+      'Duyệt phiếu — trừ tồn kho nguồn (PENDING → APPROVED). ' +
+      'T051.02: body.version là Optimistic Lock bắt buộc (đọc từ GET trước đó), sai version → 409.',
   })
   @ApiResponse({ status: 200, type: TransferResponseDto })
   @ApiWriteErrors()
   approve(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TransferVersionDto,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
   ): Promise<TransferResponseDto> {
-    return this.transferService.approve(id, this.toActor(user, req));
+    return this.transferService.approve(
+      id,
+      dto.version,
+      this.toActor(user, req),
+    );
   }
 
   @Patch(':id/receive')
   @RequirePermissions('transfer:receive')
   @ApiOperation({
-    summary: 'Nhận hàng — cộng tồn kho đích (APPROVED → RECEIVED)',
+    summary:
+      'Nhận hàng — cộng tồn kho đích (APPROVED → RECEIVED). ' +
+      'T051.02: body.version là Optimistic Lock bắt buộc.',
   })
   @ApiResponse({ status: 200, type: TransferResponseDto })
   @ApiWriteErrors()
   receive(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TransferVersionDto,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
   ): Promise<TransferResponseDto> {
-    return this.transferService.receive(id, this.toActor(user, req));
+    return this.transferService.receive(
+      id,
+      dto.version,
+      this.toActor(user, req),
+    );
   }
 
   @Patch(':id/cancel')
   @RequirePermissions('transfer:cancel')
-  @ApiOperation({ summary: 'Hủy phiếu (hoàn kho nguồn nếu đã Approve)' })
+  @ApiOperation({
+    summary:
+      'Hủy phiếu (hoàn kho nguồn nếu đã Approve). ' +
+      'T051.02: body.version là Optimistic Lock bắt buộc.',
+  })
   @ApiResponse({ status: 200, type: TransferResponseDto })
   @ApiWriteErrors()
   cancel(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TransferVersionDto,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
   ): Promise<TransferResponseDto> {
-    return this.transferService.cancel(id, this.toActor(user, req));
+    return this.transferService.cancel(
+      id,
+      dto.version,
+      this.toActor(user, req),
+    );
   }
 
   private toActor(user: JwtAccessPayload, req: Request): ActorContext {

@@ -44,6 +44,7 @@ function buildAdjustment(overrides: Record<string, unknown> = {}) {
     status: 'DRAFT',
     reason: 'LOST',
     note: null,
+    version: 1,
     items: [{ id: 'item-1', productId: 'prod-1', quantity: '-5', remark: null }],
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -199,6 +200,72 @@ describe('InventoryAdjustmentDetail (T044 Phase M)', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Gửi duyệt' }));
 
     await waitFor(() => expect(submitCalled).toBe(true));
+  });
+
+  it("T051.02: clicking Hoàn tất sends the adjustment's current version in the request body", async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['inventory:complete'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+    let receivedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/inventory-adjustments/${ADJUSTMENT_ID}`, () =>
+        HttpResponse.json(envelope(buildAdjustment({ status: 'APPROVED', version: 2 }))),
+      ),
+      http.patch(
+        `${API_BASE_URL}/inventory-adjustments/${ADJUSTMENT_ID}/complete`,
+        async ({ request }) => {
+          receivedBody = await request.json();
+          return HttpResponse.json(envelope(buildAdjustment({ status: 'COMPLETED', version: 3 })));
+        },
+      ),
+    );
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Hoàn tất' }));
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Hoàn tất' }));
+
+    await waitFor(() => expect(receivedBody).toEqual({ version: 2 }));
+  });
+
+  it('T051.02: a version conflict (INVENTORY_ADJUSTMENT_008) keeps the dialog open with the backend message and refetches the detail', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['inventory:complete'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+    let getCallCount = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/inventory-adjustments/${ADJUSTMENT_ID}`, () => {
+        getCallCount += 1;
+        return HttpResponse.json(envelope(buildAdjustment({ status: 'APPROVED', version: 1 })));
+      }),
+      http.patch(`${API_BASE_URL}/inventory-adjustments/${ADJUSTMENT_ID}/complete`, () =>
+        HttpResponse.json(
+          errorEnvelope(
+            'INVENTORY_ADJUSTMENT_008',
+            'Phiếu điều chỉnh vừa bị thay đổi bởi giao dịch khác',
+          ),
+          { status: 409 },
+        ),
+      ),
+    );
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Hoàn tất' }));
+    const initialGetCount = getCallCount;
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Hoàn tất' }));
+
+    expect(
+      await screen.findByText('Phiếu điều chỉnh vừa bị thay đổi bởi giao dịch khác'),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Hoàn tất' })).toBeInTheDocument();
+    await waitFor(() => expect(getCallCount).toBeGreaterThan(initialGetCount));
   });
 
   it('has no accessibility violations once loaded', async () => {

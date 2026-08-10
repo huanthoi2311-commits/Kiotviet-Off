@@ -8,6 +8,7 @@ import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors
 import { StockCountEntity } from '../domain/entities/stock-count.entity';
 import {
   IStockCountRepository,
+  StockCountConcurrencyConflictError,
   StockCountItemMismatchError,
   StockCountStatusConflictError,
 } from '../domain/repositories/stock-count.repository.interface';
@@ -31,6 +32,7 @@ describe('StockCountService', () => {
     code: 'PKK000001',
     status: 'DRAFT',
     note: null,
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -155,27 +157,29 @@ describe('StockCountService', () => {
       await expect(
         service.complete(
           'missing',
-          { items: [{ itemId: 'item-1', actualQty: 95 }] },
+          { version: 1, items: [{ itemId: 'item-1', actualQty: 95 }] },
           actor,
         ),
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('gọi repository.complete và ghi audit log', async () => {
+    it('gọi repository.complete kèm expectedVersion và ghi audit log', async () => {
       stockCountRepository.findById.mockResolvedValue(
-        makeStockCount({ status: 'COUNTING' }),
+        makeStockCount({ status: 'COUNTING', version: 2 }),
       );
       stockCountRepository.complete.mockResolvedValue(
-        makeStockCount({ status: 'COMPLETED' }),
+        makeStockCount({ status: 'COMPLETED', version: 3 }),
       );
 
-      const dto = { items: [{ itemId: 'item-1', actualQty: 95 }] };
+      const dto = { version: 2, items: [{ itemId: 'item-1', actualQty: 95 }] };
       const result = await service.complete('sc-1', dto, actor);
 
       expect(result.status).toBe('COMPLETED');
+      expect(result.version).toBe(3);
       expect(stockCountRepository.complete).toHaveBeenCalledWith(
         'sc-1',
         'org-1',
+        2,
         dto.items,
         'user-1',
       );
@@ -194,7 +198,7 @@ describe('StockCountService', () => {
       await expect(
         service.complete(
           'sc-1',
-          { items: [{ itemId: 'unknown-item', actualQty: 1 }] },
+          { version: 1, items: [{ itemId: 'unknown-item', actualQty: 1 }] },
           actor,
         ),
       ).rejects.toThrow(UnprocessableEntityException);
@@ -210,10 +214,33 @@ describe('StockCountService', () => {
       await expect(
         service.complete(
           'sc-1',
-          { items: [{ itemId: 'item-1', actualQty: 90 }] },
+          { version: 1, items: [{ itemId: 'item-1', actualQty: 90 }] },
           actor,
         ),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('T051.02: dịch StockCountConcurrencyConflictError sang ConflictException (STOCK_COUNT_007)', async () => {
+      stockCountRepository.findById.mockResolvedValue(
+        makeStockCount({ status: 'COUNTING', version: 1 }),
+      );
+      stockCountRepository.complete.mockRejectedValue(
+        new StockCountConcurrencyConflictError('sc-1'),
+      );
+      let caught: ConflictException | undefined;
+      try {
+        await service.complete(
+          'sc-1',
+          { version: 1, items: [{ itemId: 'item-1', actualQty: 90 }] },
+          actor,
+        );
+      } catch (error) {
+        caught = error as ConflictException;
+      }
+      expect(caught).toBeInstanceOf(ConflictException);
+      expect((caught?.getResponse() as { errorCode?: string })?.errorCode).toBe(
+        'STOCK_COUNT_007',
+      );
     });
   });
 });

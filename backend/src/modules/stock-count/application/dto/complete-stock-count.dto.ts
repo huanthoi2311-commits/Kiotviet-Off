@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -30,6 +31,13 @@ export class CompleteStockCountItemDto {
 }
 
 export class CompleteStockCountDto {
+  @ApiProperty({
+    description:
+      'Optimistic Lock (T051.02) — gửi lại đúng version đã đọc trước đó; sai version bị từ chối (409)',
+  })
+  @IsInt()
+  version: number;
+
   @ApiProperty({ type: [CompleteStockCountItemDto] })
   @IsArray()
   @ArrayMinSize(1)

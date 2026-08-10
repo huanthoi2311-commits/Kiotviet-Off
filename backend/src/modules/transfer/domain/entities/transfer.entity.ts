@@ -16,6 +16,8 @@ export interface TransferEntity {
   code: string;
   status: TransferStatus;
   note: string | null;
+  /** T051.02 — Optimistic Lock, dùng chung cho approve/receive/cancel (đều qua transitionStatus()). */
+  version: number;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;

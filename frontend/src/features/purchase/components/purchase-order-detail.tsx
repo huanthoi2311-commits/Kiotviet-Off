@@ -214,6 +214,7 @@ export function PurchaseOrderDetail({ id }: { id: string }) {
           }}
           purchaseOrderId={order.id}
           purchaseOrderCode={order.code}
+          purchaseOrderVersion={order.version}
           mode={actionMode}
         />
       )}

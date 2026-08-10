@@ -20,6 +20,9 @@ export interface TransferActionDialogProps {
   onOpenChange: (open: boolean) => void;
   transferId: string;
   transferCode: string;
+  /** T051.02 — Optimistic Lock, dùng chung cho cả approve/receive/cancel (cả 3 đều có thể tác động
+   * Inventory và cùng đi qua `transitionStatus()`). */
+  transferVersion: number;
   mode: TransferActionDialogMode;
 }
 
@@ -62,6 +65,7 @@ export function TransferActionDialog({
   onOpenChange,
   transferId,
   transferCode,
+  transferVersion,
   mode,
 }: TransferActionDialogProps) {
   const queryClient = useQueryClient();
@@ -76,8 +80,16 @@ export function TransferActionDialog({
     onOpenChange(false);
   };
 
+  /** T051.02 AD-1 §12 — on a version conflict (TRANSFER_008) the dialog stays open and the message
+   * is shown (never silently retried with a new version); the detail query is invalidated so the
+   * next attempt (after the user re-opens the dialog) reads a fresh version. */
   const handleError = (error: NormalizedError) => {
     setErrorMessage(error.kind === 'api-error' ? error.message : 'Đã xảy ra lỗi không xác định');
+    if (error.kind === 'api-error' && error.code === 'TRANSFER_008') {
+      queryClient.invalidateQueries({
+        queryKey: getTransferControllerFindOneQueryKey(transferId),
+      });
+    }
   };
 
   const approveMutation = useTransferControllerApprove<NormalizedError>({
@@ -122,7 +134,7 @@ export function TransferActionDialog({
       errorMessage={errorMessage}
       onConfirm={() => {
         setErrorMessage(null);
-        activeMutation.mutate({ id: transferId });
+        activeMutation.mutate({ id: transferId, data: { version: transferVersion } });
       }}
     />
   );

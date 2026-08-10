@@ -218,9 +218,11 @@ describe('PurchaseOrder Module (e2e, integration)', () => {
     const received = await request(app.getHttpServer())
       .patch(`/api/v1/purchase-orders/${purchaseOrderId}/receive`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(200);
     expect(received.body.data.status).toBe('RECEIVED');
     expect(received.body.data.items[0].receivedQuantity).toBe('10');
+    expect(received.body.data.version).toBe(2);
 
     const stock = await request(app.getHttpServer())
       .get('/api/v1/inventory')
@@ -262,6 +264,7 @@ describe('PurchaseOrder Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/purchase-orders/${created.body.data.id}/receive`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(422);
   });
 
@@ -308,6 +311,7 @@ describe('PurchaseOrder Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/purchase-orders/${purchaseOrderId}/receive`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(200);
 
     await request(app.getHttpServer())
@@ -343,5 +347,130 @@ describe('PurchaseOrder Module (e2e, integration)', () => {
         (po: { supplierId: string }) => po.supplierId === supplierId,
       ),
     ).toBe(true);
+  });
+
+  it('T051.02 CONCURRENCY: hai request receive() cùng version, gửi ĐỒNG THỜI — đúng 1 thành công, cái kia nhận PURCHASE_ORDER_005 (KHÔNG phải InventoryConcurrencyConflict)', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/purchase-orders')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        branchId,
+        supplierId,
+        items: [{ productId, warehouseId, quantity: 7, unitCost: 3000 }],
+      })
+      .expect(201);
+    const purchaseOrderId = created.body.data.id;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/purchase-orders/${purchaseOrderId}/approve`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    // productId/warehouseId dùng chung xuyên suốt file này — chụp tồn kho TRƯỚC để so sánh
+    // delta, không so sánh giá trị tuyệt đối (các test trước đó đã cộng dồn tồn kho).
+    const inventoryBefore = await prisma.inventory.findFirst({
+      where: { warehouseId, productId },
+    });
+    const qtyBefore = inventoryBefore?.quantity.toNumber() ?? 0;
+
+    // Hai request receive() thật sự đồng thời (Promise.all, không await tuần tự) — cùng
+    // gửi version=1 (giá trị đọc được sau approve, approve không đổi version).
+    const [resA, resB] = await Promise.all([
+      request(app.getHttpServer())
+        .patch(`/api/v1/purchase-orders/${purchaseOrderId}/receive`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 1 }),
+      request(app.getHttpServer())
+        .patch(`/api/v1/purchase-orders/${purchaseOrderId}/receive`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 1 }),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const loser = resA.status === 409 ? resA : resB;
+    expect(loser.body.code).toBe('PURCHASE_ORDER_005');
+
+    // Trạng thái cuối: RECEIVED đúng 1 lần, version tăng đúng 1 lần (2, không phải 3).
+    const final = await request(app.getHttpServer())
+      .get(`/api/v1/purchase-orders/${purchaseOrderId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(final.body.data.status).toBe('RECEIVED');
+    expect(final.body.data.version).toBe(2);
+    expect(final.body.data.items[0].receivedQuantity).toBe('7');
+
+    // Inventory tăng đúng 1 lần (delta = quantity đơn hàng, không double-count).
+    const inventoryAfter = await prisma.inventory.findFirst({
+      where: { warehouseId, productId },
+    });
+    expect(inventoryAfter?.quantity.toNumber()).toBe(qtyBefore + 7);
+
+    // Movement ghi đúng 1 lần — không có dòng orphan/partial nào từ request thua cuộc.
+    const history = await request(app.getHttpServer())
+      .get('/api/v1/inventory/history')
+      .query({
+        warehouseId,
+        productId,
+        movementType: 'PURCHASE',
+        referenceId: purchaseOrderId,
+      })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(history.body.data.total).toBe(1);
+
+    // Debt (payable) ghi đúng 1 lần.
+    const debts = await prisma.debt.findMany({
+      where: { refType: 'PurchaseOrder', refId: purchaseOrderId },
+    });
+    expect(debts).toHaveLength(1);
+  });
+
+  it('T051.02: retry với version cũ (đã stale sau khi receive thành công) bị từ chối PURCHASE_ORDER_005, không đụng lại Inventory/Debt', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/purchase-orders')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        branchId,
+        supplierId,
+        items: [{ productId, warehouseId, quantity: 4, unitCost: 2000 }],
+      })
+      .expect(201);
+    const purchaseOrderId = created.body.data.id;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/purchase-orders/${purchaseOrderId}/approve`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/purchase-orders/${purchaseOrderId}/receive`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
+      .expect(200);
+
+    const staleRetry = await request(app.getHttpServer())
+      .patch(`/api/v1/purchase-orders/${purchaseOrderId}/receive`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
+      .expect(422); // status đã là RECEIVED, không còn APPROVED nữa — invalid transition, không phải version conflict
+    expect(staleRetry.body.code).toBe('PURCHASE_ORDER_003');
+
+    const history = await request(app.getHttpServer())
+      .get('/api/v1/inventory/history')
+      .query({
+        warehouseId,
+        productId,
+        movementType: 'PURCHASE',
+        referenceId: purchaseOrderId,
+      })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(history.body.data.total).toBe(1);
+
+    const debts = await prisma.debt.findMany({
+      where: { refType: 'PurchaseOrder', refId: purchaseOrderId },
+    });
+    expect(debts).toHaveLength(1);
   });
 });

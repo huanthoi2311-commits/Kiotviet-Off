@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
 import {
+  StockCountConcurrencyConflictError,
   StockCountItemMismatchError,
   StockCountStatusConflictError,
 } from '../../domain/repositories/stock-count.repository.interface';
@@ -36,6 +37,7 @@ const rawStockCount = {
   code: 'PKK000001',
   status: 'DRAFT',
   note: null,
+  version: 1,
   createdAt: new Date('2026-01-01'),
   updatedAt: new Date('2026-01-01'),
   deletedAt: null,
@@ -185,17 +187,32 @@ describe('PrismaStockCountRepository', () => {
     });
   });
 
-  describe('complete', () => {
-    function makeTx(overrides: { currentStockCount?: unknown }) {
-      const stockCountUpdate = jest.fn().mockResolvedValue(rawStockCount);
-      const currentStockCount =
-        'currentStockCount' in overrides
-          ? overrides.currentStockCount
-          : { ...rawStockCount, status: 'COUNTING' };
+  describe('complete (T051.02 — Optimistic Lock CAS-first)', () => {
+    const countingStockCount = {
+      ...rawStockCount,
+      status: 'COUNTING',
+      version: 2,
+    };
+
+    function makeTx(options: {
+      claimCount?: number;
+      statusAfterFailedClaim?: string;
+      currentForLoop?: unknown;
+    }) {
+      const current = options.currentForLoop ?? countingStockCount;
       const tx = {
         stockCount: {
-          findFirst: jest.fn().mockResolvedValue(currentStockCount),
-          update: stockCountUpdate,
+          updateMany: jest
+            .fn()
+            .mockResolvedValue({ count: options.claimCount ?? 1 }),
+          findFirst: jest
+            .fn()
+            .mockResolvedValue(
+              options.claimCount === 0
+                ? { status: options.statusAfterFailedClaim ?? 'DRAFT' }
+                : current,
+            ),
+          findFirstOrThrow: jest.fn().mockResolvedValue(current),
         },
         stockCountItem: { update: jest.fn().mockResolvedValue({}) },
       };
@@ -205,16 +222,70 @@ describe('PrismaStockCountRepository', () => {
       return tx;
     }
 
-    it('ném StockCountStatusConflictError khi không ở trạng thái COUNTING', async () => {
-      makeTx({ currentStockCount: { ...rawStockCount, status: 'DRAFT' } });
+    it('claim thành công: updateMany với where kèm status=COUNTING và version=expectedVersion', async () => {
+      const tx = makeTx({});
+
+      await repository.complete(
+        'sc-1',
+        'org-1',
+        2,
+        [{ itemId: 'item-1', actualQty: 90 }],
+        'user-1',
+      );
+
+      expect(tx.stockCount.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'sc-1',
+          organizationId: 'org-1',
+          status: 'COUNTING',
+          version: 2,
+        },
+        data: {
+          status: 'COMPLETED',
+          version: { increment: 1 },
+          updatedBy: 'user-1',
+        },
+      });
+    });
+
+    it('ném StockCountStatusConflictError khi claim thất bại VÀ trạng thái hiện tại không phải COUNTING', async () => {
+      makeTx({ claimCount: 0, statusAfterFailedClaim: 'DRAFT' });
       await expect(
         repository.complete(
           'sc-1',
           'org-1',
+          2,
           [{ itemId: 'item-1', actualQty: 90 }],
           'user-1',
         ),
       ).rejects.toThrow(StockCountStatusConflictError);
+    });
+
+    it('T051.02: ném StockCountConcurrencyConflictError khi claim thất bại NHƯNG trạng thái vẫn là COUNTING (stale version)', async () => {
+      makeTx({ claimCount: 0, statusAfterFailedClaim: 'COUNTING' });
+      await expect(
+        repository.complete(
+          'sc-1',
+          'org-1',
+          1,
+          [{ itemId: 'item-1', actualQty: 90 }],
+          'user-1',
+        ),
+      ).rejects.toThrow(StockCountConcurrencyConflictError);
+    });
+
+    it('claim thất bại KHÔNG chạy vòng lặp Inventory (zero business side effects cho request thua)', async () => {
+      makeTx({ claimCount: 0, statusAfterFailedClaim: 'COUNTING' });
+      await expect(
+        repository.complete(
+          'sc-1',
+          'org-1',
+          1,
+          [{ itemId: 'item-1', actualQty: 90 }],
+          'user-1',
+        ),
+      ).rejects.toThrow(StockCountConcurrencyConflictError);
+      expect(inventoryDomainService.adjust).not.toHaveBeenCalled();
     });
 
     it('ném StockCountItemMismatchError khi itemId không thuộc phiếu', async () => {
@@ -223,6 +294,7 @@ describe('PrismaStockCountRepository', () => {
         repository.complete(
           'sc-1',
           'org-1',
+          2,
           [{ itemId: 'unknown-item', actualQty: 90 }],
           'user-1',
         ),
@@ -234,6 +306,7 @@ describe('PrismaStockCountRepository', () => {
       await repository.complete(
         'sc-1',
         'org-1',
+        2,
         [{ itemId: 'item-1', actualQty: 100 }],
         'user-1',
       );
@@ -251,6 +324,7 @@ describe('PrismaStockCountRepository', () => {
       await repository.complete(
         'sc-1',
         'org-1',
+        2,
         [{ itemId: 'item-1', actualQty: 95 }],
         'user-1',
       );
@@ -270,13 +344,6 @@ describe('PrismaStockCountRepository', () => {
           referenceType: 'COUNT',
           referenceId: 'sc-1',
           createdBy: 'user-1',
-        }),
-      );
-
-      expect(tx.stockCount.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'sc-1' },
-          data: { status: 'COMPLETED', updatedBy: 'user-1' },
         }),
       );
     });

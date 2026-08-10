@@ -68,22 +68,40 @@ export class TransferNegativeStockError extends Error {
   }
 }
 
+/**
+ * T051.02 — Ném bởi `transitionStatus()` khi `expectedVersion` (client gửi lên) không khớp
+ * `version` hiện tại của Transfer — Transfer đang ở đúng trạng thái mong đợi nhưng vừa bị 1 request
+ * khác (approve/receive/cancel) ghi đè giữa lúc client đọc và lúc gửi thao tác này. Dùng chung cho
+ * cả 3 hành động vì cả 3 đều đi qua `transitionStatus()` và đều có thể tác động Inventory.
+ */
+export class TransferConcurrencyConflictError extends Error {
+  constructor(public readonly transferId: string) {
+    super(
+      `Phiếu điều chuyển vừa bị thay đổi bởi giao dịch khác, vui lòng tải lại và thử lại`,
+    );
+  }
+}
+
 export interface ITransferRepository {
   create(input: CreateTransferInput): Promise<TransferEntity>;
   findById(id: string, organizationId: string): Promise<TransferEntity | null>;
   search(params: TransferSearchParams): Promise<TransferSearchResult>;
   existsByCode(organizationId: string, code: string): Promise<boolean>;
   /**
-   * Chuyển trạng thái + ghi các InventoryMovement liên quan trong 1 transaction duy
-   * nhất (rollback toàn bộ nếu bất kỳ bước nào lỗi — đúng yêu cầu Prompt 023). Trạng
-   * thái hiện tại được đọc lại NGAY TRONG transaction và so với expectedStatuses để
-   * tránh race condition (2 request approve cùng lúc); nếu không khớp, ném
-   * TransferStatusConflictError.
+   * Chuyển trạng thái + ghi các InventoryMovement liên quan trong 1 transaction duy nhất (rollback
+   * toàn bộ nếu bất kỳ bước nào lỗi — đúng yêu cầu Prompt 023). T051.02: Optimistic Lock CAS trên
+   * `(id, organizationId, status: {in: expectedStatuses}, version: expectedVersion)` được claim
+   * TRƯỚC vòng lặp Inventory — request thua cuộc ném `TransferConcurrencyConflictError` ngay tại
+   * bước claim, KHÔNG chạy vòng lặp Inventory. Dùng chung cho cả approve/receive/cancel vì cả 3 đều
+   * có thể tác động Inventory (approve = OUT kho nguồn, receive = IN kho đích, cancel-từ-APPROVED =
+   * reversal IN kho nguồn).
    */
   transitionStatus(
     id: string,
+    organizationId: string,
     expectedStatuses: TransferStatus[],
     nextStatus: TransferStatus,
+    expectedVersion: number,
     movements: TransferMovementInput[],
     updatedBy: string,
   ): Promise<TransferEntity>;

@@ -50,6 +50,20 @@ export class PurchaseOrderStatusConflictError extends Error {
   }
 }
 
+/**
+ * T051.02 — Ném bởi `receive()` khi `expectedVersion` (client gửi lên) không khớp `version` hiện
+ * tại của PurchaseOrder — nghĩa là đơn đang ở đúng trạng thái APPROVED nhưng vừa bị 1 request khác
+ * receive/ghi đè giữa lúc client đọc và lúc gửi thao tác này. Optimistic Lock CAS trên chính dòng
+ * PurchaseOrder (không còn phụ thuộc vào xung đột tình cờ từ Inventory's own optimistic lock).
+ */
+export class PurchaseOrderConcurrencyConflictError extends Error {
+  constructor(public readonly purchaseOrderId: string) {
+    super(
+      `Đơn nhập hàng vừa bị thay đổi bởi giao dịch khác, vui lòng tải lại và thử lại`,
+    );
+  }
+}
+
 export interface IPurchaseOrderRepository {
   create(input: CreatePurchaseOrderInput): Promise<PurchaseOrderEntity>;
   findById(
@@ -65,14 +79,19 @@ export interface IPurchaseOrderRepository {
     updatedBy: string,
   ): Promise<PurchaseOrderEntity>;
   /**
-   * APPROVED → RECEIVED trong 1 transaction duy nhất: với mỗi PurchaseItem, ghi 1
-   * InventoryMovement (PURCHASE) + đồng bộ Inventory (tính lại Average Cost theo
-   * unitCost của dòng hàng), cập nhật receivedQuantity = quantity. Rollback toàn bộ
-   * (không PurchaseOrder, không Movement nào được ghi) nếu bất kỳ bước nào lỗi.
+   * APPROVED → RECEIVED trong 1 transaction duy nhất. T051.02: Optimistic Lock CAS trên
+   * `(id, organizationId, status: APPROVED, version: expectedVersion)` được yêu cầu (claim) TRƯỚC
+   * vòng lặp Inventory — request thua cuộc ném `PurchaseOrderConcurrencyConflictError` ngay tại bước
+   * claim, KHÔNG chạy vòng lặp Inventory/Debt (không phụ thuộc vào xung đột tình cờ ở tầng
+   * Inventory). Request thắng cuộc mới tiếp tục: với mỗi PurchaseItem, ghi 1 InventoryMovement
+   * (PURCHASE) + đồng bộ Inventory (tính lại Average Cost theo unitCost của dòng hàng), cập nhật
+   * receivedQuantity = quantity. Rollback toàn bộ (không PurchaseOrder, không Movement nào được ghi)
+   * nếu bất kỳ bước nào lỗi.
    */
   receive(
     id: string,
     organizationId: string,
+    expectedVersion: number,
     updatedBy: string,
   ): Promise<PurchaseOrderEntity>;
   /**

@@ -32,6 +32,7 @@ import {
 } from '../application/purchase-order.service';
 import { CreatePurchaseOrderDto } from '../application/dto/create-purchase-order.dto';
 import { PurchaseOrderQueryDto } from '../application/dto/purchase-order-query.dto';
+import { ReceivePurchaseOrderDto } from '../application/dto/receive-purchase-order.dto';
 import {
   PaginatedPurchaseOrderResponseDto,
   PurchaseOrderResponseDto,
@@ -98,16 +99,22 @@ export class PurchaseOrderController {
   @RequirePermissions('purchase:receive')
   @ApiOperation({
     summary:
-      'Nhận hàng — sinh InventoryMovement, đồng bộ tồn kho + Average Cost (APPROVED → RECEIVED)',
+      'Nhận hàng — sinh InventoryMovement, đồng bộ tồn kho + Average Cost (APPROVED → RECEIVED). ' +
+      'T051.02: body.version là Optimistic Lock bắt buộc (đọc từ GET trước đó), sai version → 409.',
   })
   @ApiResponse({ status: 200, type: PurchaseOrderResponseDto })
   @ApiWriteErrors()
   receive(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReceivePurchaseOrderDto,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
   ): Promise<PurchaseOrderResponseDto> {
-    return this.purchaseOrderService.receive(id, this.toActor(user, req));
+    return this.purchaseOrderService.receive(
+      id,
+      dto.version,
+      this.toActor(user, req),
+    );
   }
 
   @Patch(':id/cancel')

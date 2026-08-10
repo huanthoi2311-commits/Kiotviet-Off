@@ -69,6 +69,19 @@ export class PurchaseReturnNegativeStockError extends Error {
   }
 }
 
+/**
+ * T051.02 — Ném bởi `complete()` khi `expectedVersion` (client gửi lên) không khớp `version` hiện
+ * tại của PurchaseReturn — đơn đang ở đúng trạng thái APPROVED nhưng vừa bị 1 request khác complete
+ * giữa lúc client đọc và lúc gửi thao tác này. Optimistic Lock CAS trên chính dòng PurchaseReturn.
+ */
+export class PurchaseReturnConcurrencyConflictError extends Error {
+  constructor(public readonly purchaseReturnId: string) {
+    super(
+      `Phiếu trả hàng vừa bị thay đổi bởi giao dịch khác, vui lòng tải lại và thử lại`,
+    );
+  }
+}
+
 export interface IPurchaseReturnRepository {
   /**
    * Tạo phiếu trả (DRAFT). Với mỗi dòng, kiểm tra NGAY TRONG transaction: tổng số lượng
@@ -92,15 +105,19 @@ export interface IPurchaseReturnRepository {
     updatedBy: string,
   ): Promise<PurchaseReturnEntity>;
   /**
-   * APPROVED → COMPLETED trong 1 transaction duy nhất: với mỗi dòng hàng, ghi 1
-   * InventoryMovement (RETURN, số lượng âm — Inventory Out) + đồng bộ Inventory (chặn âm
-   * tồn kho theo Setting inventory.allowNegativeStock, cùng cơ chế Inventory Adjustment),
-   * rồi ghi 1 dòng Debt (type PAYABLE, amount âm — giảm công nợ phải trả NCC). Rollback
-   * toàn bộ nếu bất kỳ bước nào lỗi.
+   * APPROVED → COMPLETED trong 1 transaction duy nhất. T051.02: Optimistic Lock CAS trên
+   * `(id, organizationId, status: APPROVED, version: expectedVersion)` được claim TRƯỚC vòng lặp
+   * Inventory — request thua cuộc ném `PurchaseReturnConcurrencyConflictError` ngay tại bước claim,
+   * KHÔNG chạy vòng lặp Inventory/Debt. Request thắng cuộc mới tiếp tục: với mỗi dòng hàng, ghi 1
+   * InventoryMovement (RETURN, số lượng âm — Inventory Out) + đồng bộ Inventory (chặn âm tồn kho
+   * theo Setting inventory.allowNegativeStock, cùng cơ chế Inventory Adjustment), rồi ghi 1 dòng
+   * Debt (type PAYABLE, amount âm — giảm công nợ phải trả NCC). Rollback toàn bộ nếu bất kỳ bước
+   * nào lỗi.
    */
   complete(
     id: string,
     organizationId: string,
+    expectedVersion: number,
     updatedBy: string,
   ): Promise<PurchaseReturnEntity>;
   /** [DRAFT, APPROVED] → CANCELLED. Không cho hủy khi đã COMPLETED (đã đụng tồn kho/công nợ). */

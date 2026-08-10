@@ -143,7 +143,11 @@ export function StockCountDetail({ id }: { id: string }) {
       </dl>
 
       {stockCount.status === 'COUNTING' ? (
-        <StockCountCompleteForm stockCountId={stockCount.id} items={stockCount.items} />
+        <StockCountCompleteForm
+          stockCountId={stockCount.id}
+          stockCountVersion={stockCount.version}
+          items={stockCount.items}
+        />
       ) : (
         <Table>
           <TableHeader>

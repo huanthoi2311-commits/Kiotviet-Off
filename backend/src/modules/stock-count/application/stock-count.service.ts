@@ -12,6 +12,7 @@ import { withCode } from '../../../common/errors/with-code';
 import { StockCountEntity } from '../domain/entities/stock-count.entity';
 import {
   STOCK_COUNT_REPOSITORY,
+  StockCountConcurrencyConflictError,
   StockCountItemMismatchError,
   StockCountStatusConflictError,
 } from '../domain/repositories/stock-count.repository.interface';
@@ -151,6 +152,7 @@ export class StockCountService {
       this.stockCountRepository.complete(
         id,
         actor.organizationId,
+        dto.version,
         dto.items,
         actor.userId,
       ),
@@ -192,6 +194,11 @@ export class StockCountService {
       if (error instanceof InventoryConcurrencyConflictError) {
         throw new ConflictException(
           withCode(ErrorCode.STOCK_COUNT_INVENTORY_CONFLICT, error.message),
+        );
+      }
+      if (error instanceof StockCountConcurrencyConflictError) {
+        throw new ConflictException(
+          withCode(ErrorCode.STOCK_COUNT_VERSION_CONFLICT, error.message),
         );
       }
       throw error;

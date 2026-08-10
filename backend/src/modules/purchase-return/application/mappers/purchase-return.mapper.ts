@@ -14,6 +14,7 @@ export class PurchaseReturnMapper {
       reason: entity.reason,
       totalAmount: entity.totalAmount,
       note: entity.note,
+      version: entity.version,
       items: entity.items.map((item) => ({
         id: item.id,
         purchaseItemId: item.purchaseItemId,

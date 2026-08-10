@@ -8,6 +8,7 @@ import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors
 import { TransferEntity } from '../domain/entities/transfer.entity';
 import {
   ITransferRepository,
+  TransferConcurrencyConflictError,
   TransferNegativeStockError,
   TransferStatusConflictError,
 } from '../domain/repositories/transfer.repository.interface';
@@ -32,6 +33,7 @@ describe('TransferService', () => {
     code: 'PDC000001',
     status: 'PENDING',
     note: null,
+    version: 1,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
@@ -123,24 +125,29 @@ describe('TransferService', () => {
   describe('approve', () => {
     it('ném NotFoundException khi không tồn tại', async () => {
       transferRepository.findById.mockResolvedValue(null);
-      await expect(service.approve('missing', actor)).rejects.toThrow(
+      await expect(service.approve('missing', 1, actor)).rejects.toThrow(
         NotFoundException,
       );
     });
 
-    it('gọi transitionStatus với movement direction=OUT + captureUnitCostToItem', async () => {
-      transferRepository.findById.mockResolvedValue(makeTransfer());
+    it('gọi transitionStatus kèm organizationId/expectedVersion, movement direction=OUT + captureUnitCostToItem', async () => {
+      transferRepository.findById.mockResolvedValue(
+        makeTransfer({ version: 1 }),
+      );
       transferRepository.transitionStatus.mockResolvedValue(
-        makeTransfer({ status: 'APPROVED' }),
+        makeTransfer({ status: 'APPROVED', version: 2 }),
       );
 
-      const result = await service.approve('transfer-1', actor);
+      const result = await service.approve('transfer-1', 1, actor);
 
       expect(result.status).toBe('APPROVED');
+      expect(result.version).toBe(2);
       expect(transferRepository.transitionStatus).toHaveBeenCalledWith(
         'transfer-1',
+        'org-1',
         ['PENDING'],
         'APPROVED',
+        1,
         [
           expect.objectContaining({
             transferItemId: 'item-1',
@@ -163,7 +170,7 @@ describe('TransferService', () => {
       transferRepository.transitionStatus.mockRejectedValue(
         new TransferStatusConflictError('CANCELLED'),
       );
-      await expect(service.approve('transfer-1', actor)).rejects.toThrow(
+      await expect(service.approve('transfer-1', 1, actor)).rejects.toThrow(
         UnprocessableEntityException,
       );
     });
@@ -173,7 +180,7 @@ describe('TransferService', () => {
       transferRepository.transitionStatus.mockRejectedValue(
         new TransferNegativeStockError('product-1'),
       );
-      await expect(service.approve('transfer-1', actor)).rejects.toThrow(
+      await expect(service.approve('transfer-1', 1, actor)).rejects.toThrow(
         UnprocessableEntityException,
       );
     });
@@ -183,8 +190,25 @@ describe('TransferService', () => {
       transferRepository.transitionStatus.mockRejectedValue(
         new InventoryConcurrencyConflictError('product-1'),
       );
-      await expect(service.approve('transfer-1', actor)).rejects.toThrow(
+      await expect(service.approve('transfer-1', 1, actor)).rejects.toThrow(
         ConflictException,
+      );
+    });
+
+    it('T051.02: dịch TransferConcurrencyConflictError sang ConflictException (TRANSFER_008)', async () => {
+      transferRepository.findById.mockResolvedValue(makeTransfer());
+      transferRepository.transitionStatus.mockRejectedValue(
+        new TransferConcurrencyConflictError('transfer-1'),
+      );
+      let caught: ConflictException | undefined;
+      try {
+        await service.approve('transfer-1', 1, actor);
+      } catch (error) {
+        caught = error as ConflictException;
+      }
+      expect(caught).toBeInstanceOf(ConflictException);
+      expect((caught?.getResponse() as { errorCode?: string })?.errorCode).toBe(
+        'TRANSFER_008',
       );
     });
   });
@@ -194,6 +218,7 @@ describe('TransferService', () => {
       transferRepository.findById.mockResolvedValue(
         makeTransfer({
           status: 'APPROVED',
+          version: 2,
           items: [
             {
               id: 'item-1',
@@ -205,15 +230,17 @@ describe('TransferService', () => {
         }),
       );
       transferRepository.transitionStatus.mockResolvedValue(
-        makeTransfer({ status: 'RECEIVED' }),
+        makeTransfer({ status: 'RECEIVED', version: 3 }),
       );
 
-      await service.receive('transfer-1', actor);
+      await service.receive('transfer-1', 2, actor);
 
       expect(transferRepository.transitionStatus).toHaveBeenCalledWith(
         'transfer-1',
+        'org-1',
         ['APPROVED'],
         'RECEIVED',
+        2,
         [
           expect.objectContaining({
             warehouseId: 'wh-b',
@@ -233,7 +260,7 @@ describe('TransferService', () => {
       transferRepository.findById.mockResolvedValue(
         makeTransfer({ status: 'RECEIVED' }),
       );
-      await expect(service.cancel('transfer-1', actor)).rejects.toThrow(
+      await expect(service.cancel('transfer-1', 1, actor)).rejects.toThrow(
         UnprocessableEntityException,
       );
       expect(transferRepository.transitionStatus).not.toHaveBeenCalled();
@@ -241,18 +268,20 @@ describe('TransferService', () => {
 
     it('hủy từ PENDING không sinh movement nào', async () => {
       transferRepository.findById.mockResolvedValue(
-        makeTransfer({ status: 'PENDING' }),
+        makeTransfer({ status: 'PENDING', version: 1 }),
       );
       transferRepository.transitionStatus.mockResolvedValue(
-        makeTransfer({ status: 'CANCELLED' }),
+        makeTransfer({ status: 'CANCELLED', version: 2 }),
       );
 
-      await service.cancel('transfer-1', actor);
+      await service.cancel('transfer-1', 1, actor);
 
       expect(transferRepository.transitionStatus).toHaveBeenCalledWith(
         'transfer-1',
+        'org-1',
         ['PENDING'],
         'CANCELLED',
+        1,
         [],
         'user-1',
       );
@@ -262,6 +291,7 @@ describe('TransferService', () => {
       transferRepository.findById.mockResolvedValue(
         makeTransfer({
           status: 'APPROVED',
+          version: 2,
           items: [
             {
               id: 'item-1',
@@ -273,15 +303,17 @@ describe('TransferService', () => {
         }),
       );
       transferRepository.transitionStatus.mockResolvedValue(
-        makeTransfer({ status: 'CANCELLED' }),
+        makeTransfer({ status: 'CANCELLED', version: 3 }),
       );
 
-      await service.cancel('transfer-1', actor);
+      await service.cancel('transfer-1', 2, actor);
 
       expect(transferRepository.transitionStatus).toHaveBeenCalledWith(
         'transfer-1',
+        'org-1',
         ['APPROVED'],
         'CANCELLED',
+        2,
         [
           expect.objectContaining({
             warehouseId: 'wh-a',

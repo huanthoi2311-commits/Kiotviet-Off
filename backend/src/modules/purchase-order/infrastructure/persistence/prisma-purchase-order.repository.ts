@@ -15,6 +15,7 @@ import {
 import {
   CreatePurchaseOrderInput,
   IPurchaseOrderRepository,
+  PurchaseOrderConcurrencyConflictError,
   PurchaseOrderSearchParams,
   PurchaseOrderSearchResult,
   PurchaseOrderStatusConflictError,
@@ -151,25 +152,54 @@ export class PrismaPurchaseOrderRepository implements IPurchaseOrderRepository {
   }
 
   /**
-   * APPROVED → RECEIVED trong 1 transaction: với mỗi PurchaseItem, gọi
-   * InventoryDomainService.increase() (Single Writer — SPEC-INV-001) để ghi InventoryMovement
-   * (PURCHASE) + đồng bộ Inventory/Average Cost, truyền `tx` của chính transaction này để cùng
-   * nằm một giao dịch, rồi cập nhật receivedQuantity = quantity trên PurchaseItem.
+   * T051.02 — APPROVED → RECEIVED trong 1 transaction, Optimistic Lock CAS-FIRST: bước đầu tiên
+   * là `updateMany({where:{id, organizationId, status:'APPROVED', version:expectedVersion}})` để
+   * CLAIM quyền receive trước khi chạm vào Inventory. Request thua cuộc (0 dòng bị ảnh hưởng) ném
+   * lỗi ngay tại đây — KHÔNG chạy vòng lặp Inventory/Debt bên dưới, không phụ thuộc vào xung đột
+   * tình cờ ở tầng Inventory (trước T051.02, bảo vệ duy nhất là side-effect từ
+   * `InventoryDomainService.increase()`'s own optimistic lock). Request thắng cuộc mới tiếp tục:
+   * với mỗi PurchaseItem, gọi InventoryDomainService.increase() (Single Writer — SPEC-INV-001) để
+   * ghi InventoryMovement (PURCHASE) + đồng bộ Inventory/Average Cost, truyền `tx` của chính
+   * transaction này để cùng nằm một giao dịch, rồi cập nhật receivedQuantity = quantity trên
+   * PurchaseItem. Nếu bất kỳ bước nào lỗi (kể cả sau khi đã claim), toàn bộ transaction rollback —
+   * bao gồm cả claim status/version — đúng yêu cầu "zero business side effects" cho request thua.
    */
   async receive(
     id: string,
     organizationId: string,
+    expectedVersion: number,
     updatedBy: string,
   ): Promise<PurchaseOrderEntity> {
     return this.prisma.$transaction(async (tx) => {
+      const claim = await tx.purchaseOrder.updateMany({
+        where: {
+          id,
+          organizationId,
+          status: 'APPROVED',
+          version: expectedVersion,
+        },
+        data: { status: 'RECEIVED', version: { increment: 1 }, updatedBy },
+      });
+
+      if (claim.count === 0) {
+        const current = await tx.purchaseOrder.findFirst({
+          where: { id, organizationId },
+          select: { status: true },
+        });
+        if (!current || current.status !== 'APPROVED') {
+          throw new PurchaseOrderStatusConflictError(
+            (current?.status as PurchaseOrderStatus) ?? null,
+          );
+        }
+        throw new PurchaseOrderConcurrencyConflictError(id);
+      }
+
       const current = await tx.purchaseOrder.findFirst({
         where: { id, organizationId },
         include: { purchaseItems: true },
       });
-      if (!current || current.status !== 'APPROVED') {
-        throw new PurchaseOrderStatusConflictError(
-          (current?.status as PurchaseOrderStatus) ?? null,
-        );
+      if (!current) {
+        throw new PurchaseOrderStatusConflictError(null);
       }
 
       for (const item of current.purchaseItems) {
@@ -210,9 +240,10 @@ export class PrismaPurchaseOrderRepository implements IPurchaseOrderRepository {
         },
       });
 
-      const updated = await tx.purchaseOrder.update({
-        where: { id },
-        data: { status: 'RECEIVED', updatedBy },
+      // Trạng thái/version đã được claim ở bước đầu — chỉ đọc lại để trả về entity mới nhất
+      // (receivedQuantity trên từng dòng vừa được cập nhật trong vòng lặp phía trên).
+      const updated = await tx.purchaseOrder.findFirstOrThrow({
+        where: { id, organizationId },
         include: PURCHASE_ORDER_INCLUDE,
       });
 
@@ -292,6 +323,7 @@ export class PrismaPurchaseOrderRepository implements IPurchaseOrderRepository {
       totalAmount: order.totalAmount.toString(),
       paidAmount: order.paidAmount.toString(),
       expectedAt: order.expectedAt,
+      version: order.version,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
       deletedAt: order.deletedAt,

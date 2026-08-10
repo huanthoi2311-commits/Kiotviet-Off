@@ -173,6 +173,7 @@ export function TransferDetail({ id }: { id: string }) {
           }}
           transferId={transfer.id}
           transferCode={transfer.code}
+          transferVersion={transfer.version}
           mode={actionMode}
         />
       )}

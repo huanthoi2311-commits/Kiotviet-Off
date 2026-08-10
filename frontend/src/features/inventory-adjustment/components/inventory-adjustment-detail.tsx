@@ -182,6 +182,7 @@ export function InventoryAdjustmentDetail({ id }: { id: string }) {
           }}
           adjustmentId={adjustment.id}
           adjustmentCode={adjustment.code}
+          adjustmentVersion={adjustment.version}
           mode={actionMode}
         />
       )}

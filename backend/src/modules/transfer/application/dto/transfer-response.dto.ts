@@ -16,6 +16,11 @@ export class TransferResponseDto {
   @ApiProperty({ nullable: true }) note: string | null;
   @ApiProperty({ type: [TransferItemResponseDto] })
   items: TransferItemResponseDto[];
+  @ApiProperty({
+    description:
+      'Optimistic Lock (T051.02) — gửi lại giá trị này khi gọi approve/receive/cancel',
+  })
+  version: number;
   @ApiProperty() createdAt: Date;
   @ApiProperty() updatedAt: Date;
 }

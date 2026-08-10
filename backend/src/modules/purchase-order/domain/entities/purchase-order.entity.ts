@@ -30,6 +30,8 @@ export interface PurchaseOrderEntity {
   totalAmount: string;
   paidAmount: string;
   expectedAt: Date | null;
+  /** T051.02 — Optimistic Lock, chỉ được CAS/tăng trong `receive()`. */
+  version: number;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;

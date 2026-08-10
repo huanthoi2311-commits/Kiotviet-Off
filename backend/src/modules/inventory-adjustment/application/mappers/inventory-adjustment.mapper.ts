@@ -12,6 +12,7 @@ export class InventoryAdjustmentMapper {
       status: entity.status,
       reason: entity.reason,
       note: entity.note,
+      version: entity.version,
       items: entity.items.map((item) => ({
         id: item.id,
         productId: item.productId,

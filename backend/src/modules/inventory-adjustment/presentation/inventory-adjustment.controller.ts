@@ -30,6 +30,7 @@ import {
   ActorContext,
   InventoryAdjustmentService,
 } from '../application/inventory-adjustment.service';
+import { CompleteInventoryAdjustmentDto } from '../application/dto/complete-inventory-adjustment.dto';
 import { CreateInventoryAdjustmentDto } from '../application/dto/create-inventory-adjustment.dto';
 import { InventoryAdjustmentQueryDto } from '../application/dto/inventory-adjustment-query.dto';
 import {
@@ -115,16 +116,22 @@ export class InventoryAdjustmentController {
   @RequirePermissions('inventory:complete')
   @ApiOperation({
     summary:
-      'Hoàn tất — sinh InventoryMovement, đồng bộ tồn kho (APPROVED → COMPLETED)',
+      'Hoàn tất — sinh InventoryMovement, đồng bộ tồn kho (APPROVED → COMPLETED). ' +
+      'T051.02: body.version là Optimistic Lock bắt buộc (đọc từ GET trước đó), sai version → 409.',
   })
   @ApiResponse({ status: 200, type: InventoryAdjustmentResponseDto })
   @ApiWriteErrors()
   complete(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CompleteInventoryAdjustmentDto,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
   ): Promise<InventoryAdjustmentResponseDto> {
-    return this.adjustmentService.complete(id, this.toActor(user, req));
+    return this.adjustmentService.complete(
+      id,
+      dto.version,
+      this.toActor(user, req),
+    );
   }
 
   private toActor(user: JwtAccessPayload, req: Request): ActorContext {

@@ -16,6 +16,7 @@ import {
 import {
   CreateTransferInput,
   ITransferRepository,
+  TransferConcurrencyConflictError,
   TransferMovementInput,
   TransferNegativeStockError,
   TransferSearchParams,
@@ -119,25 +120,59 @@ export class PrismaTransferRepository implements ITransferRepository {
   }
 
   /**
-   * Chuyển trạng thái + ghi các InventoryMovement liên quan trong 1 transaction duy nhất, qua
-   * InventoryDomainService.transfer() (Single Writer — SPEC-INV-001). `avgCostAfter` trả về từ
-   * lượt OUT (Approve) chính là Average Cost của kho nguồn TẠI THỜI ĐIỂM trừ (decrease/OUT
-   * không tính lại avgCost, nên giá trị này không đổi trước/sau) — dùng thẳng để snapshot vào
-   * TransferItem.unitCost thay vì phải đọc riêng Inventory (không được phép — Decision 11).
-   * `InventoryInsufficientStockError` từ lượt OUT được dịch sang `TransferNegativeStockError`
-   * để Service có lớp lỗi domain riêng, nhất quán với Purchase Return/Inventory Adjustment.
+   * T051.02 — Chuyển trạng thái + ghi các InventoryMovement liên quan trong 1 transaction, Optimistic
+   * Lock CAS-FIRST: bước đầu tiên là `updateMany({where:{id, organizationId, status:{in:expectedStatuses},
+   * version:expectedVersion}})` để CLAIM quyền chuyển trạng thái trước khi chạm vào Inventory. Request
+   * thua cuộc (0 dòng bị ảnh hưởng) ném lỗi ngay tại đây — KHÔNG chạy vòng lặp Inventory bên dưới.
+   * Request thắng cuộc mới tiếp tục: gọi InventoryDomainService.transfer() (Single Writer —
+   * SPEC-INV-001) cho từng movement. `avgCostAfter` trả về từ lượt OUT (Approve) chính là Average
+   * Cost của kho nguồn TẠI THỜI ĐIỂM trừ (decrease/OUT không tính lại avgCost, nên giá trị này không
+   * đổi trước/sau) — dùng thẳng để snapshot vào TransferItem.unitCost thay vì phải đọc riêng Inventory
+   * (không được phép — Decision 11). `InventoryInsufficientStockError` từ lượt OUT được dịch sang
+   * `TransferNegativeStockError` để Service có lớp lỗi domain riêng, nhất quán với Purchase
+   * Return/Inventory Adjustment.
    */
   async transitionStatus(
     id: string,
+    organizationId: string,
     expectedStatuses: TransferStatus[],
     nextStatus: TransferStatus,
+    expectedVersion: number,
     movements: TransferMovementInput[],
     updatedBy: string,
   ): Promise<TransferEntity> {
     return this.prisma.$transaction(async (tx) => {
-      const current = await tx.transfer.findUnique({ where: { id } });
-      if (!current || !expectedStatuses.includes(current.status)) {
-        throw new TransferStatusConflictError(current?.status ?? 'CANCELLED');
+      const claim = await tx.transfer.updateMany({
+        where: {
+          id,
+          organizationId,
+          status: { in: expectedStatuses },
+          version: expectedVersion,
+        },
+        data: { status: nextStatus, version: { increment: 1 }, updatedBy },
+      });
+
+      if (claim.count === 0) {
+        const currentStatus = await tx.transfer.findFirst({
+          where: { id, organizationId },
+          select: { status: true },
+        });
+        if (
+          !currentStatus ||
+          !expectedStatuses.includes(currentStatus.status)
+        ) {
+          throw new TransferStatusConflictError(
+            currentStatus?.status ?? 'CANCELLED',
+          );
+        }
+        throw new TransferConcurrencyConflictError(id);
+      }
+
+      const current = await tx.transfer.findFirst({
+        where: { id, organizationId },
+      });
+      if (!current) {
+        throw new TransferStatusConflictError('CANCELLED');
       }
 
       for (const movement of movements) {
@@ -171,9 +206,10 @@ export class PrismaTransferRepository implements ITransferRepository {
         }
       }
 
-      const updated = await tx.transfer.update({
-        where: { id },
-        data: { status: nextStatus, updatedBy },
+      // Trạng thái/version đã được claim ở bước đầu — chỉ đọc lại để trả về entity mới nhất
+      // (unitCost trên từng dòng vừa được cập nhật trong vòng lặp phía trên nếu có).
+      const updated = await tx.transfer.findFirstOrThrow({
+        where: { id, organizationId },
         include: TRANSFER_INCLUDE,
       });
 
@@ -220,6 +256,7 @@ export class PrismaTransferRepository implements ITransferRepository {
       code: transfer.code,
       status: transfer.status,
       note: transfer.note,
+      version: transfer.version,
       createdAt: transfer.createdAt,
       updatedAt: transfer.updatedAt,
       deletedAt: transfer.deletedAt,
