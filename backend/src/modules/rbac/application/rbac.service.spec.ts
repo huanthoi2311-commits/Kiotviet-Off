@@ -21,6 +21,7 @@ describe('RbacService', () => {
       removeRoleFromUser: jest.fn(),
       getRoleCodesForUser: jest.fn(),
       getPermissionCodesForUser: jest.fn(),
+      findOrganizationIdForUser: jest.fn(),
       incrementPermissionVersionForUser: jest.fn(),
       incrementPermissionVersionForUsersWithRole: jest.fn(),
     };
@@ -85,6 +86,8 @@ describe('RbacService', () => {
       permissionCodes: ['product:view', 'customer:view'],
     };
 
+    const actor = { userId: 'admin-1', organizationId: 'org-1' };
+
     it('gán permission hợp lệ, tăng permissionVersion cho user giữ role và ghi audit log', async () => {
       roleRepository.findById.mockResolvedValue(role);
       permissionRepository.findByCodes.mockResolvedValue([
@@ -100,9 +103,10 @@ describe('RbacService', () => {
       const result = await service.assignPermissions(
         'role-1',
         ['product:view', 'customer:view'],
-        { userId: 'admin-1', organizationId: 'org-1' },
+        actor,
       );
 
+      expect(roleRepository.findById).toHaveBeenCalledWith('role-1', 'org-1');
       expect(roleRepository.replacePermissions).toHaveBeenCalledWith('role-1', [
         'p1',
         'p2',
@@ -119,31 +123,25 @@ describe('RbacService', () => {
       );
     });
 
-    it('không ghi audit log khi không truyền actor', async () => {
-      roleRepository.findById.mockResolvedValue(role);
-      permissionRepository.findByCodes.mockResolvedValue([
-        { id: 'p1', code: 'product:view', group: 'product', description: null },
-        {
-          id: 'p2',
-          code: 'customer:view',
-          group: 'customer',
-          description: null,
-        },
-      ]);
+    it('T051.00: ném NotFoundException khi role thuộc tổ chức khác (findById được gọi kèm organizationId của actor)', async () => {
+      // Repository tự lọc theo organizationId — role thuộc org khác trả về null, y hệt role không tồn tại.
+      roleRepository.findById.mockResolvedValue(null);
 
-      await service.assignPermissions('role-1', [
-        'product:view',
-        'customer:view',
-      ]);
-
-      expect(auditLogService.log).not.toHaveBeenCalled();
+      await expect(
+        service.assignPermissions('role-of-org-2', ['product:view'], actor),
+      ).rejects.toThrow(NotFoundException);
+      expect(roleRepository.findById).toHaveBeenCalledWith(
+        'role-of-org-2',
+        'org-1',
+      );
+      expect(roleRepository.replacePermissions).not.toHaveBeenCalled();
     });
 
     it('ném NotFoundException khi role không tồn tại', async () => {
       roleRepository.findById.mockResolvedValue(null);
 
       await expect(
-        service.assignPermissions('missing', ['product:view']),
+        service.assignPermissions('missing', ['product:view'], actor),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -154,11 +152,145 @@ describe('RbacService', () => {
       ]);
 
       await expect(
-        service.assignPermissions('role-1', [
-          'product:view',
-          'not-a-real-permission',
-        ]),
+        service.assignPermissions(
+          'role-1',
+          ['product:view', 'not-a-real-permission'],
+          actor,
+        ),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('assignRoleToUser (T051.00)', () => {
+    const role = {
+      id: 'role-1',
+      organizationId: 'org-1',
+      code: 'sales_staff',
+      name: 'Nhân viên bán hàng',
+      isSystem: false,
+      description: null,
+      permissionCodes: [],
+    };
+    const actor = { userId: 'admin-1', organizationId: 'org-1' };
+
+    it('gán role hợp lệ khi role và user cùng thuộc tổ chức của actor', async () => {
+      roleRepository.findById.mockResolvedValue(role);
+      roleRepository.findOrganizationIdForUser.mockResolvedValue('org-1');
+
+      await service.assignRoleToUser('user-1', 'role-1', actor);
+
+      expect(roleRepository.findById).toHaveBeenCalledWith('role-1', 'org-1');
+      expect(roleRepository.findOrganizationIdForUser).toHaveBeenCalledWith(
+        'user-1',
+      );
+      expect(roleRepository.assignRoleToUser).toHaveBeenCalledWith(
+        'user-1',
+        'role-1',
+      );
+      expect(auditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'user.role.assign' }),
+      );
+    });
+
+    it('T051.00: ném NotFoundException khi role thuộc tổ chức khác', async () => {
+      roleRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.assignRoleToUser('user-1', 'role-of-org-2', actor),
+      ).rejects.toThrow(NotFoundException);
+      expect(roleRepository.assignRoleToUser).not.toHaveBeenCalled();
+    });
+
+    it('T051.00: ném NotFoundException khi user thuộc tổ chức khác', async () => {
+      roleRepository.findById.mockResolvedValue(role);
+      roleRepository.findOrganizationIdForUser.mockResolvedValue('org-2');
+
+      await expect(
+        service.assignRoleToUser('user-of-org-2', 'role-1', actor),
+      ).rejects.toThrow(NotFoundException);
+      expect(roleRepository.assignRoleToUser).not.toHaveBeenCalled();
+    });
+
+    it('T051.00: ném NotFoundException khi user không tồn tại', async () => {
+      roleRepository.findById.mockResolvedValue(role);
+      roleRepository.findOrganizationIdForUser.mockResolvedValue(null);
+
+      await expect(
+        service.assignRoleToUser('missing-user', 'role-1', actor),
+      ).rejects.toThrow(NotFoundException);
+      expect(roleRepository.assignRoleToUser).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeRoleFromUser (T051.00)', () => {
+    const role = {
+      id: 'role-1',
+      organizationId: 'org-1',
+      code: 'sales_staff',
+      name: 'Nhân viên bán hàng',
+      isSystem: false,
+      description: null,
+      permissionCodes: [],
+    };
+    const actor = { userId: 'admin-1', organizationId: 'org-1' };
+
+    it('gỡ role hợp lệ khi role và user cùng thuộc tổ chức của actor', async () => {
+      roleRepository.findById.mockResolvedValue(role);
+      roleRepository.findOrganizationIdForUser.mockResolvedValue('org-1');
+
+      await service.removeRoleFromUser('user-1', 'role-1', actor);
+
+      expect(roleRepository.removeRoleFromUser).toHaveBeenCalledWith(
+        'user-1',
+        'role-1',
+      );
+    });
+
+    it('T051.00: ném NotFoundException khi role thuộc tổ chức khác', async () => {
+      roleRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.removeRoleFromUser('user-1', 'role-of-org-2', actor),
+      ).rejects.toThrow(NotFoundException);
+      expect(roleRepository.removeRoleFromUser).not.toHaveBeenCalled();
+    });
+
+    it('T051.00: ném NotFoundException khi user thuộc tổ chức khác', async () => {
+      roleRepository.findById.mockResolvedValue(role);
+      roleRepository.findOrganizationIdForUser.mockResolvedValue('org-2');
+
+      await expect(
+        service.removeRoleFromUser('user-of-org-2', 'role-1', actor),
+      ).rejects.toThrow(NotFoundException);
+      expect(roleRepository.removeRoleFromUser).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getRole (T051.00)', () => {
+    it('trả về role khi thuộc đúng tổ chức', async () => {
+      const role = {
+        id: 'role-1',
+        organizationId: 'org-1',
+        code: 'sales_staff',
+        name: 'Nhân viên bán hàng',
+        isSystem: false,
+        description: null,
+        permissionCodes: [],
+      };
+      roleRepository.findById.mockResolvedValue(role);
+
+      const result = await service.getRole('role-1', 'org-1');
+
+      expect(roleRepository.findById).toHaveBeenCalledWith('role-1', 'org-1');
+      expect(result).toEqual(role);
+    });
+
+    it('ném NotFoundException khi role thuộc tổ chức khác hoặc không tồn tại', async () => {
+      roleRepository.findById.mockResolvedValue(null);
+
+      await expect(service.getRole('role-1', 'org-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
