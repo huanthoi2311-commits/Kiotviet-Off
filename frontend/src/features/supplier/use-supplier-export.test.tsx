@@ -82,7 +82,13 @@ describe('useSupplierExport (T049 AD-1 §6)', () => {
     server.use(
       http.get(`${API_BASE_URL}/suppliers/export`, ({ request }) => {
         lastUrl = new URL(request.url);
-        return new HttpResponse(new Blob(['fake-xlsx-bytes']), {
+        // Plain string body, not `new Blob([...])` — MSW's node-side XHR interceptor
+        // constructs a `Response` internally to fulfill the request, and Node's undici
+        // `extractBody` calls `.stream()` on a Blob body; the Blob implementation in this
+        // Vitest/jsdom/Node combination doesn't implement it ("object.stream is not a
+        // function"), an environment-level MSW/undici/jsdom interaction, not a production
+        // concern. This test only needs the request URL, never processes the response body.
+        return new HttpResponse('fake-xlsx-bytes', {
           headers: {
             'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Disposition': 'attachment; filename="suppliers.xlsx"',
