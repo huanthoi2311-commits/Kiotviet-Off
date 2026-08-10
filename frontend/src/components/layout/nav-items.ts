@@ -12,6 +12,7 @@ import {
   ShoppingCart,
   Store,
   Tag,
+  Truck,
   Undo2,
   Users,
   Warehouse,
@@ -119,6 +120,12 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Mua hàng',
     items: [
+      {
+        label: 'Suppliers',
+        href: '/suppliers',
+        icon: Truck,
+        permission: 'supplier:view',
+      },
       {
         label: 'Purchase Orders',
         href: '/purchase-orders',
