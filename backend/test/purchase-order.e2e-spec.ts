@@ -453,8 +453,12 @@ describe('PurchaseOrder Module (e2e, integration)', () => {
       .patch(`/api/v1/purchase-orders/${purchaseOrderId}/receive`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ version: 1 })
-      .expect(422); // status đã là RECEIVED, không còn APPROVED nữa — invalid transition, không phải version conflict
-    expect(staleRetry.body.code).toBe('PURCHASE_ORDER_003');
+      // version 1 đã stale (receive thành công ở trên đã tăng lên 2) — đây LUÔN LÀ version
+      // conflict (409) theo đúng ngữ nghĩa optimistic lock, bất kể status hiện tại đã đổi
+      // thành RECEIVED. 422/invalid-transition chỉ dành cho trường hợp version ĐÚNG nhưng
+      // status không hợp lệ (T051.02: xem prisma-purchase-order.repository.ts).
+      .expect(409);
+    expect(staleRetry.body.code).toBe('PURCHASE_ORDER_005');
 
     const history = await request(app.getHttpServer())
       .get('/api/v1/inventory/history')
