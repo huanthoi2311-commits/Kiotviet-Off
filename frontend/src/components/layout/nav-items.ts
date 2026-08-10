@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowLeftRight,
+  BarChart3,
   ClipboardCheck,
   ClipboardEdit,
   FolderTree,
@@ -137,6 +138,12 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/purchase-returns',
         icon: Undo2,
         permission: 'purchase_return:view',
+      },
+      {
+        label: 'Báo cáo mua hàng',
+        href: '/purchase-reports',
+        icon: BarChart3,
+        permission: 'report:view',
       },
     ],
   },
