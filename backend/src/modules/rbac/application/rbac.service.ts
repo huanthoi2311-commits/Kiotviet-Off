@@ -41,8 +41,13 @@ export class RbacService {
     return this.roleRepository.list(organizationId);
   }
 
-  async getRole(id: string): Promise<RoleWithPermissions> {
-    const role = await this.roleRepository.findById(id);
+  /** T051.00 — organizationId is mandatory: a role belonging to another organization must read
+   * as not-found (same response as a genuinely missing role), never leaked cross-tenant. */
+  async getRole(
+    id: string,
+    organizationId: string,
+  ): Promise<RoleWithPermissions> {
+    const role = await this.roleRepository.findById(id, organizationId);
     if (!role) {
       throw new NotFoundException(
         withCode(ErrorCode.RBAC_ROLE_NOT_FOUND, 'Không tìm thấy vai trò'),
@@ -67,12 +72,15 @@ export class RbacService {
     return this.roleRepository.create({ organizationId, ...input });
   }
 
+  /** T051.00 — `actor` is now mandatory (was optional): `actor.organizationId` is the sole source
+   * of tenant scoping for this mutation, not just audit metadata. A role belonging to another
+   * organization throws the same `RBAC_ROLE_NOT_FOUND` as a genuinely missing role. */
   async assignPermissions(
     roleId: string,
     permissionCodes: string[],
-    actor?: ActorContext,
+    actor: ActorContext,
   ): Promise<RoleWithPermissions> {
-    const before = await this.getRole(roleId);
+    const before = await this.getRole(roleId, actor.organizationId);
     const permissions =
       await this.permissionRepository.findByCodes(permissionCodes);
     if (permissions.length !== new Set(permissionCodes).size) {
@@ -93,49 +101,71 @@ export class RbacService {
       roleId,
     );
 
-    const after = await this.getRole(roleId);
+    const after = await this.getRole(roleId, actor.organizationId);
 
-    if (actor) {
-      await this.auditLogService.log({
-        organizationId: actor.organizationId,
-        userId: actor.userId,
-        action: 'role.permissions.update',
-        entityType: 'Role',
-        entityId: roleId,
-        oldValue: { permissionCodes: before.permissionCodes },
-        newValue: { permissionCodes: after.permissionCodes },
-        ip: actor.ip,
-        userAgent: actor.userAgent,
-      });
-    }
+    await this.auditLogService.log({
+      organizationId: actor.organizationId,
+      userId: actor.userId,
+      action: 'role.permissions.update',
+      entityType: 'Role',
+      entityId: roleId,
+      oldValue: { permissionCodes: before.permissionCodes },
+      newValue: { permissionCodes: after.permissionCodes },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+    });
 
     return after;
   }
 
+  /** T051.00 — `actor` is now mandatory: both the role and the target user must belong to
+   * `actor.organizationId`. A cross-tenant role or user reads as not-found, same as a genuinely
+   * missing one — never a different error that would leak cross-tenant existence. */
   async assignRoleToUser(
     userId: string,
     roleId: string,
-    actor?: ActorContext,
+    actor: ActorContext,
   ): Promise<void> {
-    await this.getRole(roleId);
+    await this.getRole(roleId, actor.organizationId);
+    await this.assertUserInOrganization(userId, actor.organizationId);
     await this.roleRepository.assignRoleToUser(userId, roleId);
 
-    if (actor) {
-      await this.auditLogService.log({
-        organizationId: actor.organizationId,
-        userId: actor.userId,
-        action: 'user.role.assign',
-        entityType: 'User',
-        entityId: userId,
-        newValue: { roleId },
-        ip: actor.ip,
-        userAgent: actor.userAgent,
-      });
-    }
+    await this.auditLogService.log({
+      organizationId: actor.organizationId,
+      userId: actor.userId,
+      action: 'user.role.assign',
+      entityType: 'User',
+      entityId: userId,
+      newValue: { roleId },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+    });
   }
 
-  async removeRoleFromUser(userId: string, roleId: string): Promise<void> {
+  /** T051.00 — same tenant-ownership requirement as `assignRoleToUser`. Not currently wired to any
+   * controller route, but fixed alongside its sibling so a future caller cannot reintroduce the
+   * same cross-tenant gap by construction. */
+  async removeRoleFromUser(
+    userId: string,
+    roleId: string,
+    actor: ActorContext,
+  ): Promise<void> {
+    await this.getRole(roleId, actor.organizationId);
+    await this.assertUserInOrganization(userId, actor.organizationId);
     await this.roleRepository.removeRoleFromUser(userId, roleId);
+  }
+
+  private async assertUserInOrganization(
+    userId: string,
+    organizationId: string,
+  ): Promise<void> {
+    const userOrganizationId =
+      await this.roleRepository.findOrganizationIdForUser(userId);
+    if (userOrganizationId !== organizationId) {
+      throw new NotFoundException(
+        withCode(ErrorCode.RBAC_USER_NOT_FOUND, 'Không tìm thấy người dùng'),
+      );
+    }
   }
 
   async getPermissionCodesForUser(userId: string): Promise<string[]> {

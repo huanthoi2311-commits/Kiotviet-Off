@@ -39,8 +39,11 @@ export class RolesController {
   @Get(':id')
   @RequirePermissions('role:view')
   @ApiOperation({ summary: 'Chi tiết vai trò kèm danh sách permission' })
-  detail(@Param('id', ParseUUIDPipe) id: string) {
-    return this.rbacService.getRole(id);
+  detail(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: JwtAccessPayload,
+  ) {
+    return this.rbacService.getRole(id, user.organizationId);
   }
 
   @Post()

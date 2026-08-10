@@ -25,9 +25,12 @@ export class PrismaRoleRepository implements IRoleRepository {
     return this.toEntity(role);
   }
 
-  async findById(id: string): Promise<RoleWithPermissions | null> {
-    const role = await this.prisma.role.findUnique({
-      where: { id },
+  async findById(
+    id: string,
+    organizationId: string,
+  ): Promise<RoleWithPermissions | null> {
+    const role = await this.prisma.role.findFirst({
+      where: { id, organizationId },
       include: { rolePermissions: { include: { permission: true } } },
     });
     if (!role) return null;
@@ -100,6 +103,14 @@ export class PrismaRoleRepository implements IRoleRepository {
       where: { id: { in: userRoles.map((ur) => ur.userId) } },
       data: { permissionVersion: { increment: 1 } },
     });
+  }
+
+  async findOrganizationIdForUser(userId: string): Promise<string | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { organizationId: true },
+    });
+    return user?.organizationId ?? null;
   }
 
   async getRoleCodesForUser(userId: string): Promise<string[]> {
