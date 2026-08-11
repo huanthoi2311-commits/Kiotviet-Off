@@ -160,6 +160,16 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate --schema=prisma/schema.prisma
 
+      # T051.03 §20 — backup-restore.e2e-spec.ts chạy pg_dump/pg_restore THẬT (mode 'direct') để
+      # chứng minh backup→restore chứ không chỉ mock. ubuntu-latest có thể đã có sẵn client tools,
+      # nhưng cài tường minh để không phụ thuộc vào một chi tiết ngoài kiểm soát của runner image.
+      - name: Install PostgreSQL client tools (pg_dump/pg_restore)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          pg_dump --version
+          pg_restore --version
+
       - name: Apply migrations
         run: npx prisma migrate deploy --schema=prisma/schema.prisma
 
