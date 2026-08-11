@@ -107,6 +107,40 @@ describe('runPgTool', () => {
     jest.useRealTimers();
   });
 
+  it('EPIPE trên child.stdin KHÔNG làm promise reject — tiến trình con (vd pg_restore --list) có thể đóng stdin sớm khi đã đọc đủ', async () => {
+    const fakeChild = new FakeChildProcess();
+    spawnMock.mockReturnValue(fakeChild);
+    const source = new PassThrough();
+
+    const promise = runPgTool({ invocation, stdin: source });
+    const epipeError = Object.assign(new Error('write EPIPE'), {
+      code: 'EPIPE',
+    });
+    fakeChild.stdin.emit('error', epipeError);
+    fakeChild.emit('close', 0, null);
+
+    const result = await promise;
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe('');
+  });
+
+  it('lỗi KHÁC EPIPE trên child.stdin được ghi vào stderr (không làm reject, vẫn phản ánh qua exit code thật)', async () => {
+    const fakeChild = new FakeChildProcess();
+    spawnMock.mockReturnValue(fakeChild);
+    const source = new PassThrough();
+
+    const promise = runPgTool({ invocation, stdin: source });
+    const otherError = Object.assign(new Error('write ENOSPC'), {
+      code: 'ENOSPC',
+    });
+    fakeChild.stdin.emit('error', otherError);
+    fakeChild.emit('close', 1, null);
+
+    const result = await promise;
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('ENOSPC');
+  });
+
   it('không pipe stdin/stdout nếu không được truyền vào (stdio ignore)', async () => {
     const fakeChild = new FakeChildProcess();
     spawnMock.mockReturnValue(fakeChild);
