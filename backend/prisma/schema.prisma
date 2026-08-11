@@ -1258,6 +1258,11 @@ model PurchaseOrder {
   paidAmount  Decimal             @default(0) @db.Decimal(18, 2)
   expectedAt  DateTime?
 
+  /// Optimistic Lock (T051.02) — CAS trên `receive()`, tang o moi lan receive thanh cong, khong
+  /// bao gio reset. approve/cancel khong doi trang thai qua inventory nen van dung status-predicate
+  /// updateMany (transitionSimple) nhu truoc, khong can version.
+  version Int @default(1)
+
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
   createdAt DateTime  @default(now())
@@ -1338,6 +1343,10 @@ model PurchaseReturn {
   totalAmount Decimal              @default(0) @db.Decimal(18, 2)
   note        String?
 
+  /// Optimistic Lock (T051.02) — CAS trên `complete()`, tang o moi lan complete thanh cong.
+  /// approve/cancel khong dung inventory nen van dung status-predicate updateMany, khong can version.
+  version Int @default(1)
+
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
   createdAt DateTime  @default(now())
@@ -1407,6 +1416,10 @@ model Transfer {
   status TransferStatus @default(PENDING)
   note   String?
 
+  /// Optimistic Lock (T051.02) — CAS trong `transitionStatus()`, dung chung cho ca
+  /// approve/receive/cancel (ca 3 deu co the tac dong Inventory). Tang o moi lan transition thanh cong.
+  version Int @default(1)
+
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
   createdAt DateTime  @default(now())
@@ -1462,6 +1475,10 @@ model StockCount {
   code   String
   status StockCountStatus @default(DRAFT)
   note   String?
+
+  /// Optimistic Lock (T051.02) — CAS trên `complete()`, tang o moi lan complete thanh cong.
+  /// `start()` da la atomic status-predicate updateMany va khong dung Inventory nen khong can version.
+  version Int @default(1)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid
@@ -1531,6 +1548,10 @@ model InventoryAdjustment {
   status InventoryAdjustmentStatus @default(DRAFT)
   reason InventoryAdjustmentReason
   note   String?
+
+  /// Optimistic Lock (T051.02) — CAS trên `complete()`, tang o moi lan complete thanh cong.
+  /// submit/approve khong dung Inventory nen van dung status-predicate updateMany, khong can version.
+  version Int @default(1)
 
   createdBy String?   @db.Uuid
   updatedBy String?   @db.Uuid

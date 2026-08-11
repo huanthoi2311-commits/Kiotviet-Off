@@ -207,6 +207,7 @@ export function PurchaseReturnDetail({ id }: { id: string }) {
           }}
           purchaseReturnId={purchaseReturn.id}
           purchaseReturnCode={purchaseReturn.code}
+          purchaseReturnVersion={purchaseReturn.version}
           mode={actionMode}
         />
       )}

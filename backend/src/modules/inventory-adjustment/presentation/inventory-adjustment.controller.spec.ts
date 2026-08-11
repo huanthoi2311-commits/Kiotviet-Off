@@ -122,14 +122,15 @@ describe('InventoryAdjustmentController', () => {
     );
   });
 
-  it('complete ủy quyền cho service.complete kèm actor context', async () => {
+  it('complete ủy quyền cho service.complete kèm version và actor context', async () => {
     adjustmentService.complete.mockResolvedValue({
       id: 'adj-1',
       status: 'COMPLETED',
     } as never);
-    await controller.complete('adj-1', user as never, req);
+    await controller.complete('adj-1', { version: 2 }, user as never, req);
     expect(adjustmentService.complete).toHaveBeenCalledWith(
       'adj-1',
+      2,
       expect.any(Object),
     );
   });

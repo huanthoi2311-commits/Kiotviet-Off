@@ -12,6 +12,7 @@ import { withCode } from '../../../common/errors/with-code';
 import { InventoryAdjustmentEntity } from '../domain/entities/inventory-adjustment.entity';
 import {
   INVENTORY_ADJUSTMENT_REPOSITORY,
+  InventoryAdjustmentConcurrencyConflictError,
   InventoryAdjustmentNegativeStockError,
   InventoryAdjustmentStatusConflictError,
 } from '../domain/repositories/inventory-adjustment.repository.interface';
@@ -166,9 +167,14 @@ export class InventoryAdjustmentService {
     return InventoryAdjustmentMapper.toResponseDto(updated);
   }
 
-  /** APPROVED → COMPLETED — sinh InventoryMovement (ADJUSTMENT) cho từng item, đồng bộ Inventory. */
+  /**
+   * APPROVED → COMPLETED — sinh InventoryMovement (ADJUSTMENT) cho từng item, đồng bộ Inventory.
+   * T051.02: `expectedVersion` là Optimistic Lock CAS bắt buộc — client phải gửi lại đúng `version`
+   * đã đọc trước đó (từ GET), sai version bị từ chối 409.
+   */
   async complete(
     id: string,
+    expectedVersion: number,
     actor: ActorContext,
   ): Promise<InventoryAdjustmentResponseDto> {
     const adjustment = await this.adjustmentRepository.findById(
@@ -181,6 +187,7 @@ export class InventoryAdjustmentService {
       this.adjustmentRepository.complete(
         id,
         actor.organizationId,
+        expectedVersion,
         actor.userId,
       ),
     );
@@ -225,6 +232,14 @@ export class InventoryAdjustmentService {
         throw new ConflictException(
           withCode(
             ErrorCode.INVENTORY_ADJUSTMENT_INVENTORY_CONFLICT,
+            error.message,
+          ),
+        );
+      }
+      if (error instanceof InventoryAdjustmentConcurrencyConflictError) {
+        throw new ConflictException(
+          withCode(
+            ErrorCode.INVENTORY_ADJUSTMENT_VERSION_CONFLICT,
             error.message,
           ),
         );

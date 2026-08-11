@@ -44,6 +44,7 @@ function buildTransfer(overrides: Record<string, unknown> = {}) {
     code: 'DC0001',
     status: 'PENDING',
     note: null,
+    version: 1,
     items: [{ id: 'item-1', productId: 'prod-1', quantity: '10', unitCost: null }],
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -215,6 +216,66 @@ describe('TransferDetail (T044 Phase L)', () => {
     expect(
       await screen.findByText('Phiếu đã được duyệt hoặc hủy bởi người khác'),
     ).toBeInTheDocument();
+  });
+
+  it("T051.02: clicking Approve sends the transfer's current version in the request body", async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['transfer:approve'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+    let receivedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/transfers/${TRANSFER_ID}`, () =>
+        HttpResponse.json(envelope(buildTransfer({ status: 'PENDING', version: 5 }))),
+      ),
+      http.patch(`${API_BASE_URL}/transfers/${TRANSFER_ID}/approve`, async ({ request }) => {
+        receivedBody = await request.json();
+        return HttpResponse.json(envelope(buildTransfer({ status: 'APPROVED', version: 6 })));
+      }),
+    );
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Duyệt' }));
+
+    await waitFor(() => expect(receivedBody).toEqual({ version: 5 }));
+  });
+
+  it('T051.02: a version conflict (TRANSFER_008) keeps the dialog open with the backend message and refetches the detail', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['transfer:approve'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+    let getCallCount = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/transfers/${TRANSFER_ID}`, () => {
+        getCallCount += 1;
+        return HttpResponse.json(envelope(buildTransfer({ status: 'PENDING', version: 1 })));
+      }),
+      http.patch(`${API_BASE_URL}/transfers/${TRANSFER_ID}/approve`, () =>
+        HttpResponse.json(
+          errorEnvelope('TRANSFER_008', 'Phiếu điều chuyển vừa bị thay đổi bởi giao dịch khác'),
+          { status: 409 },
+        ),
+      ),
+    );
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
+    const initialGetCount = getCallCount;
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Duyệt' }));
+
+    expect(
+      await screen.findByText('Phiếu điều chuyển vừa bị thay đổi bởi giao dịch khác'),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Duyệt' })).toBeInTheDocument();
+    await waitFor(() => expect(getCallCount).toBeGreaterThan(initialGetCount));
   });
 
   it('has no accessibility violations once loaded', async () => {

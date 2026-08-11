@@ -15,6 +15,7 @@ import {
 } from '../domain/entities/transfer.entity';
 import {
   TRANSFER_REPOSITORY,
+  TransferConcurrencyConflictError,
   TransferNegativeStockError,
   TransferStatusConflictError,
 } from '../domain/repositories/transfer.repository.interface';
@@ -128,8 +129,16 @@ export class TransferService {
     };
   }
 
-  /** Duyệt phiếu → trừ Kho nguồn ngay (KHÔNG cộng Kho đích — chỉ Receive mới cộng). */
-  async approve(id: string, actor: ActorContext): Promise<TransferResponseDto> {
+  /**
+   * Duyệt phiếu → trừ Kho nguồn ngay (KHÔNG cộng Kho đích — chỉ Receive mới cộng). T051.02:
+   * `expectedVersion` là Optimistic Lock CAS bắt buộc — client phải gửi lại đúng `version` đã đọc
+   * trước đó (từ GET), sai version bị từ chối 409.
+   */
+  async approve(
+    id: string,
+    expectedVersion: number,
+    actor: ActorContext,
+  ): Promise<TransferResponseDto> {
     const transfer = await this.transferRepository.findById(
       id,
       actor.organizationId,
@@ -147,8 +156,10 @@ export class TransferService {
 
     const updated = await this.transitionOrConflict(
       id,
+      actor.organizationId,
       ['PENDING'],
       'APPROVED',
+      expectedVersion,
       movements,
       actor.userId,
     );
@@ -167,8 +178,15 @@ export class TransferService {
     return TransferMapper.toResponseDto(updated);
   }
 
-  /** Nhận hàng → cộng Kho đích, dùng đúng Average Cost của Kho nguồn đã ghi lại lúc Approve. */
-  async receive(id: string, actor: ActorContext): Promise<TransferResponseDto> {
+  /**
+   * Nhận hàng → cộng Kho đích, dùng đúng Average Cost của Kho nguồn đã ghi lại lúc Approve.
+   * T051.02: `expectedVersion` là Optimistic Lock CAS bắt buộc.
+   */
+  async receive(
+    id: string,
+    expectedVersion: number,
+    actor: ActorContext,
+  ): Promise<TransferResponseDto> {
     const transfer = await this.transferRepository.findById(
       id,
       actor.organizationId,
@@ -186,8 +204,10 @@ export class TransferService {
 
     const updated = await this.transitionOrConflict(
       id,
+      actor.organizationId,
       ['APPROVED'],
       'RECEIVED',
+      expectedVersion,
       movements,
       actor.userId,
     );
@@ -209,8 +229,14 @@ export class TransferService {
   /**
    * Hủy phiếu. Nếu đã Approve (đã trừ Kho nguồn), hoàn lại đúng số lượng + giá vốn đã
    * ghi nhận cho Kho nguồn. DRAFT/PENDING chưa trừ gì nên hủy không sinh Movement nào.
+   * T051.02: `expectedVersion` là Optimistic Lock CAS bắt buộc — kể cả khi hủy từ DRAFT/PENDING
+   * (không tác động Inventory), vì cả 3 hành động dùng chung `transitionStatus()`.
    */
-  async cancel(id: string, actor: ActorContext): Promise<TransferResponseDto> {
+  async cancel(
+    id: string,
+    expectedVersion: number,
+    actor: ActorContext,
+  ): Promise<TransferResponseDto> {
     const transfer = await this.transferRepository.findById(
       id,
       actor.organizationId,
@@ -240,8 +266,10 @@ export class TransferService {
 
     const updated = await this.transitionOrConflict(
       id,
+      actor.organizationId,
       [transfer.status],
       'CANCELLED',
+      expectedVersion,
       movements,
       actor.userId,
     );
@@ -262,16 +290,20 @@ export class TransferService {
 
   private async transitionOrConflict(
     id: string,
+    organizationId: string,
     expectedStatuses: TransferStatus[],
     nextStatus: TransferStatus,
+    expectedVersion: number,
     movements: TransferMovementInput[],
     updatedBy: string,
   ): Promise<TransferEntity> {
     try {
       return await this.transferRepository.transitionStatus(
         id,
+        organizationId,
         expectedStatuses,
         nextStatus,
+        expectedVersion,
         movements,
         updatedBy,
       );
@@ -292,6 +324,11 @@ export class TransferService {
       if (error instanceof InventoryConcurrencyConflictError) {
         throw new ConflictException(
           withCode(ErrorCode.TRANSFER_INVENTORY_CONFLICT, error.message),
+        );
+      }
+      if (error instanceof TransferConcurrencyConflictError) {
+        throw new ConflictException(
+          withCode(ErrorCode.TRANSFER_VERSION_CONFLICT, error.message),
         );
       }
       throw error;

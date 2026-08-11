@@ -2,7 +2,10 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { InventoryDomainService } from '../../../inventory/application/inventory-domain.service';
-import { PurchaseOrderStatusConflictError } from '../../domain/repositories/purchase-order.repository.interface';
+import {
+  PurchaseOrderConcurrencyConflictError,
+  PurchaseOrderStatusConflictError,
+} from '../../domain/repositories/purchase-order.repository.interface';
 import { PrismaPurchaseOrderRepository } from './prisma-purchase-order.repository';
 
 function knownError(code: string, meta?: Record<string, unknown>) {
@@ -39,6 +42,7 @@ const rawOrder = {
   totalAmount: new Prisma.Decimal(1000000),
   paidAmount: new Prisma.Decimal(0),
   expectedAt: null,
+  version: 1,
   createdAt: new Date('2026-01-01'),
   updatedAt: new Date('2026-01-01'),
   deletedAt: null,
@@ -225,17 +229,28 @@ describe('PrismaPurchaseOrderRepository', () => {
     });
   });
 
-  describe('receive', () => {
-    function makeTx(overrides: { currentOrder?: unknown }) {
-      const orderUpdate = jest.fn().mockResolvedValue(rawOrder);
-      const currentOrder =
-        'currentOrder' in overrides
-          ? overrides.currentOrder
-          : { ...rawOrder, status: 'APPROVED' };
+  describe('receive (T051.02 — Optimistic Lock CAS-first)', () => {
+    const approvedOrder = { ...rawOrder, status: 'APPROVED', version: 3 };
+
+    function makeTx(options: {
+      claimCount?: number;
+      statusAfterFailedClaim?: string;
+      versionAfterFailedClaim?: number;
+    }) {
       const tx = {
         purchaseOrder: {
-          findFirst: jest.fn().mockResolvedValue(currentOrder),
-          update: orderUpdate,
+          updateMany: jest
+            .fn()
+            .mockResolvedValue({ count: options.claimCount ?? 1 }),
+          findFirst: jest.fn().mockResolvedValue(
+            options.claimCount === 0
+              ? {
+                  status: options.statusAfterFailedClaim ?? 'DRAFT',
+                  version: options.versionAfterFailedClaim ?? 3,
+                }
+              : approvedOrder,
+          ),
+          findFirstOrThrow: jest.fn().mockResolvedValue(approvedOrder),
         },
         purchaseItem: { update: jest.fn().mockResolvedValue({}) },
         debt: { create: jest.fn().mockResolvedValue({}) },
@@ -246,17 +261,52 @@ describe('PrismaPurchaseOrderRepository', () => {
       return tx;
     }
 
-    it('ném StatusConflictError khi không ở trạng thái APPROVED', async () => {
-      makeTx({ currentOrder: { ...rawOrder, status: 'DRAFT' } });
+    it('claim thành công: updateMany với where kèm status=APPROVED và version=expectedVersion', async () => {
+      const tx = makeTx({});
+
+      await repository.receive('po-1', 'org-1', 3, 'user-1');
+
+      expect(tx.purchaseOrder.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'po-1',
+          organizationId: 'org-1',
+          status: 'APPROVED',
+          version: 3,
+        },
+        data: {
+          status: 'RECEIVED',
+          version: { increment: 1 },
+          updatedBy: 'user-1',
+        },
+      });
+    });
+
+    it('ném StatusConflictError khi claim thất bại, version KHỚP nhưng trạng thái hiện tại không phải APPROVED (invalid-transition thật)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'DRAFT',
+        versionAfterFailedClaim: 3,
+      });
       await expect(
-        repository.receive('po-1', 'org-1', 'user-1'),
+        repository.receive('po-1', 'org-1', 3, 'user-1'),
       ).rejects.toThrow(PurchaseOrderStatusConflictError);
     });
 
-    it('gọi InventoryDomainService.increase() đúng tham số cho từng dòng hàng, cập nhật receivedQuantity', async () => {
+    it('T051.02: ném PurchaseOrderConcurrencyConflictError khi claim thất bại vì version lệch (kể cả khi status hiện tại vẫn nằm trong tập hợp lệ do request thắng cuộc đã đổi status)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'RECEIVED',
+        versionAfterFailedClaim: 4,
+      });
+      await expect(
+        repository.receive('po-1', 'org-1', 1, 'user-1'),
+      ).rejects.toThrow(PurchaseOrderConcurrencyConflictError);
+    });
+
+    it('claim thành công MỚI chạy vòng lặp Inventory: gọi InventoryDomainService.increase() đúng tham số cho từng dòng hàng, cập nhật receivedQuantity', async () => {
       const tx = makeTx({});
 
-      await repository.receive('po-1', 'org-1', 'user-1');
+      await repository.receive('po-1', 'org-1', 3, 'user-1');
 
       expect(inventoryDomainService.increase).toHaveBeenCalledWith(
         tx,
@@ -285,23 +335,28 @@ describe('PrismaPurchaseOrderRepository', () => {
       expect(debtArg.refId).toBe('po-1');
       expect(debtArg.amount).toBe(rawOrder.totalAmount);
       expect(debtArg.status).toBe('OPEN');
-
-      expect(tx.purchaseOrder.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'po-1' },
-          data: { status: 'RECEIVED', updatedBy: 'user-1' },
-        }),
-      );
     });
 
-    it('lan truyền lỗi từ InventoryDomainService.increase() (vd Optimistic Lock conflict)', async () => {
+    it('claim thất bại KHÔNG chạy vòng lặp Inventory (zero business side effects cho request thua)', async () => {
+      makeTx({
+        claimCount: 0,
+        statusAfterFailedClaim: 'RECEIVED',
+        versionAfterFailedClaim: 4,
+      });
+      await expect(
+        repository.receive('po-1', 'org-1', 1, 'user-1'),
+      ).rejects.toThrow(PurchaseOrderConcurrencyConflictError);
+      expect(inventoryDomainService.increase).not.toHaveBeenCalled();
+    });
+
+    it('lan truyền lỗi từ InventoryDomainService.increase() (vd Optimistic Lock conflict) sau khi đã claim', async () => {
       makeTx({});
       inventoryDomainService.increase.mockRejectedValueOnce(
         new Error('conflict'),
       );
 
       await expect(
-        repository.receive('po-1', 'org-1', 'user-1'),
+        repository.receive('po-1', 'org-1', 3, 'user-1'),
       ).rejects.toThrow('conflict');
     });
   });

@@ -30,6 +30,7 @@ import {
   ActorContext,
   PurchaseReturnService,
 } from '../application/purchase-return.service';
+import { CompletePurchaseReturnDto } from '../application/dto/complete-purchase-return.dto';
 import { CreatePurchaseReturnDto } from '../application/dto/create-purchase-return.dto';
 import { PurchaseReturnQueryDto } from '../application/dto/purchase-return-query.dto';
 import {
@@ -106,16 +107,22 @@ export class PurchaseReturnController {
   @RequirePermissions('purchase_return:complete')
   @ApiOperation({
     summary:
-      'Hoàn tất — Inventory Out (InventoryMovement RETURN) + giảm công nợ NCC (APPROVED → COMPLETED)',
+      'Hoàn tất — Inventory Out (InventoryMovement RETURN) + giảm công nợ NCC (APPROVED → COMPLETED). ' +
+      'T051.02: body.version là Optimistic Lock bắt buộc (đọc từ GET trước đó), sai version → 409.',
   })
   @ApiResponse({ status: 200, type: PurchaseReturnResponseDto })
   @ApiWriteErrors()
   complete(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CompletePurchaseReturnDto,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
   ): Promise<PurchaseReturnResponseDto> {
-    return this.purchaseReturnService.complete(id, this.toActor(user, req));
+    return this.purchaseReturnService.complete(
+      id,
+      dto.version,
+      this.toActor(user, req),
+    );
   }
 
   /** Không có trong API list gốc của Prompt 028 — bổ sung để có lối thoát an toàn cho phiếu tạo nhầm, cùng mẫu đã áp dụng ở mọi module workflow trước (Transfer/StockCount/Adjustment/PurchaseOrder). */

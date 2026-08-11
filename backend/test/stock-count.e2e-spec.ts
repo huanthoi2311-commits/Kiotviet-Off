@@ -216,11 +216,13 @@ describe('StockCount Module (e2e, integration)', () => {
       .patch(`/api/v1/stock-count/${stockCountId}/complete`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
+        version: 1,
         items: [{ itemId, actualQty: 95, remark: 'Thiếu 5 do hao hụt' }],
       })
       .expect(200);
 
     expect(completed.body.data.status).toBe('COMPLETED');
+    expect(completed.body.data.version).toBe(2);
     expect(completed.body.data.items[0].actualQty).toBe('95');
     expect(completed.body.data.items[0].difference).toBe('-5');
 
@@ -270,5 +272,62 @@ describe('StockCount Module (e2e, integration)', () => {
         (sc: { status: string }) => sc.status === 'COMPLETED',
       ),
     ).toBe(true);
+  });
+
+  it('T051.02 CONCURRENCY: hai request complete() cùng version, gửi ĐỒNG THỜI — đúng 1 thành công, cái kia nhận STOCK_COUNT_007', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/stock-count')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ warehouseId, productIds: [productId] })
+      .expect(201);
+    const stockCountId = created.body.data.id;
+    const itemId = created.body.data.items[0].id;
+    const systemQty = Number(created.body.data.items[0].systemQty);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/stock-count/${stockCountId}/start`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    const inventoryBefore = await prisma.inventory.findFirst({
+      where: { warehouseId, productId },
+    });
+    const qtyBefore = inventoryBefore?.quantity.toNumber() ?? 0;
+    const actualQty = systemQty - 3;
+
+    const [resA, resB] = await Promise.all([
+      request(app.getHttpServer())
+        .patch(`/api/v1/stock-count/${stockCountId}/complete`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 1, items: [{ itemId, actualQty, remark: null }] }),
+      request(app.getHttpServer())
+        .patch(`/api/v1/stock-count/${stockCountId}/complete`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 1, items: [{ itemId, actualQty, remark: null }] }),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    const loser = resA.status === 409 ? resA : resB;
+    expect(loser.body.code).toBe('STOCK_COUNT_007');
+
+    const final = await request(app.getHttpServer())
+      .get(`/api/v1/stock-count/${stockCountId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(final.body.data.status).toBe('COMPLETED');
+    expect(final.body.data.version).toBe(2);
+
+    const inventoryAfter = await prisma.inventory.findFirst({
+      where: { warehouseId, productId },
+    });
+    expect(inventoryAfter?.quantity.toNumber()).toBe(qtyBefore - 3);
+
+    const history = await request(app.getHttpServer())
+      .get('/api/v1/inventory/history')
+      .query({ warehouseId, productId, movementType: 'COUNT' })
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(history.body.data.total).toBe(2);
   });
 });

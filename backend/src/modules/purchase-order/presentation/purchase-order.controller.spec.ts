@@ -116,14 +116,15 @@ describe('PurchaseOrderController', () => {
     );
   });
 
-  it('receive ủy quyền cho service.receive kèm actor context', async () => {
+  it('receive ủy quyền cho service.receive kèm version và actor context', async () => {
     purchaseOrderService.receive.mockResolvedValue({
       id: 'po-1',
       status: 'RECEIVED',
     } as never);
-    await controller.receive('po-1', user as never, req);
+    await controller.receive('po-1', { version: 3 }, user as never, req);
     expect(purchaseOrderService.receive).toHaveBeenCalledWith(
       'po-1',
+      3,
       expect.any(Object),
     );
   });

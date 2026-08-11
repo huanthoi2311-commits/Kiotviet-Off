@@ -43,6 +43,7 @@ function buildStockCount(overrides: Record<string, unknown> = {}) {
     code: 'KK0001',
     status: 'DRAFT',
     note: null,
+    version: 1,
     items: [
       {
         id: 'item-1',
@@ -163,15 +164,15 @@ describe('StockCountDetail (T044 Phase N)', () => {
     expect(actualQtyInput.value).toBe('0');
   });
 
-  it('submits the Complete payload with itemId/actualQty and shows a success toast', async () => {
+  it('T051.02: submits the Complete payload with version/itemId/actualQty and shows a success toast', async () => {
     let capturedBody: Record<string, unknown> | undefined;
     server.use(
       http.get(`${API_BASE_URL}/stock-count/${STOCK_COUNT_ID}`, () =>
-        HttpResponse.json(envelope(buildStockCount({ status: 'COUNTING' }))),
+        HttpResponse.json(envelope(buildStockCount({ status: 'COUNTING', version: 2 }))),
       ),
       http.patch(`${API_BASE_URL}/stock-count/${STOCK_COUNT_ID}/complete`, async ({ request }) => {
         capturedBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(envelope(buildStockCount({ status: 'COMPLETED' })));
+        return HttpResponse.json(envelope(buildStockCount({ status: 'COMPLETED', version: 3 })));
       }),
     );
     renderDetail();
@@ -184,10 +185,43 @@ describe('StockCountDetail (T044 Phase N)', () => {
     await user.click(screen.getByRole('button', { name: 'Hoàn tất kiểm kê' }));
 
     await waitFor(() =>
-      expect(capturedBody).toMatchObject({ items: [{ itemId: 'item-1', actualQty: 95 }] }),
+      expect(capturedBody).toMatchObject({
+        version: 2,
+        items: [{ itemId: 'item-1', actualQty: 95 }],
+      }),
     );
     const { toast } = await import('sonner');
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Đã hoàn tất kiểm kê'));
+  });
+
+  it('T051.02: a version conflict (STOCK_COUNT_007) keeps the form on-screen with the backend message and refetches the detail', async () => {
+    let getCallCount = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/stock-count/${STOCK_COUNT_ID}`, () => {
+        getCallCount += 1;
+        return HttpResponse.json(envelope(buildStockCount({ status: 'COUNTING', version: 1 })));
+      }),
+      http.patch(`${API_BASE_URL}/stock-count/${STOCK_COUNT_ID}/complete`, () =>
+        HttpResponse.json(
+          errorEnvelope('STOCK_COUNT_007', 'Phiếu kiểm kê vừa bị thay đổi bởi giao dịch khác'),
+          { status: 409 },
+        ),
+      ),
+    );
+    renderDetail();
+
+    await screen.findByRole('button', { name: 'Hoàn tất kiểm kê' });
+    const initialGetCount = getCallCount;
+    const user = userEvent.setup();
+    await user.type(screen.getByRole('spinbutton'), '95');
+    await user.click(screen.getByRole('button', { name: 'Hoàn tất kiểm kê' }));
+
+    expect(
+      await screen.findByText('Phiếu kiểm kê vừa bị thay đổi bởi giao dịch khác'),
+    ).toBeInTheDocument();
+    // Form stays on-screen (not silently retried) — the submit button is still present.
+    expect(screen.getByRole('button', { name: 'Hoàn tất kiểm kê' })).toBeInTheDocument();
+    await waitFor(() => expect(getCallCount).toBeGreaterThan(initialGetCount));
   });
 
   it('COMPLETED status shows the read-only items table with actual/difference columns, no action buttons', async () => {

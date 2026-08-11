@@ -9,6 +9,7 @@ import { InventoryAdjustmentEntity } from '../../domain/entities/inventory-adjus
 import {
   CreateInventoryAdjustmentInput,
   IInventoryAdjustmentRepository,
+  InventoryAdjustmentConcurrencyConflictError,
   InventoryAdjustmentNegativeStockError,
   InventoryAdjustmentSearchParams,
   InventoryAdjustmentSearchResult,
@@ -143,26 +144,55 @@ export class PrismaInventoryAdjustmentRepository implements IInventoryAdjustment
   }
 
   /**
-   * APPROVED → COMPLETED trong 1 transaction: với mỗi dòng hàng, gọi
-   * InventoryDomainService.adjust() (Single Writer — SPEC-INV-001, movementType=ADJUSTMENT tự
-   * kiểm tra âm kho + Optimistic Lock). `InventoryInsufficientStockError` được dịch sang
-   * `InventoryAdjustmentNegativeStockError` để giữ nguyên error contract hiện có (Service đã
-   * catch đúng lớp lỗi này).
+   * T051.02 — APPROVED → COMPLETED trong 1 transaction, Optimistic Lock CAS-FIRST: bước đầu tiên
+   * là `updateMany({where:{id, organizationId, status:'APPROVED', version:expectedVersion}})` để
+   * CLAIM quyền complete trước khi chạm vào Inventory. Request thua cuộc (0 dòng bị ảnh hưởng) ném
+   * lỗi ngay tại đây — KHÔNG chạy vòng lặp Inventory bên dưới. Request thắng cuộc mới tiếp tục: với
+   * mỗi dòng hàng, gọi InventoryDomainService.adjust() (Single Writer — SPEC-INV-001,
+   * movementType=ADJUSTMENT tự kiểm tra âm kho + Optimistic Lock riêng của Inventory).
+   * `InventoryInsufficientStockError` được dịch sang `InventoryAdjustmentNegativeStockError` để giữ
+   * nguyên error contract hiện có (Service đã catch đúng lớp lỗi này).
    */
   async complete(
     id: string,
     organizationId: string,
+    expectedVersion: number,
     updatedBy: string,
   ): Promise<InventoryAdjustmentEntity> {
     return this.prisma.$transaction(async (tx) => {
+      const claim = await tx.inventoryAdjustment.updateMany({
+        where: {
+          id,
+          organizationId,
+          status: 'APPROVED',
+          version: expectedVersion,
+        },
+        data: { status: 'COMPLETED', version: { increment: 1 }, updatedBy },
+      });
+
+      if (claim.count === 0) {
+        const current = await tx.inventoryAdjustment.findFirst({
+          where: { id, organizationId },
+          select: { status: true, version: true },
+        });
+        if (!current) {
+          throw new InventoryAdjustmentStatusConflictError(null);
+        }
+        // T051.02: version lệch => request khác đã ghi đè kể từ lần đọc gần nhất của caller —
+        // luôn là version conflict (409), bất kể status hiện tại. Chỉ khi version khớp mà claim
+        // vẫn thất bại mới là lỗi nghiệp vụ thật (422).
+        if (current.version !== expectedVersion) {
+          throw new InventoryAdjustmentConcurrencyConflictError(id);
+        }
+        throw new InventoryAdjustmentStatusConflictError(current.status);
+      }
+
       const current = await tx.inventoryAdjustment.findFirst({
         where: { id, organizationId },
         include: { items: true },
       });
-      if (!current || current.status !== 'APPROVED') {
-        throw new InventoryAdjustmentStatusConflictError(
-          current?.status ?? null,
-        );
+      if (!current) {
+        throw new InventoryAdjustmentStatusConflictError(null);
       }
 
       for (const item of current.items) {
@@ -186,9 +216,9 @@ export class PrismaInventoryAdjustmentRepository implements IInventoryAdjustment
         }
       }
 
-      const updated = await tx.inventoryAdjustment.update({
-        where: { id },
-        data: { status: 'COMPLETED', updatedBy },
+      // Trạng thái/version đã được claim ở bước đầu — chỉ đọc lại để trả về entity mới nhất.
+      const updated = await tx.inventoryAdjustment.findFirstOrThrow({
+        where: { id, organizationId },
         include: ADJUSTMENT_INCLUDE,
       });
 
@@ -247,6 +277,7 @@ export class PrismaInventoryAdjustmentRepository implements IInventoryAdjustment
       status: adjustment.status,
       reason: adjustment.reason,
       note: adjustment.note,
+      version: adjustment.version,
       createdAt: adjustment.createdAt,
       updatedAt: adjustment.updatedAt,
       deletedAt: adjustment.deletedAt,

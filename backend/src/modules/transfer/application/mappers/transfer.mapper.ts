@@ -10,6 +10,7 @@ export class TransferMapper {
       code: entity.code,
       status: entity.status,
       note: entity.note,
+      version: entity.version,
       items: entity.items.map((item) => ({
         id: item.id,
         productId: item.productId,

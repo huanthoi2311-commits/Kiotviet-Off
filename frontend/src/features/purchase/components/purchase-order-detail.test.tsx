@@ -46,6 +46,7 @@ function buildOrder(overrides: Record<string, unknown> = {}) {
     totalAmount: '500000',
     paidAmount: '0',
     expectedAt: null,
+    version: 1,
     items: [
       {
         id: 'item-1',
@@ -212,6 +213,68 @@ describe('PurchaseOrderDetail (T045 §5)', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Duyệt' }));
 
     await waitFor(() => expect(approveCalled).toBe(true));
+  });
+
+  it("T051.02: clicking Receive sends the order's current version in the request body", async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['purchase:receive'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+    let receivedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/purchase-orders/${ORDER_ID}`, () =>
+        HttpResponse.json(envelope(buildOrder({ status: 'APPROVED', version: 3 }))),
+      ),
+      http.patch(`${API_BASE_URL}/purchase-orders/${ORDER_ID}/receive`, async ({ request }) => {
+        receivedBody = await request.json();
+        return HttpResponse.json(envelope(buildOrder({ status: 'RECEIVED', version: 4 })));
+      }),
+    );
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Xác nhận nhận hàng' }));
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Xác nhận nhận hàng' }));
+
+    await waitFor(() => expect(receivedBody).toEqual({ version: 3 }));
+  });
+
+  it('T051.02: a version conflict (PURCHASE_ORDER_005) keeps the dialog open with the backend message and refetches the detail', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['purchase:receive'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+    let getCallCount = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/purchase-orders/${ORDER_ID}`, () => {
+        getCallCount += 1;
+        return HttpResponse.json(envelope(buildOrder({ status: 'APPROVED', version: 1 })));
+      }),
+      http.patch(`${API_BASE_URL}/purchase-orders/${ORDER_ID}/receive`, () =>
+        HttpResponse.json(
+          errorEnvelope('PURCHASE_ORDER_005', 'Đơn nhập hàng vừa bị thay đổi bởi giao dịch khác'),
+          { status: 409 },
+        ),
+      ),
+    );
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Xác nhận nhận hàng' }));
+    const initialGetCount = getCallCount;
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Xác nhận nhận hàng' }));
+
+    expect(
+      await screen.findByText('Đơn nhập hàng vừa bị thay đổi bởi giao dịch khác'),
+    ).toBeInTheDocument();
+    // Dialog stays open (not silently closed/retried) — its confirm button is still present.
+    expect(within(dialog).getByRole('button', { name: 'Xác nhận nhận hàng' })).toBeInTheDocument();
+    // The detail query was invalidated/refetched so a later retry would read a fresh version.
+    await waitFor(() => expect(getCallCount).toBeGreaterThan(initialGetCount));
   });
 
   it('a stale-click race (PURCHASE_ORDER_003 invalid transition) keeps the dialog open with the backend message', async () => {

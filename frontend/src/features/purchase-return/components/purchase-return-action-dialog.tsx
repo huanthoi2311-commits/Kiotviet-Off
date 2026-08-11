@@ -20,6 +20,9 @@ export interface PurchaseReturnActionDialogProps {
   onOpenChange: (open: boolean) => void;
   purchaseReturnId: string;
   purchaseReturnCode: string;
+  /** T051.02 — Optimistic Lock, chỉ thật sự cần cho `complete` (hành động duy nhất tác động
+   * Inventory/Debt); approve/cancel không đụng Inventory nên không gửi version. */
+  purchaseReturnVersion: number;
   mode: PurchaseReturnActionDialogMode;
 }
 
@@ -62,6 +65,7 @@ export function PurchaseReturnActionDialog({
   onOpenChange,
   purchaseReturnId,
   purchaseReturnCode,
+  purchaseReturnVersion,
   mode,
 }: PurchaseReturnActionDialogProps) {
   const queryClient = useQueryClient();
@@ -78,8 +82,16 @@ export function PurchaseReturnActionDialog({
     onOpenChange(false);
   };
 
+  /** T051.02 AD-1 §12 — on a version conflict (PURCHASE_RETURN_010) the dialog stays open and the
+   * message is shown (never silently retried with a new version); the detail query is invalidated
+   * so the next attempt (after the user re-opens the dialog) reads a fresh version. */
   const handleError = (error: NormalizedError) => {
     setErrorMessage(error.kind === 'api-error' ? error.message : 'Đã xảy ra lỗi không xác định');
+    if (error.kind === 'api-error' && error.code === 'PURCHASE_RETURN_010') {
+      queryClient.invalidateQueries({
+        queryKey: getPurchaseReturnControllerFindOneQueryKey(purchaseReturnId),
+      });
+    }
   };
 
   const approveMutation = usePurchaseReturnControllerApprove<NormalizedError>({
@@ -124,7 +136,16 @@ export function PurchaseReturnActionDialog({
       errorMessage={errorMessage}
       onConfirm={() => {
         setErrorMessage(null);
-        activeMutation.mutate({ id: purchaseReturnId });
+        if (mode === 'approve') {
+          approveMutation.mutate({ id: purchaseReturnId });
+        } else if (mode === 'complete') {
+          completeMutation.mutate({
+            id: purchaseReturnId,
+            data: { version: purchaseReturnVersion },
+          });
+        } else {
+          cancelMutation.mutate({ id: purchaseReturnId });
+        }
       }}
     />
   );

@@ -12,6 +12,7 @@ export class PurchaseOrderMapper {
       totalAmount: entity.totalAmount,
       paidAmount: entity.paidAmount,
       expectedAt: entity.expectedAt,
+      version: entity.version,
       items: entity.items.map((item) => ({
         id: item.id,
         productId: item.productId,

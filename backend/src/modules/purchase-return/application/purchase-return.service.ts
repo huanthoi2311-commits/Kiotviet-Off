@@ -15,6 +15,7 @@ import { PurchaseReturnEntity } from '../domain/entities/purchase-return.entity'
 import {
   CreatePurchaseReturnItemInput,
   PURCHASE_RETURN_REPOSITORY,
+  PurchaseReturnConcurrencyConflictError,
   PurchaseReturnExceedsReceivedError,
   PurchaseReturnNegativeStockError,
   PurchaseReturnStatusConflictError,
@@ -209,9 +210,14 @@ export class PurchaseReturnService {
     return PurchaseReturnMapper.toResponseDto(updated);
   }
 
-  /** APPROVED → COMPLETED — Inventory Out (InventoryMovement RETURN) + Debt Reduce (Debt PAYABLE âm), 1 transaction. */
+  /**
+   * APPROVED → COMPLETED — Inventory Out (InventoryMovement RETURN) + Debt Reduce (Debt PAYABLE
+   * âm), 1 transaction. T051.02: `expectedVersion` là Optimistic Lock CAS bắt buộc — client phải
+   * gửi lại đúng `version` đã đọc trước đó (từ GET), sai version bị từ chối 409.
+   */
   async complete(
     id: string,
+    expectedVersion: number,
     actor: ActorContext,
   ): Promise<PurchaseReturnResponseDto> {
     const purchaseReturn = await this.purchaseReturnRepository.findById(
@@ -224,6 +230,7 @@ export class PurchaseReturnService {
       this.purchaseReturnRepository.complete(
         id,
         actor.organizationId,
+        expectedVersion,
         actor.userId,
       ),
     );
@@ -300,6 +307,11 @@ export class PurchaseReturnService {
       if (error instanceof InventoryConcurrencyConflictError) {
         throw new ConflictException(
           withCode(ErrorCode.PURCHASE_RETURN_INVENTORY_CONFLICT, error.message),
+        );
+      }
+      if (error instanceof PurchaseReturnConcurrencyConflictError) {
+        throw new ConflictException(
+          withCode(ErrorCode.PURCHASE_RETURN_VERSION_CONFLICT, error.message),
         );
       }
       throw error;

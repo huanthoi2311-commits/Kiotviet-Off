@@ -100,7 +100,8 @@ export class StockCountController {
   @RequirePermissions('stock_count:complete')
   @ApiOperation({
     summary:
-      'Hoàn tất kiểm kê — ghi actualQty, sinh Adjustment/Movement nếu lệch',
+      'Hoàn tất kiểm kê — ghi actualQty, sinh Adjustment/Movement nếu lệch. ' +
+      'T051.02: body.version là Optimistic Lock bắt buộc (đọc từ GET trước đó), sai version → 409.',
   })
   @ApiResponse({ status: 200, type: StockCountResponseDto })
   @ApiWriteErrors()

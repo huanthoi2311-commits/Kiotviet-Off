@@ -16,6 +16,7 @@ import {
 import {
   CreatePurchaseReturnInput,
   IPurchaseReturnRepository,
+  PurchaseReturnConcurrencyConflictError,
   PurchaseReturnExceedsReceivedError,
   PurchaseReturnNegativeStockError,
   PurchaseReturnSearchParams,
@@ -179,27 +180,57 @@ export class PrismaPurchaseReturnRepository implements IPurchaseReturnRepository
   }
 
   /**
-   * APPROVED → COMPLETED trong 1 transaction: với mỗi dòng hàng, gọi
-   * InventoryDomainService.decrease() (Single Writer — SPEC-INV-001, tự kiểm tra âm kho +
-   * Optimistic Lock) để ghi InventoryMovement (RETURN) + đồng bộ Inventory, sau đó ghi 1 dòng
-   * Debt (PAYABLE, amount âm — giảm công nợ NCC). `InventoryInsufficientStockError` từ
-   * InventoryDomainService được dịch sang `PurchaseReturnNegativeStockError` để giữ nguyên
-   * error contract hiện có của module này (Service đã catch đúng lớp lỗi này).
+   * T051.02 — APPROVED → COMPLETED trong 1 transaction, Optimistic Lock CAS-FIRST: bước đầu tiên
+   * là `updateMany({where:{id, organizationId, status:'APPROVED', version:expectedVersion}})` để
+   * CLAIM quyền complete trước khi chạm vào Inventory. Request thua cuộc (0 dòng bị ảnh hưởng) ném
+   * lỗi ngay tại đây — KHÔNG chạy vòng lặp Inventory/Debt bên dưới. Request thắng cuộc mới tiếp
+   * tục: với mỗi dòng hàng, gọi InventoryDomainService.decrease() (Single Writer — SPEC-INV-001,
+   * tự kiểm tra âm kho + Optimistic Lock riêng của Inventory) để ghi InventoryMovement (RETURN) +
+   * đồng bộ Inventory, sau đó ghi 1 dòng Debt (PAYABLE, amount âm — giảm công nợ NCC).
+   * `InventoryInsufficientStockError` từ InventoryDomainService được dịch sang
+   * `PurchaseReturnNegativeStockError` để giữ nguyên error contract hiện có của module này (Service
+   * đã catch đúng lớp lỗi này).
    */
   async complete(
     id: string,
     organizationId: string,
+    expectedVersion: number,
     updatedBy: string,
   ): Promise<PurchaseReturnEntity> {
     return this.prisma.$transaction(async (tx) => {
+      const claim = await tx.purchaseReturn.updateMany({
+        where: {
+          id,
+          organizationId,
+          status: 'APPROVED',
+          version: expectedVersion,
+        },
+        data: { status: 'COMPLETED', version: { increment: 1 }, updatedBy },
+      });
+
+      if (claim.count === 0) {
+        const current = await tx.purchaseReturn.findFirst({
+          where: { id, organizationId },
+          select: { status: true, version: true },
+        });
+        if (!current) {
+          throw new PurchaseReturnStatusConflictError(null);
+        }
+        // T051.02: version lệch => request khác đã ghi đè kể từ lần đọc gần nhất của caller —
+        // luôn là version conflict (409), bất kể status hiện tại. Chỉ khi version khớp mà claim
+        // vẫn thất bại mới là lỗi nghiệp vụ thật (422).
+        if (current.version !== expectedVersion) {
+          throw new PurchaseReturnConcurrencyConflictError(id);
+        }
+        throw new PurchaseReturnStatusConflictError(current.status);
+      }
+
       const current = await tx.purchaseReturn.findFirst({
         where: { id, organizationId },
         include: { items: true },
       });
-      if (!current || current.status !== 'APPROVED') {
-        throw new PurchaseReturnStatusConflictError(
-          (current?.status as PurchaseReturnStatus) ?? null,
-        );
+      if (!current) {
+        throw new PurchaseReturnStatusConflictError(null);
       }
 
       for (const item of current.items) {
@@ -237,9 +268,9 @@ export class PrismaPurchaseReturnRepository implements IPurchaseReturnRepository
         },
       });
 
-      const updated = await tx.purchaseReturn.update({
-        where: { id },
-        data: { status: 'COMPLETED', updatedBy },
+      // Trạng thái/version đã được claim ở bước đầu — chỉ đọc lại để trả về entity mới nhất.
+      const updated = await tx.purchaseReturn.findFirstOrThrow({
+        where: { id, organizationId },
         include: PURCHASE_RETURN_INCLUDE,
       });
 
@@ -319,6 +350,7 @@ export class PrismaPurchaseReturnRepository implements IPurchaseReturnRepository
       reason: purchaseReturn.reason,
       totalAmount: purchaseReturn.totalAmount.toString(),
       note: purchaseReturn.note,
+      version: purchaseReturn.version,
       createdAt: purchaseReturn.createdAt,
       updatedAt: purchaseReturn.updatedAt,
       deletedAt: purchaseReturn.deletedAt,

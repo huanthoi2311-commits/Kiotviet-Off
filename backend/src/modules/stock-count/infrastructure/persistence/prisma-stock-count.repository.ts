@@ -9,6 +9,7 @@ import {
   CompleteStockCountItemInput,
   CreateStockCountInput,
   IStockCountRepository,
+  StockCountConcurrencyConflictError,
   StockCountItemMismatchError,
   StockCountSearchParams,
   StockCountSearchResult,
@@ -145,19 +146,53 @@ export class PrismaStockCountRepository implements IStockCountRepository {
     return this.toEntity(updated as StockCountWithItems);
   }
 
+  /**
+   * T051.02 — COUNTING → COMPLETED trong 1 transaction, Optimistic Lock CAS-FIRST: bước đầu tiên
+   * là `updateMany({where:{id, organizationId, status:'COUNTING', version:expectedVersion}})` để
+   * CLAIM quyền complete trước khi chạm vào Inventory. Request thua cuộc (0 dòng bị ảnh hưởng) ném
+   * lỗi ngay tại đây — KHÔNG chạy vòng lặp Inventory bên dưới.
+   */
   async complete(
     id: string,
     organizationId: string,
+    expectedVersion: number,
     items: CompleteStockCountItemInput[],
     updatedBy: string,
   ): Promise<StockCountEntity> {
     return this.prisma.$transaction(async (tx) => {
+      const claim = await tx.stockCount.updateMany({
+        where: {
+          id,
+          organizationId,
+          status: 'COUNTING',
+          version: expectedVersion,
+        },
+        data: { status: 'COMPLETED', version: { increment: 1 }, updatedBy },
+      });
+
+      if (claim.count === 0) {
+        const current = await tx.stockCount.findFirst({
+          where: { id, organizationId },
+          select: { status: true, version: true },
+        });
+        if (!current) {
+          throw new StockCountStatusConflictError(null);
+        }
+        // T051.02: version lệch => request khác đã ghi đè kể từ lần đọc gần nhất của caller —
+        // luôn là version conflict (409), bất kể status hiện tại. Chỉ khi version khớp mà claim
+        // vẫn thất bại mới là lỗi nghiệp vụ thật (422).
+        if (current.version !== expectedVersion) {
+          throw new StockCountConcurrencyConflictError(id);
+        }
+        throw new StockCountStatusConflictError(current.status);
+      }
+
       const current = await tx.stockCount.findFirst({
         where: { id, organizationId },
         include: { items: true },
       });
-      if (!current || current.status !== 'COUNTING') {
-        throw new StockCountStatusConflictError(current?.status ?? null);
+      if (!current) {
+        throw new StockCountStatusConflictError(null);
       }
 
       const itemById = new Map(current.items.map((item) => [item.id, item]));
@@ -196,9 +231,10 @@ export class PrismaStockCountRepository implements IStockCountRepository {
         }
       }
 
-      const updated = await tx.stockCount.update({
-        where: { id },
-        data: { status: 'COMPLETED', updatedBy },
+      // Trạng thái/version đã được claim ở bước đầu — chỉ đọc lại để trả về entity mới nhất
+      // (actualQty/difference trên từng dòng vừa được cập nhật trong vòng lặp phía trên).
+      const updated = await tx.stockCount.findFirstOrThrow({
+        where: { id, organizationId },
         include: STOCK_COUNT_INCLUDE,
       });
 
@@ -229,6 +265,7 @@ export class PrismaStockCountRepository implements IStockCountRepository {
       code: stockCount.code,
       status: stockCount.status,
       note: stockCount.note,
+      version: stockCount.version,
       createdAt: stockCount.createdAt,
       updatedAt: stockCount.updatedAt,
       deletedAt: stockCount.deletedAt,

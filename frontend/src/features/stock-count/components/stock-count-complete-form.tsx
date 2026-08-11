@@ -32,6 +32,8 @@ import { useProductOptions } from '../../inventory/use-inventory-relations';
 
 export interface StockCountCompleteFormProps {
   stockCountId: string;
+  /** T051.02 — Optimistic Lock, đọc từ GET trước đó (`StockCountDetail`'s own fetch). */
+  stockCountVersion: number;
   items: StockCountItemResponseDto[];
 }
 
@@ -40,7 +42,11 @@ export interface StockCountCompleteFormProps {
  * per row — deliberately NOT pre-filled with `systemQty` (SPEC-T044 §6.3), so a submit without
  * genuinely counting cannot silently confirm the system's own snapshot as correct.
  */
-export function StockCountCompleteForm({ stockCountId, items }: StockCountCompleteFormProps) {
+export function StockCountCompleteForm({
+  stockCountId,
+  stockCountVersion,
+  items,
+}: StockCountCompleteFormProps) {
   const queryClient = useQueryClient();
   const { productOptions } = useProductOptions();
   const productNameById = useMemo(
@@ -66,9 +72,17 @@ export function StockCountCompleteForm({ stockCountId, items }: StockCountComple
         });
         toast.success('Đã hoàn tất kiểm kê');
       },
+      /** T051.02 AD-1 §12 — on a version conflict (STOCK_COUNT_007) the form stays on-screen and the
+       * message is shown (never silently retried with a new version); the detail query is
+       * invalidated so a retry after re-opening/reloading reads a fresh version. */
       onError: (error) => {
         if (error.kind === 'api-error') {
           form.setServerError(error);
+          if (error.code === 'STOCK_COUNT_007') {
+            queryClient.invalidateQueries({
+              queryKey: getStockCountControllerFindOneQueryKey(stockCountId),
+            });
+          }
           return;
         }
         form.setError('root', { type: 'server', message: error.message });
@@ -77,7 +91,10 @@ export function StockCountCompleteForm({ stockCountId, items }: StockCountComple
   });
 
   const onSubmit = (values: CompleteStockCountFormOutput) => {
-    completeMutation.mutate({ id: stockCountId, data: { items: values.items } });
+    completeMutation.mutate({
+      id: stockCountId,
+      data: { version: stockCountVersion, items: values.items },
+    });
   };
 
   return (

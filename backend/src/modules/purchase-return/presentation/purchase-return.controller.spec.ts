@@ -109,14 +109,15 @@ describe('PurchaseReturnController', () => {
     );
   });
 
-  it('complete ủy quyền cho service.complete kèm actor context', async () => {
+  it('complete ủy quyền cho service.complete kèm version và actor context', async () => {
     purchaseReturnService.complete.mockResolvedValue({
       id: 'pr-1',
       status: 'COMPLETED',
     } as never);
-    await controller.complete('pr-1', user as never, req);
+    await controller.complete('pr-1', { version: 2 }, user as never, req);
     expect(purchaseReturnService.complete).toHaveBeenCalledWith(
       'pr-1',
+      2,
       expect.any(Object),
     );
   });

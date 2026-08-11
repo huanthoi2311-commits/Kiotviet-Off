@@ -48,6 +48,7 @@ describe('PurchaseReturn Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/purchase-orders/${purchaseOrderId}/receive`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(200);
 
     return { purchaseOrderId, purchaseItemId };
@@ -252,8 +253,10 @@ describe('PurchaseReturn Module (e2e, integration)', () => {
     const completed = await request(app.getHttpServer())
       .patch(`/api/v1/purchase-returns/${purchaseReturnId}/complete`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(200);
     expect(completed.body.data.status).toBe('COMPLETED');
+    expect(completed.body.data.version).toBe(2);
 
     const stockAfter = await request(app.getHttpServer())
       .get('/api/v1/inventory')
@@ -375,5 +378,64 @@ describe('PurchaseReturn Module (e2e, integration)', () => {
           pr.purchaseOrderId === purchaseOrderId,
       ),
     ).toBe(true);
+  });
+
+  it('T051.02 CONCURRENCY: hai request complete() cùng version, gửi ĐỒNG THỜI — đúng 1 thành công, cái kia nhận PURCHASE_RETURN_010', async () => {
+    const { purchaseOrderId, purchaseItemId } =
+      await createReceivedPurchaseOrder(10, 2000);
+
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/purchase-returns')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        purchaseOrderId,
+        reason: 'DAMAGED',
+        items: [{ purchaseItemId, quantity: 3 }],
+      })
+      .expect(201);
+    const purchaseReturnId = created.body.data.id;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/purchase-returns/${purchaseReturnId}/approve`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+
+    const inventoryBefore = await prisma.inventory.findFirst({
+      where: { warehouseId, productId },
+    });
+    const qtyBefore = inventoryBefore?.quantity.toNumber() ?? 0;
+
+    const [resA, resB] = await Promise.all([
+      request(app.getHttpServer())
+        .patch(`/api/v1/purchase-returns/${purchaseReturnId}/complete`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 1 }),
+      request(app.getHttpServer())
+        .patch(`/api/v1/purchase-returns/${purchaseReturnId}/complete`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 1 }),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    const loser = resA.status === 409 ? resA : resB;
+    expect(loser.body.code).toBe('PURCHASE_RETURN_010');
+
+    const final = await request(app.getHttpServer())
+      .get(`/api/v1/purchase-returns/${purchaseReturnId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(final.body.data.status).toBe('COMPLETED');
+    expect(final.body.data.version).toBe(2);
+
+    const inventoryAfter = await prisma.inventory.findFirst({
+      where: { warehouseId, productId },
+    });
+    expect(inventoryAfter?.quantity.toNumber()).toBe(qtyBefore - 3);
+
+    const debts = await prisma.debt.findMany({
+      where: { refType: 'PurchaseReturn', refId: purchaseReturnId },
+    });
+    expect(debts).toHaveLength(1);
   });
 });

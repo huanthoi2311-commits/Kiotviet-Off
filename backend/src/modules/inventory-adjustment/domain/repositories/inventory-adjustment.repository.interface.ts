@@ -55,6 +55,20 @@ export class InventoryAdjustmentNegativeStockError extends Error {
   }
 }
 
+/**
+ * T051.02 — Ném bởi `complete()` khi `expectedVersion` (client gửi lên) không khớp `version` hiện
+ * tại của InventoryAdjustment — phiếu đang ở đúng trạng thái APPROVED nhưng vừa bị 1 request khác
+ * complete giữa lúc client đọc và lúc gửi thao tác này. submit/approve không đụng Inventory nên vẫn
+ * dùng status-predicate updateMany, không cần version.
+ */
+export class InventoryAdjustmentConcurrencyConflictError extends Error {
+  constructor(public readonly inventoryAdjustmentId: string) {
+    super(
+      `Phiếu điều chỉnh vừa bị thay đổi bởi giao dịch khác, vui lòng tải lại và thử lại`,
+    );
+  }
+}
+
 export interface IInventoryAdjustmentRepository {
   create(
     input: CreateInventoryAdjustmentInput,
@@ -80,13 +94,17 @@ export interface IInventoryAdjustmentRepository {
     updatedBy: string,
   ): Promise<InventoryAdjustmentEntity>;
   /**
-   * APPROVED → COMPLETED trong 1 transaction: với mỗi item, kiểm tra cấu hình
-   * "không âm tồn kho" (nếu bật), ghi 1 InventoryMovement (ADJUSTMENT) + đồng bộ
-   * Inventory. Rollback toàn bộ nếu bất kỳ item nào vi phạm cấu hình.
+   * APPROVED → COMPLETED trong 1 transaction. T051.02: Optimistic Lock CAS trên `(id,
+   * organizationId, status: APPROVED, version: expectedVersion)` được claim TRƯỚC vòng lặp Inventory
+   * — request thua cuộc ném `InventoryAdjustmentConcurrencyConflictError` ngay tại bước claim,
+   * KHÔNG chạy vòng lặp Inventory. Request thắng cuộc mới tiếp tục: với mỗi item, kiểm tra cấu hình
+   * "không âm tồn kho" (nếu bật), ghi 1 InventoryMovement (ADJUSTMENT) + đồng bộ Inventory. Rollback
+   * toàn bộ nếu bất kỳ item nào vi phạm cấu hình.
    */
   complete(
     id: string,
     organizationId: string,
+    expectedVersion: number,
     updatedBy: string,
   ): Promise<InventoryAdjustmentEntity>;
 }

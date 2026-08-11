@@ -20,6 +20,9 @@ export interface PurchaseOrderActionDialogProps {
   onOpenChange: (open: boolean) => void;
   purchaseOrderId: string;
   purchaseOrderCode: string;
+  /** T051.02 — Optimistic Lock, chỉ thật sự cần cho `receive` (đơn hành động duy nhất tác động
+   * Inventory/Debt); approve/cancel không đụng Inventory nên không gửi version. */
+  purchaseOrderVersion: number;
   mode: PurchaseOrderActionDialogMode;
 }
 
@@ -63,6 +66,7 @@ export function PurchaseOrderActionDialog({
   onOpenChange,
   purchaseOrderId,
   purchaseOrderCode,
+  purchaseOrderVersion,
   mode,
 }: PurchaseOrderActionDialogProps) {
   const queryClient = useQueryClient();
@@ -79,8 +83,16 @@ export function PurchaseOrderActionDialog({
     onOpenChange(false);
   };
 
+  /** T051.02 AD-1 §12 — on a version conflict (PURCHASE_ORDER_005) the dialog stays open and the
+   * message is shown (never silently retried with a new version); the detail query is invalidated
+   * so the next attempt (after the user re-opens the dialog) reads a fresh version. */
   const handleError = (error: NormalizedError) => {
     setErrorMessage(error.kind === 'api-error' ? error.message : 'Đã xảy ra lỗi không xác định');
+    if (error.kind === 'api-error' && error.code === 'PURCHASE_ORDER_005') {
+      queryClient.invalidateQueries({
+        queryKey: getPurchaseOrderControllerFindOneQueryKey(purchaseOrderId),
+      });
+    }
   };
 
   const approveMutation = usePurchaseOrderControllerApprove<NormalizedError>({
@@ -125,7 +137,16 @@ export function PurchaseOrderActionDialog({
       errorMessage={errorMessage}
       onConfirm={() => {
         setErrorMessage(null);
-        activeMutation.mutate({ id: purchaseOrderId });
+        if (mode === 'approve') {
+          approveMutation.mutate({ id: purchaseOrderId });
+        } else if (mode === 'receive') {
+          receiveMutation.mutate({
+            id: purchaseOrderId,
+            data: { version: purchaseOrderVersion },
+          });
+        } else {
+          cancelMutation.mutate({ id: purchaseOrderId });
+        }
       }}
     />
   );

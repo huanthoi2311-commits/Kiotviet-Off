@@ -46,6 +46,7 @@ function buildReturn(overrides: Record<string, unknown> = {}) {
     reason: 'DAMAGED',
     totalAmount: '100000',
     note: null,
+    version: 1,
     items: [
       {
         id: 'item-1',
@@ -208,6 +209,66 @@ describe('PurchaseReturnDetail (T045 §7)', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Hoàn tất' }));
 
     await waitFor(() => expect(completeCalled).toBe(true));
+  });
+
+  it("T051.02: clicking Complete sends the return's current version in the request body", async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['purchase_return:complete'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+    let receivedBody: unknown;
+    server.use(
+      http.get(`${API_BASE_URL}/purchase-returns/${RETURN_ID}`, () =>
+        HttpResponse.json(envelope(buildReturn({ status: 'APPROVED', version: 2 }))),
+      ),
+      http.patch(`${API_BASE_URL}/purchase-returns/${RETURN_ID}/complete`, async ({ request }) => {
+        receivedBody = await request.json();
+        return HttpResponse.json(envelope(buildReturn({ status: 'COMPLETED', version: 3 })));
+      }),
+    );
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Hoàn tất' }));
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Hoàn tất' }));
+
+    await waitFor(() => expect(receivedBody).toEqual({ version: 2 }));
+  });
+
+  it('T051.02: a version conflict (PURCHASE_RETURN_010) keeps the dialog open with the backend message and refetches the detail', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['purchase_return:complete'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+    let getCallCount = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/purchase-returns/${RETURN_ID}`, () => {
+        getCallCount += 1;
+        return HttpResponse.json(envelope(buildReturn({ status: 'APPROVED', version: 1 })));
+      }),
+      http.patch(`${API_BASE_URL}/purchase-returns/${RETURN_ID}/complete`, () =>
+        HttpResponse.json(
+          errorEnvelope('PURCHASE_RETURN_010', 'Phiếu trả hàng vừa bị thay đổi bởi giao dịch khác'),
+          { status: 409 },
+        ),
+      ),
+    );
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Hoàn tất' }));
+    const initialGetCount = getCallCount;
+    const dialog = screen.getByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Hoàn tất' }));
+
+    expect(
+      await screen.findByText('Phiếu trả hàng vừa bị thay đổi bởi giao dịch khác'),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Hoàn tất' })).toBeInTheDocument();
+    await waitFor(() => expect(getCallCount).toBeGreaterThan(initialGetCount));
   });
 
   it('has no accessibility violations once loaded', async () => {

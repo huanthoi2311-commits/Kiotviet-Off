@@ -233,6 +233,7 @@ describe('Transfer Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/transfers/${transferId}/approve`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(200);
 
     const stockAAfterApprove = await request(app.getHttpServer())
@@ -245,8 +246,10 @@ describe('Transfer Module (e2e, integration)', () => {
     const receiveRes = await request(app.getHttpServer())
       .patch(`/api/v1/transfers/${transferId}/receive`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 2 })
       .expect(200);
     expect(receiveRes.body.data.status).toBe('RECEIVED');
+    expect(receiveRes.body.data.version).toBe(3);
 
     const stockB = await request(app.getHttpServer())
       .get('/api/v1/inventory')
@@ -272,15 +275,18 @@ describe('Transfer Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/transfers/${transferId}/approve`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(200);
     await request(app.getHttpServer())
       .patch(`/api/v1/transfers/${transferId}/receive`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 2 })
       .expect(200);
 
     await request(app.getHttpServer())
       .patch(`/api/v1/transfers/${transferId}/approve`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 3 })
       .expect(422);
   });
 
@@ -306,11 +312,13 @@ describe('Transfer Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/transfers/${transferId}/approve`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
       .expect(200);
 
     const cancelRes = await request(app.getHttpServer())
       .patch(`/api/v1/transfers/${transferId}/cancel`)
       .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 2 })
       .expect(200);
     expect(cancelRes.body.data.status).toBe('CANCELLED');
 
@@ -333,5 +341,57 @@ describe('Transfer Module (e2e, integration)', () => {
         (t: { status: string }) => t.status === 'CANCELLED',
       ),
     ).toBe(true);
+  });
+
+  it('T051.02 CONCURRENCY: hai request receive() cùng version, gửi ĐỒNG THỜI — đúng 1 thành công, cái kia nhận TRANSFER_008', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/transfers')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        fromWarehouseId: warehouseAId,
+        toWarehouseId: warehouseBId,
+        items: [{ productId, quantity: 8 }],
+      })
+      .expect(201);
+    const transferId = created.body.data.id;
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/transfers/${transferId}/approve`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ version: 1 })
+      .expect(200);
+
+    const inventoryBBefore = await prisma.inventory.findFirst({
+      where: { warehouseId: warehouseBId, productId },
+    });
+    const qtyBBefore = inventoryBBefore?.quantity.toNumber() ?? 0;
+
+    const [resA, resB] = await Promise.all([
+      request(app.getHttpServer())
+        .patch(`/api/v1/transfers/${transferId}/receive`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 2 }),
+      request(app.getHttpServer())
+        .patch(`/api/v1/transfers/${transferId}/receive`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ version: 2 }),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    const loser = resA.status === 409 ? resA : resB;
+    expect(loser.body.code).toBe('TRANSFER_008');
+
+    const final = await request(app.getHttpServer())
+      .get(`/api/v1/transfers/${transferId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(final.body.data.status).toBe('RECEIVED');
+    expect(final.body.data.version).toBe(3);
+
+    const inventoryBAfter = await prisma.inventory.findFirst({
+      where: { warehouseId: warehouseBId, productId },
+    });
+    expect(inventoryBAfter?.quantity.toNumber()).toBe(qtyBBefore + 8);
   });
 });
