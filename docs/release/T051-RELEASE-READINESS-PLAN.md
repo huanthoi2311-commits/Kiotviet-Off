@@ -53,6 +53,21 @@ One pass surfaced a **confirmed, live cross-tenant privilege-escalation vulnerab
 
 ---
 
+**STATUS UPDATE (2026-08-11, T051.03 CLOSED).** AD-2 resolved: Option A (PostgreSQL-only),
+implemented per the "smallest safe fix" shape described above. Delivered:
+`backend/src/modules/platform/backup/` (backup/restore/verify orchestration, 100% unit-tested
+against test doubles), `backend/prisma/{backup,restore,verify-restore}.ts` (CLI, `npm run ops:*`),
+`backend/test/backup-restore.e2e-spec.ts` (real pg_dump/pg_restore proof against real Postgres in
+CI, not mocked), and `docs/release/BACKUP-RESTORE-RUNBOOK.md` (full operational runbook —
+architecture, commands, retention, RPO/RTO, disaster-recovery sequence, troubleshooting). A legacy
+unmerged attempt (`platform/backup`, referenced in
+`docs/discovery/T032-LEGACY-RECOVERY-CLASSIFICATION.md` §4.5) was found during discovery but
+**not** recovered — it was untested against real Postgres and flagged as staleness-risk; T051.03
+built fresh, CI-proven tooling instead. See PR for this sprint and the FINAL SPRINT REPORT —
+T051.03 for full verification detail.
+
+---
+
 ## 2. RB-2 — Deployment Model Contradiction
 
 **Current source evidence — chronological reconciliation.**
