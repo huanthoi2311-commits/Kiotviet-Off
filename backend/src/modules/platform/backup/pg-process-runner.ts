@@ -52,6 +52,18 @@ export function runPgTool(options: RunPgToolOptions): Promise<PgToolRunResult> {
     });
 
     if (stdin && child.stdin) {
+      // `pg_restore --list` (và một số lệnh khác) không cần đọc HẾT input để lấy được thông tin
+      // cần thiết (vd chỉ cần header/TOC của archive) — nó có thể đóng stdin SỚM trong khi Node
+      // vẫn đang ghi thêm dữ liệu từ file backup thật (lớn) vào pipe, gây lỗi EPIPE trên
+      // `child.stdin`. Đây là hành vi ĐÚNG/mong đợi (đã xác nhận qua CI thật với dump đủ lớn),
+      // KHÔNG phải lỗi thật của lệnh — kết quả thật đã phản ánh qua exit code ở event 'close'.
+      // Không lắng nghe 'error' ở đây khiến Node coi EPIPE là uncaught exception (đã bắt được
+      // qua "write EPIPE" trong CI thật, không tái hiện được bằng mock vì mock luôn đọc hết input).
+      child.stdin.on('error', (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EPIPE') {
+          stderr += `\n[stdin pipe error] ${error.message}`;
+        }
+      });
       stdin.pipe(child.stdin);
     }
     if (stdout && child.stdout) {
