@@ -36,6 +36,18 @@ function makeSuccessfulTool(dumpContent = 'FAKE-CUSTOM-FORMAT-DUMP-BYTES') {
         options.stdout.end();
         await new Promise((resolve) => options.stdout!.once('finish', resolve));
       }
+      if (options.stdin) {
+        // Mô phỏng pg_restore --list: tiêu thụ (drain) stdin cho tới hết, giống hành vi thật của
+        // runPgTool (pipe vào child.stdin) — bỏ qua bước này để lại một ReadStream chưa từng
+        // được đọc/đóng, với open() nội bộ đang chờ xử lý bất đồng bộ, đua với `rename()` chạy
+        // ngay sau đó trong runBackup() (đã bắt được qua lỗi ENOENT ngắt quãng trong CI: rename
+        // di chuyển file đi trước khi open() của ReadStream mồ côi kịp chạy tới).
+        await new Promise<void>((resolve, reject) => {
+          options.stdin!.on('data', () => undefined);
+          options.stdin!.once('end', resolve);
+          options.stdin!.once('error', reject);
+        });
+      }
       return { exitCode: 0, signal: null, stderr: '', timedOut: false };
     },
   );

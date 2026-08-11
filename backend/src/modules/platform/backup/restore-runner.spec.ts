@@ -37,7 +37,21 @@ function makeFakeMaintenanceClient(options: { targetExists: boolean }) {
 function mockRunTool(result: PgToolRunResult) {
   return jest
     .fn<Promise<PgToolRunResult>, [RunPgToolOptions]>()
-    .mockResolvedValue(result);
+    .mockImplementation(async (options) => {
+      if (options.stdin) {
+        // Tiêu thụ (drain) stdin cho tới hết, giống hành vi thật của runPgTool (pipe vào
+        // child.stdin) — bỏ qua bước này để lại một ReadStream (từ createReadStream trong
+        // runRestore()) chưa từng được đọc/đóng, có thể fire lỗi bất đồng bộ muộn sau khi
+        // afterEach() đã xoá backupDir (đã bắt được cùng nguyên nhân với ENOENT ngắt quãng
+        // trong backup-runner.spec.ts — xem closeAndRemove/T051.03 CI fix).
+        await new Promise<void>((resolve, reject) => {
+          options.stdin!.on('data', () => undefined);
+          options.stdin!.once('end', resolve);
+          options.stdin!.once('error', reject);
+        });
+      }
+      return result;
+    });
 }
 
 describe('runRestore', () => {
