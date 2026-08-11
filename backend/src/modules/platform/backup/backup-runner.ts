@@ -1,6 +1,7 @@
-import { createReadStream, createWriteStream, existsSync } from 'fs';
-import { mkdir, readdir, rename, rm, stat } from 'fs/promises';
+import { createReadStream, existsSync } from 'fs';
+import { mkdir, open, readdir, rename, rm, stat } from 'fs/promises';
 import { join } from 'path';
+import type { Writable } from 'stream';
 import { buildBackupFilename, parseBackupFilename } from './backup-filename';
 import type { PgConnection } from './pg-connection-url';
 import { runPgTool } from './pg-process-runner';
@@ -90,14 +91,12 @@ export async function runBackup(options: BackupOptions): Promise<BackupResult> {
     dockerComposeService,
   });
 
-  const writeStream = createWriteStream(partialPath, { flags: 'wx' });
-  // `createWriteStream` mở file KHÔNG đồng bộ — phải chờ event 'open' trước khi có thể an toàn
-  // gọi `safeRemove()` ở các nhánh lỗi bên dưới, nếu không sẽ có race: remove chạy trước khi
-  // open() thực sự tạo file trên đĩa, để lại một `.partial` mồ côi (đã bắt được qua unit test).
-  await new Promise<void>((resolve, reject) => {
-    writeStream.once('open', () => resolve());
-    writeStream.once('error', reject);
-  });
+  // Dùng `fs.promises.open()` (fully awaited) thay vì `createWriteStream()` + chờ event 'open' —
+  // loại bỏ HOÀN TOÀN khả năng race giữa việc file thực sự tồn tại trên đĩa và các nhánh lỗi bên
+  // dưới gọi `safeRemove()` (event-based 'open' từng để lại `.partial` mồ côi trong CI — event
+  // 'open' của WriteStream không đảm bảo thứ tự chặt như một Promise được await trực tiếp).
+  const fileHandle = await open(partialPath, 'wx');
+  const writeStream = fileHandle.createWriteStream();
 
   let dumpResult: Awaited<ReturnType<typeof runPgTool>>;
   try {
@@ -107,7 +106,7 @@ export async function runBackup(options: BackupOptions): Promise<BackupResult> {
       timeoutMs,
     });
   } catch (error) {
-    await safeRemove(partialPath);
+    await closeAndRemove(writeStream, partialPath);
     throw new BackupFailedError(
       `Không khởi chạy được pg_dump (${mode === 'docker-compose' ? 'qua docker compose exec' : 'binary trực tiếp'}): ${(error as Error).message}`,
       '',
@@ -115,7 +114,7 @@ export async function runBackup(options: BackupOptions): Promise<BackupResult> {
   }
 
   if (dumpResult.exitCode !== 0 || dumpResult.timedOut) {
-    await safeRemove(partialPath);
+    await closeAndRemove(writeStream, partialPath);
     const reason = dumpResult.timedOut
       ? `timeout sau ${timeoutMs}ms`
       : `exit code ${dumpResult.exitCode}`;
@@ -128,7 +127,7 @@ export async function runBackup(options: BackupOptions): Promise<BackupResult> {
   // §9 — verify tối thiểu: file tồn tại + size > 0 + pg_restore --list đọc được TOC.
   const stats = await stat(partialPath);
   if (stats.size === 0) {
-    await safeRemove(partialPath);
+    await closeAndRemove(writeStream, partialPath);
     throw new BackupVerificationFailedError(
       'File backup rỗng (0 byte) sau khi pg_dump báo thành công — coi như lỗi, không advertise là hợp lệ.',
       '',
@@ -148,7 +147,7 @@ export async function runBackup(options: BackupOptions): Promise<BackupResult> {
     timeoutMs,
   });
   if (listResult.exitCode !== 0) {
-    await safeRemove(partialPath);
+    await closeAndRemove(writeStream, partialPath);
     throw new BackupVerificationFailedError(
       'pg_restore --list không đọc được file backup vừa tạo — artifact coi như hỏng, KHÔNG advertise là hợp lệ.',
       listResult.stderr,
@@ -190,4 +189,25 @@ async function applyRetention(
 
 async function safeRemove(path: string): Promise<void> {
   await rm(path, { force: true });
+}
+
+/**
+ * `.destroy()` giải phóng file descriptor bên dưới (stream tạo từ FileHandle tự đóng fd khi
+ * destroy/finish) TRƯỚC KHI xoá file — thiếu bước này để lại fd rò rỉ tới khi garbage collector
+ * dọn (đã bắt được qua cảnh báo "Closing file descriptor on garbage collection" trong CI). An
+ * toàn gọi `.destroy()` trên stream đã đóng sẵn (no-op).
+ */
+async function closeAndRemove(
+  writeStream: Writable,
+  path: string,
+): Promise<void> {
+  await new Promise<void>((resolve) => {
+    if (writeStream.destroyed) {
+      resolve();
+      return;
+    }
+    writeStream.once('close', () => resolve());
+    writeStream.destroy();
+  });
+  await safeRemove(path);
 }
