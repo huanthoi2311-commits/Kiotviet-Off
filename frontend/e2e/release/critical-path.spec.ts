@@ -1,6 +1,13 @@
 import fs from 'fs';
-import { test, expect, request as playwrightRequest, APIRequestContext } from '@playwright/test';
-import { FIXTURES_PATH, ReleaseFixtures } from './global-setup';
+import {
+  test,
+  expect,
+  request as playwrightRequest,
+  APIRequestContext,
+  BrowserContext,
+  Page,
+} from '@playwright/test';
+import { FIXTURES_PATH, STORAGE_STATE_PATH, ReleaseFixtures } from './global-setup';
 import {
   backendBaseUrl,
   confirmLifecycleAction,
@@ -24,6 +31,18 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   let fixtures: ReleaseFixtures;
   let api: APIRequestContext;
   let accessToken: string;
+  // T051.08 (resume) — MỘT context/page dùng chung xuyên suốt test 2-7, KHÔNG dùng fixture `page`
+  // mặc định của Playwright (tạo context MỚI mỗi test, mỗi context tự đọc lại CÙNG MỘT file
+  // storageState.json tĩnh rồi tự khôi phục phiên ĐỘC LẬP). Vì backend xoay vòng refresh token
+  // thật ở mỗi lần dùng (rotation-on-every-use, xem AuthService), nhiều context độc lập cùng khôi
+  // phục từ CÙNG một snapshot cookie sẽ ĐUA nhau: chỉ context đầu tiên xoay vòng thành công, mọi
+  // context sau dùng token đã hết hạn/bị thu hồi → phiên không dùng được → trang trắng, treo chờ
+  // phần tử không bao giờ xuất hiện — xác nhận qua CI thật (T051.08 resume): 2 test độc lập
+  // (`/pos`, `/purchase-orders/new`) đều bị đúng triệu chứng này. `test.describe.serial` vốn mô
+  // phỏng ĐÚNG 1 phiên người dùng liên tục — dùng 1 context/page DUY NHẤT xuyên suốt vừa khớp đúng
+  // ngữ nghĩa đó, vừa loại bỏ hoàn toàn cuộc đua này.
+  let sharedContext: BrowserContext;
+  let sharedPage: Page;
 
   let purchaseOrderId: string;
   let invoiceId: string;
@@ -39,7 +58,7 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   const SELL_QUANTITY = 3;
   const RETURN_QUANTITY = 1;
 
-  test.beforeAll(async () => {
+  test.beforeAll(async ({ browser }) => {
     fixtures = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf-8')) as ReleaseFixtures;
 
     // Tái dùng token bootstrap của chính global-setup.ts thay vì tự đăng nhập THÊM một lần nữa —
@@ -57,10 +76,38 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
       fixtures.warehouseId,
       fixtures.productId,
     );
+
+    // MỘT context/page dùng chung cho toàn bộ test 2-7 — xem ghi chú ở khai báo `sharedPage` phía
+    // trên. `baseURL` KHÔNG được `browser.newContext()` tự kế thừa từ config (phải truyền tường
+    // minh); `storageState` truyền tường minh cho rõ ràng dù về mặt kỹ thuật đây CHÍNH LÀ giá trị
+    // default của config (khác test 1 — nơi phải CHẶN kế thừa ngầm, ở đây ta CHỦ Ý muốn kế thừa).
+    sharedContext = await browser.newContext({
+      baseURL: frontendBaseUrl(),
+      storageState: STORAGE_STATE_PATH,
+    });
+    sharedPage = await sharedContext.newPage();
   });
 
   test.afterAll(async () => {
     await api.dispose();
+    await sharedContext.close();
+  });
+
+  // T051.08 §14 — test 2-7 KHÔNG còn dùng fixture `page` mặc định của Playwright (context riêng
+  // dùng chung, xem ghi chú ở khai báo `sharedPage`), nên KHÔNG còn được tự động chụp màn hình khi
+  // fail (cơ chế `screenshot: 'only-on-failure'` chỉ áp dụng cho context do fixture tạo). Bù lại
+  // thủ công ở đây để không mất bằng chứng chẩn đoán — test 1 (context riêng, tạo mới mỗi lần chạy
+  // qua fixture `browser`) không bị ảnh hưởng, vẫn tự động chụp như trước.
+  test.afterEach(async ({}, testInfo) => {
+    if (testInfo.status !== testInfo.expectedStatus && sharedPage && !sharedPage.isClosed()) {
+      const screenshot = await sharedPage.screenshot().catch(() => null);
+      if (screenshot) {
+        await testInfo.attach('shared-page-screenshot-on-failure', {
+          body: screenshot,
+          contentType: 'image/png',
+        });
+      }
+    }
   });
 
   // ============================================================
@@ -129,9 +176,8 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   });
 
   // ============================================================
-  test('2. Purchase Order: create → Duyệt → Xác nhận nhận hàng qua UI — tồn kho tăng đúng 1 lần', async ({
-    page,
-  }) => {
+  test('2. Purchase Order: create → Duyệt → Xác nhận nhận hàng qua UI — tồn kho tăng đúng 1 lần', async () => {
+    const page = sharedPage;
     const before = await readInventoryQuantity(
       api,
       accessToken,
@@ -188,7 +234,8 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   });
 
   // ============================================================
-  test('3. POS Checkout qua UI tạo đúng 1 Invoice — tồn kho giảm đúng 1 lần', async ({ page }) => {
+  test('3. POS Checkout qua UI tạo đúng 1 Invoice — tồn kho giảm đúng 1 lần', async () => {
+    const page = sharedPage;
     const before = await readInventoryQuantity(
       api,
       accessToken,
@@ -231,7 +278,8 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   });
 
   // ============================================================
-  test('4. Invoice qua UI hiển thị đúng dữ liệu vừa tạo', async ({ page }) => {
+  test('4. Invoice qua UI hiển thị đúng dữ liệu vừa tạo', async () => {
+    const page = sharedPage;
     await page.goto(`/invoices/${invoiceId}`);
     await expect(page.getByText(invoiceCode)).toBeVisible();
     await expect(page.getByText(fixtures.productName)).toBeVisible();
@@ -239,7 +287,8 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   });
 
   // ============================================================
-  test('5. Sales Return qua UI (Xác nhận nhận hàng) hoàn tồn kho đúng 1 lần', async ({ page }) => {
+  test('5. Sales Return qua UI (Xác nhận nhận hàng) hoàn tồn kho đúng 1 lần', async () => {
+    const page = sharedPage;
     const before = await readInventoryQuantity(
       api,
       accessToken,
@@ -306,9 +355,8 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   });
 
   // ============================================================
-  test('6. Duplicate-submit: double-click Thanh toán không tạo 2 Invoice/Payment', async ({
-    page,
-  }) => {
+  test('6. Duplicate-submit: double-click Thanh toán không tạo 2 Invoice/Payment', async () => {
+    const page = sharedPage;
     const invoiceIds: string[] = [];
     page.on('response', (response) => {
       if (
@@ -358,7 +406,8 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   });
 
   // ============================================================
-  test('7. Tenant smoke: Chi nhánh/Kho trong dropdown chỉ thuộc đúng tổ chức', async ({ page }) => {
+  test('7. Tenant smoke: Chi nhánh/Kho trong dropdown chỉ thuộc đúng tổ chức', async () => {
+    const page = sharedPage;
     // Backend real-E2E (T051.06A/T051.06B) đã chứng minh đầy đủ việc từ chối cross-tenant
     // branchId/warehouseId ở tầng API với 2 tổ chức thật. Suite này KHÔNG dựng lại fixture tổ
     // chức thứ hai (không có cơ chế bootstrap tổ chức thứ hai qua HTTP trong V1 — tạo Organization
