@@ -44,16 +44,26 @@ test.describe('Multi-tab session restoration — no false reuse detection (SPEC-
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
+        // T051.08A — real envelope shape (backend's TransformInterceptor wraps every 2xx body);
+        // the old flat body here is exactly what masked refreshAccessToken()'s envelope-unwrap
+        // bug from every test (including this one) until a real browser hit a real backend
+        // (T051.08).
         body: JSON.stringify({
-          accessToken,
-          userInfo: {
-            id: 'user-1',
-            email: 'owner@kiotviet-off.vn',
-            username: 'owner',
-            organizationId: 'org-1',
-            branchId: null,
-            permissions: [],
+          success: true,
+          data: {
+            accessToken,
+            userInfo: {
+              id: 'user-1',
+              email: 'owner@kiotviet-off.vn',
+              username: 'owner',
+              organizationId: 'org-1',
+              branchId: null,
+              permissions: [],
+            },
           },
+          meta: null,
+          traceId: 't-1',
+          timestamp: new Date().toISOString(),
         }),
       });
     });

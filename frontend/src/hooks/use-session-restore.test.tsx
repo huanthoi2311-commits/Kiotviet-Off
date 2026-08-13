@@ -17,7 +17,15 @@ describe('useSessionRestore (FR2, §9 step 2)', () => {
   it('restores the session via a coordinated refresh when no token is held', async () => {
     const newToken = buildAccessToken({ sub: 'user-1', organizationId: 'org-1', permissions: [] });
     server.use(
-      http.post(`${API_BASE_URL}/auth/refresh`, () => HttpResponse.json({ accessToken: newToken })),
+      http.post(`${API_BASE_URL}/auth/refresh`, () =>
+        HttpResponse.json({
+          success: true,
+          data: { accessToken: newToken },
+          meta: null,
+          traceId: 't-1',
+          timestamp: new Date().toISOString(),
+        }),
+      ),
     );
 
     const { result } = renderHook(() => useSessionRestore());
@@ -89,7 +97,13 @@ describe('useSessionRestore (FR2, §9 step 2)', () => {
     server.use(
       http.post(`${API_BASE_URL}/auth/refresh`, () => {
         refreshCallCount += 1;
-        return HttpResponse.json({ accessToken: 'irrelevant' });
+        return HttpResponse.json({
+          success: true,
+          data: { accessToken: 'irrelevant' },
+          meta: null,
+          traceId: 't-1',
+          timestamp: new Date().toISOString(),
+        });
       }),
     );
 
