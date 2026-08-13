@@ -6,6 +6,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { WarehouseService } from '../../warehouse/application/warehouse.service';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
@@ -42,12 +44,32 @@ export class InventoryAdjustmentService {
     @Inject(INVENTORY_ADJUSTMENT_CODE_GENERATOR)
     private readonly codeGenerator: IInventoryAdjustmentCodeGenerator,
     private readonly auditLogService: AuditLogService,
+    private readonly warehouseService: WarehouseService,
+    private readonly productDomainService: ProductDomainService,
   ) {}
 
   async create(
     dto: CreateInventoryAdjustmentDto,
     actor: ActorContext,
   ): Promise<InventoryAdjustmentResponseDto> {
+    // T051.06B — warehouseId/productId (mỗi dòng hàng) PHẢI thuộc actor.organizationId TRƯỚC khi
+    // tạo InventoryAdjustment — cùng pattern Checkout (T051.06A)/Gate A/B/C.
+    await this.warehouseService.findOne(dto.warehouseId, actor.organizationId);
+    const productIds = [...new Set(dto.items.map((item) => item.productId))];
+    await Promise.all(
+      productIds.map(async (productId) => {
+        const product = await this.productDomainService.findById(
+          productId,
+          actor.organizationId,
+        );
+        if (!product) {
+          throw new NotFoundException(
+            withCode(ErrorCode.PRODUCT_NOT_FOUND, 'Không tìm thấy sản phẩm'),
+          );
+        }
+      }),
+    );
+
     const code = await this.codeGenerator.generate(actor.organizationId);
     const created = await this.adjustmentRepository.create({
       organizationId: actor.organizationId,
