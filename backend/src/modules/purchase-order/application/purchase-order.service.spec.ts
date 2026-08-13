@@ -4,6 +4,10 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { BranchService } from '../../branch/application/branch.service';
+import { SupplierDomainService } from '../../supplier/application/supplier-domain.service';
+import { WarehouseService } from '../../warehouse/application/warehouse.service';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { PurchaseOrderEntity } from '../domain/entities/purchase-order.entity';
 import {
@@ -19,6 +23,12 @@ describe('PurchaseOrderService', () => {
   let purchaseOrderRepository: jest.Mocked<IPurchaseOrderRepository>;
   let codeGenerator: jest.Mocked<IPurchaseOrderCodeGenerator>;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
+  let branchService: jest.Mocked<Pick<BranchService, 'getById'>>;
+  let supplierDomainService: jest.Mocked<
+    Pick<SupplierDomainService, 'assertBelongsToOrganization'>
+  >;
+  let warehouseService: jest.Mocked<Pick<WarehouseService, 'findOne'>>;
+  let productDomainService: jest.Mocked<Pick<ProductDomainService, 'findById'>>;
 
   const actor: ActorContext = { userId: 'user-1', organizationId: 'org-1' };
 
@@ -66,11 +76,25 @@ describe('PurchaseOrderService', () => {
     };
     codeGenerator = { generate: jest.fn().mockResolvedValue('PN000001') };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+    // T051.06B — mặc định resolve (Branch/Supplier/Warehouse/Product thuộc actor.organizationId)
+    // để mọi test hiện có không bị ảnh hưởng; test negative-path bên dưới tự override.
+    branchService = { getById: jest.fn().mockResolvedValue({}) };
+    supplierDomainService = {
+      assertBelongsToOrganization: jest.fn().mockResolvedValue(undefined),
+    };
+    warehouseService = { findOne: jest.fn().mockResolvedValue({}) };
+    productDomainService = {
+      findById: jest.fn().mockResolvedValue({}),
+    };
 
     service = new PurchaseOrderService(
       purchaseOrderRepository,
       codeGenerator,
       auditLogService as unknown as AuditLogService,
+      branchService as unknown as BranchService,
+      supplierDomainService as unknown as SupplierDomainService,
+      warehouseService as unknown as WarehouseService,
+      productDomainService as unknown as ProductDomainService,
     );
   });
 
@@ -151,6 +175,156 @@ describe('PurchaseOrderService', () => {
           ],
         }),
       );
+    });
+
+    const baseCreateDto = {
+      branchId: 'branch-1',
+      supplierId: 'supplier-1',
+      items: [
+        {
+          productId: 'product-1',
+          warehouseId: 'wh-1',
+          quantity: 10,
+          unitCost: 1000,
+        },
+      ],
+    };
+
+    describe('[T051.06B] Branch/Supplier/Warehouse/Product phải thuộc actor.organizationId', () => {
+      it('Branch cùng tổ chức — gọi branchService.getById(dto.branchId, actor), cho qua', async () => {
+        purchaseOrderRepository.create.mockResolvedValue(makeOrder());
+        await service.create(baseCreateDto, actor);
+        expect(branchService.getById).toHaveBeenCalledWith('branch-1', actor);
+      });
+
+      it('Branch khác tổ chức — reject, repository.create() KHÔNG được gọi', async () => {
+        branchService.getById.mockRejectedValue(
+          new NotFoundException('Không tìm thấy chi nhánh'),
+        );
+        await expect(service.create(baseCreateDto, actor)).rejects.toThrow(
+          NotFoundException,
+        );
+        expect(purchaseOrderRepository.create).not.toHaveBeenCalled();
+      });
+
+      it('Supplier cùng tổ chức — gọi assertBelongsToOrganization(actor.organizationId, dto.supplierId), cho qua', async () => {
+        purchaseOrderRepository.create.mockResolvedValue(makeOrder());
+        await service.create(baseCreateDto, actor);
+        expect(
+          supplierDomainService.assertBelongsToOrganization,
+        ).toHaveBeenCalledWith('org-1', 'supplier-1');
+      });
+
+      it('Supplier khác tổ chức — reject, repository.create() KHÔNG được gọi', async () => {
+        supplierDomainService.assertBelongsToOrganization.mockRejectedValue(
+          new NotFoundException('Không tìm thấy nhà cung cấp'),
+        );
+        await expect(service.create(baseCreateDto, actor)).rejects.toThrow(
+          NotFoundException,
+        );
+        expect(purchaseOrderRepository.create).not.toHaveBeenCalled();
+      });
+
+      it('Warehouse (dòng hàng) cùng tổ chức — gọi warehouseService.findOne(warehouseId, actor.organizationId), cho qua', async () => {
+        purchaseOrderRepository.create.mockResolvedValue(makeOrder());
+        await service.create(baseCreateDto, actor);
+        expect(warehouseService.findOne).toHaveBeenCalledWith('wh-1', 'org-1');
+      });
+
+      it('Warehouse (dòng hàng) khác tổ chức — reject, repository.create() KHÔNG được gọi', async () => {
+        warehouseService.findOne.mockRejectedValue(
+          new NotFoundException('Không tìm thấy kho'),
+        );
+        await expect(service.create(baseCreateDto, actor)).rejects.toThrow(
+          NotFoundException,
+        );
+        expect(purchaseOrderRepository.create).not.toHaveBeenCalled();
+      });
+
+      it('Product (dòng hàng) cùng tổ chức — gọi productDomainService.findById(productId, actor.organizationId), cho qua', async () => {
+        purchaseOrderRepository.create.mockResolvedValue(makeOrder());
+        await service.create(baseCreateDto, actor);
+        expect(productDomainService.findById).toHaveBeenCalledWith(
+          'product-1',
+          'org-1',
+        );
+      });
+
+      it('Product (dòng hàng) khác tổ chức (hoặc không tồn tại) — reject, repository.create() KHÔNG được gọi', async () => {
+        productDomainService.findById.mockResolvedValue(null);
+        await expect(service.create(baseCreateDto, actor)).rejects.toThrow(
+          NotFoundException,
+        );
+        expect(purchaseOrderRepository.create).not.toHaveBeenCalled();
+      });
+
+      it('Danh sách nhiều dòng hàng, MỘT dòng có warehouseId ngoài tổ chức — toàn bộ request bị reject', async () => {
+        warehouseService.findOne.mockImplementation((id) => {
+          if (id === 'wh-foreign') {
+            return Promise.reject(new NotFoundException('Không tìm thấy kho'));
+          }
+          return Promise.resolve({} as never);
+        });
+        await expect(
+          service.create(
+            {
+              branchId: 'branch-1',
+              supplierId: 'supplier-1',
+              items: [
+                {
+                  productId: 'product-1',
+                  warehouseId: 'wh-1',
+                  quantity: 10,
+                  unitCost: 1000,
+                },
+                {
+                  productId: 'product-2',
+                  warehouseId: 'wh-foreign',
+                  quantity: 5,
+                  unitCost: 2000,
+                },
+              ],
+            },
+            actor,
+          ),
+        ).rejects.toThrow(NotFoundException);
+        expect(purchaseOrderRepository.create).not.toHaveBeenCalled();
+      });
+
+      it('Thứ tự: Branch/Supplier/Warehouse/Product được xác minh TRƯỚC repository.create()', async () => {
+        const callOrder: string[] = [];
+        branchService.getById.mockImplementation(() => {
+          callOrder.push('branch');
+          return Promise.resolve({} as never);
+        });
+        supplierDomainService.assertBelongsToOrganization.mockImplementation(
+          () => {
+            callOrder.push('supplier');
+            return Promise.resolve(undefined);
+          },
+        );
+        warehouseService.findOne.mockImplementation(() => {
+          callOrder.push('warehouse');
+          return Promise.resolve({} as never);
+        });
+        productDomainService.findById.mockImplementation(() => {
+          callOrder.push('product');
+          return Promise.resolve({} as never);
+        });
+        purchaseOrderRepository.create.mockImplementation(() => {
+          callOrder.push('repository.create');
+          return Promise.resolve(makeOrder());
+        });
+
+        await service.create(baseCreateDto, actor);
+
+        expect(callOrder.indexOf('repository.create')).toBe(
+          callOrder.length - 1,
+        );
+        expect(callOrder.slice(0, 4).sort()).toEqual(
+          ['branch', 'supplier', 'warehouse', 'product'].sort(),
+        );
+      });
     });
   });
 

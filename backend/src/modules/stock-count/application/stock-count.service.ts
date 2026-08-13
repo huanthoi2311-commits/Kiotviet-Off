@@ -6,6 +6,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { WarehouseService } from '../../warehouse/application/warehouse.service';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
@@ -43,12 +45,34 @@ export class StockCountService {
     @Inject(STOCK_COUNT_CODE_GENERATOR)
     private readonly codeGenerator: IStockCountCodeGenerator,
     private readonly auditLogService: AuditLogService,
+    private readonly warehouseService: WarehouseService,
+    private readonly productDomainService: ProductDomainService,
   ) {}
 
   async create(
     dto: CreateStockCountDto,
     actor: ActorContext,
   ): Promise<StockCountResponseDto> {
+    // T051.06B Lớp phòng thủ 1/2 — warehouseId/productIds PHẢI thuộc actor.organizationId TRƯỚC
+    // khi tạo StockCount — cùng pattern Checkout (T051.06A)/Gate A/B. Lớp phòng thủ thứ 2 (bắt
+    // buộc, defense-in-depth) nằm ở chính query snapshot tồn kho trong
+    // `PrismaStockCountRepository.create()` — không chỉ dựa vào lớp này.
+    await this.warehouseService.findOne(dto.warehouseId, actor.organizationId);
+    const productIds = [...new Set(dto.productIds)];
+    await Promise.all(
+      productIds.map(async (productId) => {
+        const product = await this.productDomainService.findById(
+          productId,
+          actor.organizationId,
+        );
+        if (!product) {
+          throw new NotFoundException(
+            withCode(ErrorCode.PRODUCT_NOT_FOUND, 'Không tìm thấy sản phẩm'),
+          );
+        }
+      }),
+    );
+
     const code = await this.codeGenerator.generate(actor.organizationId);
     const created = await this.stockCountRepository.create({
       organizationId: actor.organizationId,

@@ -4,6 +4,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { WarehouseService } from '../../warehouse/application/warehouse.service';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { StockCountEntity } from '../domain/entities/stock-count.entity';
 import {
@@ -20,6 +22,8 @@ describe('StockCountService', () => {
   let stockCountRepository: jest.Mocked<IStockCountRepository>;
   let codeGenerator: jest.Mocked<IStockCountCodeGenerator>;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
+  let warehouseService: jest.Mocked<Pick<WarehouseService, 'findOne'>>;
+  let productDomainService: jest.Mocked<Pick<ProductDomainService, 'findById'>>;
 
   const actor: ActorContext = { userId: 'user-1', organizationId: 'org-1' };
 
@@ -60,11 +64,19 @@ describe('StockCountService', () => {
     };
     codeGenerator = { generate: jest.fn().mockResolvedValue('PKK000001') };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+    // T051.06B — mặc định resolve (Warehouse/Product thuộc actor.organizationId) để mọi test
+    // hiện có không bị ảnh hưởng; test negative-path bên dưới tự override.
+    warehouseService = { findOne: jest.fn().mockResolvedValue({}) };
+    productDomainService = {
+      findById: jest.fn().mockResolvedValue({}),
+    };
 
     service = new StockCountService(
       stockCountRepository,
       codeGenerator,
       auditLogService as unknown as AuditLogService,
+      warehouseService as unknown as WarehouseService,
+      productDomainService as unknown as ProductDomainService,
     );
   });
 
@@ -80,6 +92,76 @@ describe('StockCountService', () => {
       expect(auditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'stock_count.create' }),
       );
+    });
+
+    describe('[T051.06B] warehouseId/productIds phải thuộc actor.organizationId', () => {
+      const dto = { warehouseId: 'wh-1', productIds: ['product-1'] };
+
+      it('Warehouse cùng tổ chức — gọi warehouseService.findOne(warehouseId, org), cho qua', async () => {
+        stockCountRepository.create.mockResolvedValue(makeStockCount());
+        await service.create(dto, actor);
+        expect(warehouseService.findOne).toHaveBeenCalledWith('wh-1', 'org-1');
+      });
+
+      it('Warehouse khác tổ chức — reject, repository.create() KHÔNG được gọi', async () => {
+        warehouseService.findOne.mockRejectedValue(
+          new NotFoundException('Không tìm thấy kho'),
+        );
+        await expect(service.create(dto, actor)).rejects.toThrow(
+          NotFoundException,
+        );
+        expect(stockCountRepository.create).not.toHaveBeenCalled();
+      });
+
+      it('Product khác tổ chức (hoặc không tồn tại) — reject, repository.create() KHÔNG được gọi', async () => {
+        productDomainService.findById.mockResolvedValue(null);
+        await expect(service.create(dto, actor)).rejects.toThrow(
+          NotFoundException,
+        );
+        expect(stockCountRepository.create).not.toHaveBeenCalled();
+      });
+
+      it('Danh sách nhiều productIds, MỘT id ngoài tổ chức — toàn bộ request bị reject', async () => {
+        productDomainService.findById.mockImplementation((id) =>
+          id === 'product-foreign'
+            ? Promise.resolve(null)
+            : Promise.resolve({} as never),
+        );
+        await expect(
+          service.create(
+            {
+              warehouseId: 'wh-1',
+              productIds: ['product-1', 'product-foreign'],
+            },
+            actor,
+          ),
+        ).rejects.toThrow(NotFoundException);
+        expect(stockCountRepository.create).not.toHaveBeenCalled();
+      });
+
+      it('Thứ tự: Warehouse/Product được xác minh TRƯỚC repository.create()', async () => {
+        const callOrder: string[] = [];
+        warehouseService.findOne.mockImplementation(() => {
+          callOrder.push('warehouse');
+          return Promise.resolve({} as never);
+        });
+        productDomainService.findById.mockImplementation(() => {
+          callOrder.push('product');
+          return Promise.resolve({} as never);
+        });
+        stockCountRepository.create.mockImplementation(() => {
+          callOrder.push('repository.create');
+          return Promise.resolve(makeStockCount());
+        });
+
+        await service.create(dto, actor);
+
+        expect(callOrder).toEqual([
+          'warehouse',
+          'product',
+          'repository.create',
+        ]);
+      });
     });
   });
 

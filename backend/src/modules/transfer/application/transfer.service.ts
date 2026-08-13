@@ -6,6 +6,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { WarehouseService } from '../../warehouse/application/warehouse.service';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
@@ -50,6 +52,8 @@ export class TransferService {
     @Inject(TRANSFER_CODE_GENERATOR)
     private readonly codeGenerator: ITransferCodeGenerator,
     private readonly auditLogService: AuditLogService,
+    private readonly warehouseService: WarehouseService,
+    private readonly productDomainService: ProductDomainService,
   ) {}
 
   async create(
@@ -72,6 +76,33 @@ export class TransferService {
         ),
       );
     }
+
+    // T051.06B — fromWarehouseId/toWarehouseId/productId (mỗi dòng hàng) PHẢI thuộc
+    // actor.organizationId TRƯỚC khi tạo Transfer — cùng pattern Checkout (T051.06A)/Purchase
+    // Order (T051.06B Gate A). Không gộp 2 kho (`dto.fromWarehouseId === dto.toWarehouseId` đã bị
+    // chặn ở trên) nên không cần dedupe 2 ID này; productId dedupe theo dòng hàng.
+    await this.warehouseService.findOne(
+      dto.fromWarehouseId,
+      actor.organizationId,
+    );
+    await this.warehouseService.findOne(
+      dto.toWarehouseId,
+      actor.organizationId,
+    );
+    const productIds = [...new Set(dto.items.map((item) => item.productId))];
+    await Promise.all(
+      productIds.map(async (productId) => {
+        const product = await this.productDomainService.findById(
+          productId,
+          actor.organizationId,
+        );
+        if (!product) {
+          throw new NotFoundException(
+            withCode(ErrorCode.PRODUCT_NOT_FOUND, 'Không tìm thấy sản phẩm'),
+          );
+        }
+      }),
+    );
 
     const code = await this.codeGenerator.generate(actor.organizationId);
     const created = await this.transferRepository.create({
