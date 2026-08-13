@@ -47,8 +47,11 @@ async function apiLogin(
   email: string,
   password: string,
 ): Promise<string> {
-  const api = await playwrightRequest.newContext({ baseURL: backendBaseUrl() });
-  const res = await api.post('/auth/login', {
+  const api = await playwrightRequest.newContext();
+  // KHÔNG dùng `baseURL` của context + path bắt đầu bằng "/" — theo ngữ nghĩa WHATWG URL,
+  // `new URL('/auth/login', 'http://host/api/v1')` cho ra `http://host/auth/login` (path bắt đầu
+  // bằng "/" LUÔN thay thế toàn bộ path của base, xoá mất "/api/v1") — luôn ghép URL tuyệt đối.
+  const res = await api.post(`${backendBaseUrl()}/auth/login`, {
     data: { organizationSlug, email, password },
   });
   if (!res.ok()) {
@@ -75,15 +78,17 @@ export default async function globalSetup(): Promise<void> {
   process.env.RELEASE_E2E_RUN_ID = id;
 
   const accessToken = await apiLogin(organizationSlug, adminEmail, adminPassword);
+  // KHÔNG dùng `baseURL` của context (xem ghi chú trong `apiLogin` ở trên) — mọi lời gọi dưới đây
+  // đều ghép URL tuyệt đối qua `backendBaseUrl()`.
   const api = await playwrightRequest.newContext({
-    baseURL: backendBaseUrl(),
     extraHTTPHeaders: { Authorization: `Bearer ${accessToken}` },
   });
+  const apiUrl = (p: string) => `${backendBaseUrl()}${p}`;
 
   // Branch: dùng branch mặc định do bootstrap First Admin (T051.04) tạo sẵn (code cố định "MAIN"
   // theo `FIRST_ADMIN_BRANCH_CODE` mặc định) — không tạo branch mới, tránh trùng lặp không cần
   // thiết với hạ tầng đã có.
-  const branchesRes = await api.get('/branches', { params: { limit: 1 } });
+  const branchesRes = await api.get(apiUrl('/branches'), { params: { limit: 1 } });
   if (!branchesRes.ok()) {
     throw new Error(
       `[T051.08 global-setup] Không đọc được danh sách Branch: ${await branchesRes.text()}`,
@@ -102,7 +107,7 @@ export default async function globalSetup(): Promise<void> {
   const branchName = branches[0].name;
 
   const warehouseName = `Kho Release E2E ${id}`;
-  const warehouseRes = await api.post('/warehouses', {
+  const warehouseRes = await api.post(apiUrl('/warehouses'), {
     data: { branchId, code: `RE2E-WH-${id}`, name: warehouseName },
   });
   if (!warehouseRes.ok()) {
@@ -111,7 +116,7 @@ export default async function globalSetup(): Promise<void> {
   const warehouseId = (await warehouseRes.json()).data.id as string;
 
   const supplierName = `Nhà cung cấp Release E2E ${id}`;
-  const supplierRes = await api.post('/suppliers', {
+  const supplierRes = await api.post(apiUrl('/suppliers'), {
     data: { code: `RE2E-NCC-${id}`, companyName: supplierName },
   });
   if (!supplierRes.ok()) {
@@ -119,7 +124,7 @@ export default async function globalSetup(): Promise<void> {
   }
   const supplierId = (await supplierRes.json()).data.id as string;
 
-  const categoryRes = await api.post('/categories', {
+  const categoryRes = await api.post(apiUrl('/categories'), {
     data: { code: `RE2E-CAT-${id}`, name: `Danh mục Release E2E ${id}` },
   });
   if (!categoryRes.ok()) {
@@ -127,7 +132,7 @@ export default async function globalSetup(): Promise<void> {
   }
   const categoryId = (await categoryRes.json()).data.id as string;
 
-  const unitRes = await api.post('/units', {
+  const unitRes = await api.post(apiUrl('/units'), {
     data: { code: `RE2E-UNIT-${id}`, name: 'Cái', symbol: 'cái' },
   });
   if (!unitRes.ok()) {
@@ -136,7 +141,7 @@ export default async function globalSetup(): Promise<void> {
   const unitId = (await unitRes.json()).data.id as string;
 
   const productName = `Sản phẩm Release E2E ${id}`;
-  const productRes = await api.post('/products', {
+  const productRes = await api.post(apiUrl('/products'), {
     data: {
       type: 'STANDARD',
       categoryId,

@@ -36,8 +36,10 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   test.beforeAll(async () => {
     fixtures = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf-8')) as ReleaseFixtures;
 
-    api = await playwrightRequest.newContext({ baseURL: backendBaseUrl() });
-    const loginRes = await api.post('/auth/login', {
+    // KHÔNG dùng `baseURL` context + path bắt đầu bằng "/" — xem ghi chú trong `global-setup.ts`
+    // (WHATWG URL: path bắt đầu bằng "/" thay thế toàn bộ path của baseURL, xoá mất "/api/v1").
+    api = await playwrightRequest.newContext();
+    const loginRes = await api.post(`${backendBaseUrl()}/auth/login`, {
       data: {
         organizationSlug: fixtures.organizationSlug,
         email: fixtures.adminEmail,
