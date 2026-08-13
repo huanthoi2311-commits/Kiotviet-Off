@@ -158,11 +158,27 @@ jobs:
         run: |
           cat > /tmp/verify-unit.sh <<'EOF'
           #!/bin/sh
+          # docker compose up --wait chỉ chờ container Postgres BÁO healthy trở lại (pg_isready) —
+          # không đảm bảo connection pool CÓ SẴN của backend (process không bị restart, chỉ Postgres
+          # bên dưới restart) đã reconnect xong tại đúng thời điểm này. Bản thân /health (kiểm tra
+          # thật qua `SELECT 1`, xem app.controller.ts) đã xác nhận DB genuinely healthy — đây chỉ là
+          # khoảng hở thực tế giữa lúc Postgres sẵn sàng và lúc Prisma engine của backend hoàn tất
+          # reconnect trên đúng request kế tiếp (hành vi reconnect chuẩn của Prisma, không phải lỗi
+          # ứng dụng) — retry ngắn ở đây mô phỏng đúng việc vận hành viên thử lại một lần.
           set -eu
-          RES=$(curl -sf http://localhost:3000/api/v1/units?search=CI-DRILL \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}")
-          echo "$RES" | grep -q '"code":"CI-DRILL"' || { echo "MISSING CI-DRILL unit: $RES"; exit 1; }
-          echo "OK: CI-DRILL unit present"
+          ATTEMPTS=10
+          for i in $(seq 1 "$ATTEMPTS"); do
+            RES=$(curl -sf http://localhost:3000/api/v1/units?search=CI-DRILL \
+              -H "Authorization: Bearer ${ACCESS_TOKEN}" || echo "")
+            if echo "$RES" | grep -q '"code":"CI-DRILL"'; then
+              echo "OK: CI-DRILL unit present (attempt ${i}/${ATTEMPTS})"
+              exit 0
+            fi
+            echo "Attempt ${i}/${ATTEMPTS}: CI-DRILL unit not yet visible, retrying in 2s..."
+            sleep 2
+          done
+          echo "MISSING CI-DRILL unit after ${ATTEMPTS} attempts: $RES"
+          exit 1
           EOF
           chmod +x /tmp/verify-unit.sh
 

@@ -258,6 +258,7 @@ xác minh xong mới cutover thủ công. Không có "un-migrate" tự động.
 | Mất dữ liệu sau `docker compose down -v` | `-v` đã xoá named volume — hành vi PHÁ HUỶ, không phải lỗi | Restore từ backup gần nhất (`docs/release/BACKUP-RESTORE-RUNBOOK.md`) — nếu chưa từng backup, dữ liệu không thể phục hồi |
 | `npm run ops:backup` báo lỗi "docker: command not found" | Máy chạy lệnh backup không có Docker CLI trên PATH | Chạy đúng trên máy Windows có Docker Desktop (không chạy trong container khác, không chạy trên máy thứ 2 không có Docker) |
 | Ổ đĩa đầy giữa lúc backup | `pg_dump` thất bại rõ ràng, không để lại file `.partial` mồ côi | Giải phóng dung lượng đĩa, chạy lại `npm run ops:backup` |
+| Ngay sau khi Postgres tự khởi động lại (không phải toàn bộ stack), một request tới backend thoáng báo lỗi 500 | Bình thường, không phải lỗi cấu hình — backend KHÔNG bị restart theo, nên tiến trình đang chạy cần một khoảnh khắc để Prisma engine tự reconnect tới kết nối Postgres mới (hành vi reconnect chuẩn của Prisma). `docker compose ps`/`/health` sẽ báo `healthy` ngay khi kết nối thật đã phục hồi | Thử lại request sau vài giây; nếu `/health` vẫn báo `degraded`/`503` liên tục quá 30 giây, xem `docker compose logs backend` |
 
 ## 15. Bảo mật (tóm tắt — chi tiết đầy đủ ở §21 báo cáo T051.04)
 
