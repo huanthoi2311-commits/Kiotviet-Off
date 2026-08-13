@@ -190,7 +190,25 @@ export default async function globalSetup(): Promise<void> {
   await page.getByLabel('Email').fill(adminEmail);
   await page.getByLabel('Mật khẩu').fill(adminPassword);
   await page.getByRole('button', { name: 'Đăng nhập' }).click();
-  await page.waitForURL('**/dashboard');
+  try {
+    await page.waitForURL('**/dashboard', { timeout: 30_000 });
+  } catch (err) {
+    // T051.08 chẩn đoán tạm: global-setup tự quản lý browser/page, KHÔNG có trace/screenshot tự
+    // động của Playwright test runner (chỉ áp dụng cho context của test thật) — chụp thủ công vào
+    // đúng thư mục đã được upload làm artifact khi CI fail (`frontend/test-results/`, xem
+    // `.github/workflows/release-e2e.yml`), và gộp alert lỗi (nếu có) + URL cuối cùng thẳng vào
+    // message ném ra để thấy ngay trong log CI, không cần tải artifact riêng.
+    const debugDir = path.join(__dirname, '..', '..', 'test-results');
+    fs.mkdirSync(debugDir, { recursive: true });
+    await page.screenshot({ path: path.join(debugDir, 'global-setup-login-timeout.png') });
+    const alertText = await page
+      .getByRole('alert')
+      .allTextContents()
+      .catch(() => []);
+    throw new Error(
+      `[T051.08 global-setup] Đăng nhập UI không tới /dashboard trong 30s. URL cuối: ${page.url()}. Alert trên trang: ${JSON.stringify(alertText)}. Lỗi gốc: ${(err as Error).message}`,
+    );
+  }
   await page.context().storageState({ path: STORAGE_STATE_PATH });
   await browser.close();
 }
