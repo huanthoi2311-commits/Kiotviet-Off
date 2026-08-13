@@ -29,8 +29,25 @@ test.describe('Multi-tab session restoration — no false reuse detection (SPEC-
     context,
     baseURL,
   }) => {
+    // T051.08C — thuộc tính cookie khai báo TƯỜNG MINH, không dựa vào default ngầm của
+    // `addCookies({url})` (trước đây chỉ truyền `url`, Playwright tự suy ra `path: '/'` — VÔ TÌNH
+    // khớp với path THẬT sau T051.08C, nhưng lại che giấu mất defect path hẹp `/api/v1/auth` của
+    // backend trước T051.08C, vì fixture không hề khai báo path nên không thể phản ánh sai lệch).
+    // Khai báo đúng hợp đồng cookie thật (`auth.controller.ts`'s `cookieAttributes()`):
+    // HttpOnly=true, SameSite=Lax, Path=/, Secure=false (khớp AUTH_COOKIE_SECURE=false — topology
+    // HTTP mà chính suite `e2e/auth/` này cũng chạy qua, `next dev` không TLS).
     await context.addCookies([
-      { name: 'refresh_token', value: 'fake-refresh-token-for-e2e', url: baseURL! },
+      {
+        name: 'refresh_token',
+        value: 'fake-refresh-token-for-e2e',
+        // Playwright's addCookies rejects `url` combined with `path` — dùng `domain` tường minh
+        // (suy từ baseURL) thay vì `url` để có thể khai báo `path` tường minh song song.
+        domain: new URL(baseURL!).hostname,
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        sameSite: 'Lax',
+      },
     ]);
 
     let refreshCallCount = 0;

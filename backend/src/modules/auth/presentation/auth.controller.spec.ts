@@ -6,11 +6,19 @@ import { AuthController } from './auth.controller';
 /**
  * T051.08B — cookie `refresh_token` phải dùng `secure` lấy từ `auth.cookieSecure`
  * (`ConfigService`), KHÔNG BAO GIỜ tự đọc `process.env.NODE_ENV` trực tiếp nữa (đó chính là bug
- * đã chặn đăng nhập qua browser thật trên gói triển khai HTTP localhost — xem T051.08B). `login`,
- * `refresh` (cùng đi qua `deliver()`), `logout`, `logout-all` (cùng đi qua `cookieAttributes()`)
- * PHẢI dùng chung đúng 1 giá trị `secure`/`sameSite`/`path`/`httpOnly` — không được lệch nhau.
+ * đã chặn đăng nhập qua browser thật trên gói triển khai HTTP localhost — xem T051.08B).
+ *
+ * T051.08C — `path` phải là `'/'`, KHÔNG được hẹp về `/api/v1/auth`: middleware.ts (frontend) đọc
+ * cookie này trên các route TRANG (`/dashboard`, ...), không phải trên `/api/v1/auth/...` — path
+ * hẹp khiến trình duyệt không bao giờ gửi cookie tới middleware, bất kể `secure`/`sameSite`/
+ * `httpOnly` đúng cỡ nào (xác nhận qua real-browser E2E T051.08: đăng nhập 200, accessToken parse
+ * đúng, nhưng `router.replace('/dashboard')` luôn bị middleware bật lại `/login`).
+ *
+ * `login`, `refresh` (cùng đi qua `deliver()`), `logout`, `logout-all` (cùng đi qua
+ * `cookieAttributes()`) PHẢI dùng chung đúng 1 giá trị `secure`/`sameSite`/`path`/`httpOnly` —
+ * không được lệch nhau.
  */
-describe('AuthController — cookie transport (T051.08B)', () => {
+describe('AuthController — cookie transport (T051.08B/T051.08C)', () => {
   let authService: jest.Mocked<
     Pick<AuthService, 'login' | 'refreshToken' | 'logout' | 'logoutAll'>
   >;
@@ -96,7 +104,7 @@ describe('AuthController — cookie transport (T051.08B)', () => {
           httpOnly: true,
           secure: false,
           sameSite: 'lax',
-          path: '/api/v1/auth',
+          path: '/',
         }),
       );
     });
@@ -154,7 +162,7 @@ describe('AuthController — cookie transport (T051.08B)', () => {
           httpOnly: true,
           secure: false,
           sameSite: 'lax',
-          path: '/api/v1/auth',
+          path: '/',
         }),
       );
     });
@@ -188,7 +196,7 @@ describe('AuthController — cookie transport (T051.08B)', () => {
           httpOnly: true,
           secure: false,
           sameSite: 'lax',
-          path: '/api/v1/auth',
+          path: '/',
         }),
       );
     });
@@ -226,7 +234,7 @@ describe('AuthController — cookie transport (T051.08B)', () => {
           httpOnly: true,
           secure: false,
           sameSite: 'lax',
-          path: '/api/v1/auth',
+          path: '/',
         }),
       );
     });

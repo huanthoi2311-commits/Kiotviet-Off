@@ -42,7 +42,16 @@ import { DeviceContext } from '../domain/value-objects/device-context';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 const REFRESH_COOKIE_NAME = 'refresh_token';
-const REFRESH_COOKIE_PATH = '/api/v1/auth';
+// T051.08C — trước đây '/api/v1/auth': cookie chỉ được trình duyệt đính kèm vào request có path
+// bắt đầu bằng chính path đó — middleware.ts (frontend) đọc cookie này trên CÁC ROUTE TRANG
+// (`/dashboard`, ...), không phải trên `/api/v1/auth/...`, nên trình duyệt KHÔNG BAO GIỜ gửi cookie
+// theo path hẹp đó tới middleware, bất kể Secure/SameSite/HttpOnly đúng cỡ nào (xác nhận qua
+// real-browser E2E T051.08: đăng nhập thành công, accessToken parse đúng, nhưng
+// router.replace('/dashboard') luôn bị middleware bật lại /login vì `request.cookies.has(...)`
+// luôn false). Kiến trúc middleware hiện tại CHỦ Ý dựa vào sự hiện diện của cookie này trên route
+// trang được bảo vệ — path gốc '/' là sửa nhỏ nhất phù hợp với kiến trúc đó (không thiết kế lại
+// middleware, không thêm cookie đánh dấu phiên thứ hai).
+const REFRESH_COOKIE_PATH = '/';
 
 @ApiTags('Auth')
 @Controller('auth')
