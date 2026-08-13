@@ -25,6 +25,10 @@ import { ProductDomainService } from '../../product/application/product-domain.s
 import { UnitDomainService } from '../../unit/application/unit-domain.service';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { DomainEventPublisher } from '../../platform/events/domain-event-publisher.service';
+import { BranchService } from '../../branch/application/branch.service';
+import { WarehouseService } from '../../warehouse/application/warehouse.service';
+import { ErrorCode } from '../../../common/errors/error-codes';
+import { withCode } from '../../../common/errors/with-code';
 import { VoucherConcurrencyConflictError } from '../domain/repositories/voucher.repository.interface';
 import type { IVoucherRepository } from '../domain/repositories/voucher.repository.interface';
 import type { VoucherEntity } from '../domain/entities/voucher.entity';
@@ -67,6 +71,8 @@ describe('CheckoutService', () => {
   >;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
   let eventPublisher: jest.Mocked<Pick<DomainEventPublisher, 'publish'>>;
+  let branchService: jest.Mocked<Pick<BranchService, 'getById'>>;
+  let warehouseService: jest.Mocked<Pick<WarehouseService, 'findOne'>>;
   let prisma: { $transaction: jest.Mock };
 
   const actor: ActorContext = { userId: 'user-1', organizationId: 'org-1' };
@@ -204,6 +210,10 @@ describe('CheckoutService', () => {
     };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
     eventPublisher = { publish: jest.fn() };
+    // T051.06A — mặc định resolve (Branch/Warehouse thuộc actor.organizationId) để mọi test hiện
+    // có không bị ảnh hưởng; các test negative-path bên dưới tự override bằng mockRejectedValue.
+    branchService = { getById: jest.fn().mockResolvedValue({}) };
+    warehouseService = { findOne: jest.fn().mockResolvedValue({}) };
     prisma = {
       $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({})),
     };
@@ -230,6 +240,8 @@ describe('CheckoutService', () => {
       checkoutOperationService as unknown as CheckoutOperationService,
       auditLogService as unknown as AuditLogService,
       eventPublisher as unknown as DomainEventPublisher,
+      branchService as unknown as BranchService,
+      warehouseService as unknown as WarehouseService,
     );
   });
 
@@ -284,6 +296,113 @@ describe('CheckoutService', () => {
         'pay-1',
         expect.anything(),
       );
+    });
+  });
+
+  describe('[T051.06A] Branch/Warehouse phải thuộc actor.organizationId', () => {
+    it('reserve() vẫn được gọi ĐẦU TIÊN — TRƯỚC Branch/Warehouse validation (không đổi thứ tự SPEC §13.2)', async () => {
+      const callOrder: string[] = [];
+      checkoutOperationService.reserve.mockImplementation(() => {
+        callOrder.push('reserve');
+        return Promise.resolve({ kind: 'NEW', operationId: 'op-1' });
+      });
+      branchService.getById.mockImplementation(() => {
+        callOrder.push('branch');
+        return Promise.resolve({} as never);
+      });
+      warehouseService.findOne.mockImplementation(() => {
+        callOrder.push('warehouse');
+        return Promise.resolve({} as never);
+      });
+
+      await service.checkout(baseDto, actor, idempotencyKey);
+
+      expect(callOrder[0]).toBe('reserve');
+      expect(callOrder.indexOf('reserve')).toBeLessThan(
+        callOrder.indexOf('branch'),
+      );
+      expect(callOrder.indexOf('reserve')).toBeLessThan(
+        callOrder.indexOf('warehouse'),
+      );
+    });
+
+    it('Branch cùng tổ chức — gọi branchService.getById(dto.branchId, actor), cho qua', async () => {
+      await service.checkout(baseDto, actor, idempotencyKey);
+      expect(branchService.getById).toHaveBeenCalledWith('branch-1', actor);
+    });
+
+    it('Branch khác tổ chức (hoặc không tồn tại) — reject NGAY, reserve() đã chạy nhưng CheckoutOperation dừng ở FAILED, không business write nào chạy', async () => {
+      branchService.getById.mockRejectedValue(
+        new NotFoundException(
+          withCode(ErrorCode.BRANCH_NOT_FOUND, 'Không tìm thấy chi nhánh'),
+        ),
+      );
+
+      await expect(
+        service.checkout(baseDto, actor, idempotencyKey),
+      ).rejects.toThrow(NotFoundException);
+
+      // reserve() ĐÃ chạy (Bước 1, không đổi) — CheckoutOperation row tồn tại nhưng...
+      expect(checkoutOperationService.reserve).toHaveBeenCalled();
+      // ...bị markFailed() — dừng ở FAILED, KHÔNG BAO GIỜ markCompleted (không COMPLETED).
+      expect(checkoutOperationService.markFailed).toHaveBeenCalledWith('op-1');
+      expect(checkoutOperationService.markCompleted).not.toHaveBeenCalled();
+      // Không business mutation nào chạy — chưa từng mở Business Transaction.
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(invoiceService.createInvoice).not.toHaveBeenCalled();
+      expect(paymentService.createPayment).not.toHaveBeenCalled();
+      expect(inventoryDomainService.decrease).not.toHaveBeenCalled();
+    });
+
+    it('Warehouse cùng tổ chức — gọi warehouseService.findOne(dto.warehouseId, actor.organizationId), cho qua', async () => {
+      await service.checkout(baseDto, actor, idempotencyKey);
+      expect(warehouseService.findOne).toHaveBeenCalledWith('wh-1', 'org-1');
+    });
+
+    it('Warehouse khác tổ chức (hoặc không tồn tại) — reject NGAY, CheckoutOperation dừng ở FAILED, không business write nào chạy', async () => {
+      warehouseService.findOne.mockRejectedValue(
+        new NotFoundException(
+          withCode(ErrorCode.WAREHOUSE_NOT_FOUND, 'Không tìm thấy kho'),
+        ),
+      );
+
+      await expect(
+        service.checkout(baseDto, actor, idempotencyKey),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(checkoutOperationService.reserve).toHaveBeenCalled();
+      expect(checkoutOperationService.markFailed).toHaveBeenCalledWith('op-1');
+      expect(checkoutOperationService.markCompleted).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(invoiceService.createInvoice).not.toHaveBeenCalled();
+      expect(paymentService.createPayment).not.toHaveBeenCalled();
+      expect(inventoryDomainService.decrease).not.toHaveBeenCalled();
+    });
+
+    it('Branch/Warehouse validation chạy TRƯỚC customer validation (cùng nhóm "đọc thuần sau reserve, trước transaction")', async () => {
+      const callOrder: string[] = [];
+      branchService.getById.mockImplementation(() => {
+        callOrder.push('branch');
+        return Promise.resolve({} as never);
+      });
+      warehouseService.findOne.mockImplementation(() => {
+        callOrder.push('warehouse');
+        return Promise.resolve({} as never);
+      });
+      customerDomainService.findActiveById.mockImplementation(() => {
+        callOrder.push('customer');
+        return Promise.resolve(null);
+      });
+
+      await expect(
+        service.checkout(
+          { ...baseDto, customerId: 'cus-1' },
+          actor,
+          idempotencyKey,
+        ),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(callOrder).toEqual(['branch', 'warehouse', 'customer']);
     });
   });
 

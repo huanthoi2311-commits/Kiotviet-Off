@@ -12,6 +12,10 @@ import { WarehouseController } from './presentation/warehouse.controller';
     WarehouseService,
     { provide: WAREHOUSE_REPOSITORY, useClass: PrismaWarehouseRepository },
   ],
-  exports: [WAREHOUSE_REPOSITORY],
+  // T051.06A — WarehouseService export thêm để Checkout xác minh Warehouse thuộc
+  // actor.organizationId trước khi dùng warehouseId để trừ tồn kho. Tái dùng đúng port công khai
+  // đã có (findOne(id, organizationId) → NotFoundException nếu sai organizationId), không tạo
+  // repository abstraction thứ hai.
+  exports: [WAREHOUSE_REPOSITORY, WarehouseService],
 })
 export class WarehouseModule {}

@@ -12,6 +12,8 @@ import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { DomainEventPublisher } from '../../platform/events/domain-event-publisher.service';
+import { BranchService } from '../../branch/application/branch.service';
+import { WarehouseService } from '../../warehouse/application/warehouse.service';
 import { CartDomainService } from '../../cart/application/cart-domain.service';
 import { CustomerDomainService } from '../../customer/application/customer-domain.service';
 import type { CustomerEntity } from '../../customer/domain/entities/customer.entity';
@@ -93,6 +95,8 @@ export class CheckoutService {
     private readonly checkoutOperationService: CheckoutOperationService,
     private readonly auditLogService: AuditLogService,
     private readonly eventPublisher: DomainEventPublisher,
+    private readonly branchService: BranchService,
+    private readonly warehouseService: WarehouseService,
   ) {}
 
   async checkout(
@@ -136,6 +140,19 @@ export class CheckoutService {
           withCode(ErrorCode.CHECKOUT_EMPTY_CART, 'Giỏ hàng đang trống'),
         );
       }
+
+      // T051.06A — Branch/Warehouse phải thuộc actor.organizationId TRƯỚC bất kỳ business
+      // mutation nào (Invoice/Payment/Inventory) — cùng vị trí/pattern với customerId/product/
+      // voucher bên dưới: đọc thuần SAU reserve() (Bước 1, SPEC §13.2 — KHÔNG đổi thứ tự đó),
+      // TRƯỚC Business Transaction. Nếu sai tổ chức, `getById`/`findOne` tự ném NotFoundException
+      // (cùng semantics không-tồn-tại như Branch/Warehouse thật sự không có — không lộ "thuộc tổ
+      // chức khác"), rơi vào catch bên dưới → markFailed(operationId), CheckoutOperation dừng ở
+      // FAILED, không bao giờ thành COMPLETED, không Invoice/Payment/Inventory nào được tạo.
+      await this.branchService.getById(dto.branchId, actor);
+      await this.warehouseService.findOne(
+        dto.warehouseId,
+        actor.organizationId,
+      );
 
       let customer: CustomerEntity | null = null;
       if (dto.customerId) {

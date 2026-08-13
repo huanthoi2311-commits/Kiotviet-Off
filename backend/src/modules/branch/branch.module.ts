@@ -15,6 +15,10 @@ import { BranchController } from './presentation/branch.controller';
     { provide: BRANCH_REPOSITORY, useClass: PrismaBranchRepository },
     { provide: BRANCH_CODE_GENERATOR, useClass: SequenceBranchCodeGenerator },
   ],
-  exports: [BRANCH_REPOSITORY],
+  // T051.06A — BranchService export thêm để Checkout xác minh Branch thuộc actor.organizationId
+  // trước khi dùng branchId trong bất kỳ business write nào (Invoice/Payment/CheckoutOperation).
+  // Tái dùng đúng port công khai đã có (getById(id, actor) → NotFoundException nếu sai
+  // organizationId), không tạo repository abstraction thứ hai.
+  exports: [BRANCH_REPOSITORY, BranchService],
 })
 export class BranchModule {}

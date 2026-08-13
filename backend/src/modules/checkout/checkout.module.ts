@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BranchModule } from '../branch/branch.module';
 import { CartModule } from '../cart/cart.module';
 import { CustomerModule } from '../customer/customer.module';
 import { CustomerPointModule } from '../customer-point/customer-point.module';
@@ -9,6 +10,7 @@ import { PaymentModule } from '../payment/payment.module';
 import { ProductModule } from '../product/product.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { UnitModule } from '../unit/unit.module';
+import { WarehouseModule } from '../warehouse/warehouse.module';
 import { CheckoutOperationService } from './application/checkout-operation.service';
 import { CheckoutService } from './application/checkout.service';
 import { CHECKOUT_OPERATION_REPOSITORY } from './domain/repositories/checkout-operation.repository.interface';
@@ -27,10 +29,16 @@ import { CheckoutController } from './presentation/checkout.controller';
  * `ProductDomainService`/`UnitDomainService` (đã export sẵn, đúng Repository Boundary) phục vụ
  * snapshot `productCodeSnapshot`/`productNameSnapshot`/`unitNameSnapshot`. Không đổi cấu trúc
  * orchestration đã đóng băng ở AD11 — chỉ bổ sung lookup dữ liệu cục bộ.
+ *
+ * T051.06A — import thêm `BranchModule`/`WarehouseModule` để đọc `BranchService`/
+ * `WarehouseService` (đọc thuần, xác minh organizationId trước khi dùng branchId/warehouseId
+ * trong business write) — vá lỗ hổng tenant-isolation đã xác nhận (dto.branchId/dto.warehouseId
+ * trước đây không được xác minh thuộc actor.organizationId ở bất kỳ đâu trong luồng checkout).
  */
 @Module({
   imports: [
     RbacModule,
+    BranchModule,
     CartModule,
     CustomerModule,
     CustomerPointModule,
@@ -40,6 +48,7 @@ import { CheckoutController } from './presentation/checkout.controller';
     PaymentModule,
     ProductModule,
     UnitModule,
+    WarehouseModule,
   ],
   controllers: [CheckoutController],
   providers: [
