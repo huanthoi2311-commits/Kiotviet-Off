@@ -6,6 +6,10 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { BranchService } from '../../branch/application/branch.service';
+import { SupplierDomainService } from '../../supplier/application/supplier-domain.service';
+import { WarehouseService } from '../../warehouse/application/warehouse.service';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { InventoryConcurrencyConflictError } from '../../inventory/domain/errors/inventory.errors';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
@@ -42,12 +46,48 @@ export class PurchaseOrderService {
     @Inject(PURCHASE_ORDER_CODE_GENERATOR)
     private readonly codeGenerator: IPurchaseOrderCodeGenerator,
     private readonly auditLogService: AuditLogService,
+    private readonly branchService: BranchService,
+    private readonly supplierDomainService: SupplierDomainService,
+    private readonly warehouseService: WarehouseService,
+    private readonly productDomainService: ProductDomainService,
   ) {}
 
   async create(
     dto: CreatePurchaseOrderDto,
     actor: ActorContext,
   ): Promise<PurchaseOrderResponseDto> {
+    // T051.06B — branchId/supplierId/warehouseId (mỗi dòng hàng)/productId (mỗi dòng hàng) PHẢI
+    // thuộc actor.organizationId TRƯỚC khi tạo PurchaseOrder — cùng pattern đã áp dụng ở Checkout
+    // (T051.06A). Dedupe warehouseId/productId theo dòng hàng trước khi lookup (nhiều dòng có thể
+    // trùng kho/sản phẩm) — không đổi hành vi quan sát được, chỉ tránh gọi lặp cùng 1 ID.
+    await this.branchService.getById(dto.branchId, actor);
+    await this.supplierDomainService.assertBelongsToOrganization(
+      actor.organizationId,
+      dto.supplierId,
+    );
+    const warehouseIds = [
+      ...new Set(dto.items.map((item) => item.warehouseId)),
+    ];
+    await Promise.all(
+      warehouseIds.map((warehouseId) =>
+        this.warehouseService.findOne(warehouseId, actor.organizationId),
+      ),
+    );
+    const productIds = [...new Set(dto.items.map((item) => item.productId))];
+    await Promise.all(
+      productIds.map(async (productId) => {
+        const product = await this.productDomainService.findById(
+          productId,
+          actor.organizationId,
+        );
+        if (!product) {
+          throw new NotFoundException(
+            withCode(ErrorCode.PRODUCT_NOT_FOUND, 'Không tìm thấy sản phẩm'),
+          );
+        }
+      }),
+    );
+
     const items: CreatePurchaseItemInput[] = dto.items.map((item) => {
       const discount = item.discount ?? 0;
       const taxAmount = item.taxAmount ?? 0;
