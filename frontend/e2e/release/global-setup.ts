@@ -185,6 +185,36 @@ export default async function globalSetup(): Promise<void> {
   // test riêng lẻ.
   const browser = await chromium.launch();
   const page = await browser.newPage({ baseURL: frontendBaseUrl() });
+
+  // T051.08 chẩn đoán tạm (round 2) — thất bại trước chỉ cho thấy alert fallback chung chung
+  // ("Đã xảy ra lỗi không xác định"), không đủ để biết request POST /auth/login THẬT SỰ đã gửi đi
+  // chưa, và nếu có thì backend trả về gì (hay bị CORS/network chặn trước khi tới backend). Ghi
+  // lại toàn bộ network liên quan tới "auth" + console lỗi để có bằng chứng trực tiếp trong log CI.
+  const networkLog: string[] = [];
+  page.on('request', (req) => {
+    if (req.url().includes('/auth/')) {
+      networkLog.push(`>> ${req.method()} ${req.url()}`);
+    }
+  });
+  page.on('response', (res) => {
+    if (res.url().includes('/auth/')) {
+      networkLog.push(`<< ${res.status()} ${res.url()}`);
+    }
+  });
+  page.on('requestfailed', (req) => {
+    if (req.url().includes('/auth/')) {
+      networkLog.push(`XX FAILED ${req.method()} ${req.url()} — ${req.failure()?.errorText}`);
+    }
+  });
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') {
+      networkLog.push(`CONSOLE ERROR: ${msg.text()}`);
+    }
+  });
+  page.on('pageerror', (err) => {
+    networkLog.push(`PAGE ERROR: ${err.message}`);
+  });
+
   await page.goto('/login');
   await page.getByLabel('Mã tổ chức').fill(organizationSlug);
   await page.getByLabel('Email').fill(adminEmail);
@@ -193,11 +223,11 @@ export default async function globalSetup(): Promise<void> {
   try {
     await page.waitForURL('**/dashboard', { timeout: 30_000 });
   } catch (err) {
-    // T051.08 chẩn đoán tạm: global-setup tự quản lý browser/page, KHÔNG có trace/screenshot tự
-    // động của Playwright test runner (chỉ áp dụng cho context của test thật) — chụp thủ công vào
-    // đúng thư mục đã được upload làm artifact khi CI fail (`frontend/test-results/`, xem
-    // `.github/workflows/release-e2e.yml`), và gộp alert lỗi (nếu có) + URL cuối cùng thẳng vào
-    // message ném ra để thấy ngay trong log CI, không cần tải artifact riêng.
+    // global-setup tự quản lý browser/page, KHÔNG có trace/screenshot tự động của Playwright test
+    // runner (chỉ áp dụng cho context của test thật) — chụp thủ công vào đúng thư mục đã được
+    // upload làm artifact khi CI fail (`frontend/test-results/`, xem
+    // `.github/workflows/release-e2e.yml`), và gộp alert lỗi (nếu có) + URL cuối cùng + toàn bộ
+    // network log thẳng vào message ném ra để thấy ngay trong log CI, không cần tải artifact riêng.
     const debugDir = path.join(__dirname, '..', '..', 'test-results');
     fs.mkdirSync(debugDir, { recursive: true });
     await page.screenshot({ path: path.join(debugDir, 'global-setup-login-timeout.png') });
@@ -206,7 +236,7 @@ export default async function globalSetup(): Promise<void> {
       .allTextContents()
       .catch(() => []);
     throw new Error(
-      `[T051.08 global-setup] Đăng nhập UI không tới /dashboard trong 30s. URL cuối: ${page.url()}. Alert trên trang: ${JSON.stringify(alertText)}. Lỗi gốc: ${(err as Error).message}`,
+      `[T051.08 global-setup] Đăng nhập UI không tới /dashboard trong 30s. URL cuối: ${page.url()}. Alert trên trang: ${JSON.stringify(alertText)}. Network log (auth): ${JSON.stringify(networkLog)}. Lỗi gốc: ${(err as Error).message}`,
     );
   }
   await page.context().storageState({ path: STORAGE_STATE_PATH });
