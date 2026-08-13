@@ -125,6 +125,36 @@ describe('PrismaStockCountRepository', () => {
       prisma.stockCount.create.mockRejectedValue(new Error('boom'));
       await expect(repository.create(input)).rejects.toThrow('boom');
     });
+
+    it('[T051.06B Lớp phòng thủ 2/2] query snapshot Inventory PHẢI lọc theo organizationId — không chỉ warehouseId/productId', async () => {
+      prisma.inventory.findMany.mockResolvedValue([]);
+      prisma.stockCount.create.mockResolvedValue(rawStockCount);
+
+      await repository.create(input);
+
+      expect(prisma.inventory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            organizationId: 'org-1',
+            warehouseId: 'wh-1',
+            productId: { in: ['product-1'] },
+          }),
+        }),
+      );
+    });
+
+    it('[T051.06B] Inventory của tổ chức khác (cùng warehouseId/productId nhưng organizationId khác) KHÔNG được dùng để snapshot systemQty', async () => {
+      // Mô phỏng Prisma thật: where có organizationId nên findMany sẽ không trả về hàng của tổ
+      // chức khác — repository không tự lọc thêm, tin tưởng where clause đã đúng. Test này xác
+      // nhận repository xử lý đúng khi findMany (đã lọc organizationId) trả về rỗng.
+      prisma.inventory.findMany.mockResolvedValue([]);
+      prisma.stockCount.create.mockResolvedValue(rawStockCount);
+
+      await repository.create(input);
+
+      const createArg = prisma.stockCount.create.mock.calls[0][0];
+      expect(createArg.data.items.create[0].systemQty.toString()).toBe('0');
+    });
   });
 
   describe('findById', () => {

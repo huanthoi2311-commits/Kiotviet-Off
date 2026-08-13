@@ -33,8 +33,14 @@ export class PrismaStockCountRepository implements IStockCountRepository {
 
   async create(input: CreateStockCountInput): Promise<StockCountEntity> {
     try {
+      // T051.06B Lớp phòng thủ 2/2 (defense-in-depth, bắt buộc) — organizationId PHẢI có trong
+      // where của chính query snapshot tồn kho này, không chỉ dựa vào validate ở service layer
+      // (StockCountService.create()). Trước fix: warehouseId/productId của tổ chức khác vẫn lọt
+      // qua query này (không có organizationId), snapshot thẳng systemQty từ tồn kho thật của tổ
+      // chức khác vào StockCountItem — rò rỉ số lượng tồn kho xuyên tổ chức (T051.06 audit).
       const inventories = await this.prisma.inventory.findMany({
         where: {
+          organizationId: input.organizationId,
           warehouseId: input.warehouseId,
           productId: { in: input.productIds },
           deletedAt: null,
