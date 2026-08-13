@@ -4,6 +4,7 @@ import { FIXTURES_PATH, ReleaseFixtures } from './global-setup';
 import {
   backendBaseUrl,
   confirmLifecycleAction,
+  frontendBaseUrl,
   readInventoryQuantity,
   selectCombobox,
 } from './support';
@@ -28,6 +29,11 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   let invoiceId: string;
   let invoiceCode: string;
   let salesReturnId: string;
+  // T051.08 §9 — Q0, chốt MỘT LẦN trước khi bất kỳ test nào chạm vào tồn kho: mọi assertion
+  // before/after theo từng bước (test 2/3/5) đã đủ chứng minh delta CỤC BỘ đúng, nhưng phương
+  // trình tổng "Q3 = Q0 + nhận − bán + trả" (đối chiếu thẳng với điểm xuất phát thật, không qua
+  // chuỗi suy diễn từng bước) là bằng chứng nghiệp vụ trung tâm — khẳng định lại ở cuối test 5.
+  let initialInventory: number;
 
   const RECEIVE_QUANTITY = 20;
   const SELL_QUANTITY = 3;
@@ -48,6 +54,13 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
     });
     expect(loginRes.ok()).toBeTruthy();
     accessToken = (await loginRes.json()).data.accessToken;
+
+    initialInventory = await readInventoryQuantity(
+      api,
+      accessToken,
+      fixtures.warehouseId,
+      fixtures.productId,
+    );
   });
 
   test.afterAll(async () => {
@@ -55,18 +68,67 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   });
 
   // ============================================================
-  test('1. Đăng nhập qua UI thật đạt Dashboard', async ({ browser }) => {
+  test('1. Auth baseline: unauth → /login, đăng nhập qua UI thật → /dashboard, refresh_token đúng thuộc tính, refresh giữ phiên', async ({
+    browser,
+  }) => {
     // Session riêng, KHÔNG dùng storageState mặc định của config — chứng minh chính hành vi đăng
     // nhập qua UI thật (form thật, JWT/session thật), không tái dùng phiên đã đăng nhập sẵn.
-    const context = await browser.newContext();
+    //
+    // `baseURL` KHÔNG được `browser.newContext()` tự kế thừa từ config như fixture `context`/`page`
+    // mặc định của Playwright — phải truyền tường minh, nếu không `page.goto('/login')` không có
+    // gốc để resolve.
+    //
+    // `storageState` NGƯỢC LẠI vẫn bị kế thừa từ `playwright.release.config.ts`'s `use.storageState`
+    // dù gọi `browser.newContext()` thủ công không truyền gì, TRỪ KHI override tường minh bằng
+    // `storageState: undefined` — sửa lỗi test-infra đã xác nhận (T051.08 resume): trước khi
+    // global-setup từng đăng nhập thành công thật lần đầu tiên, file storageState.json rỗng/không
+    // hợp lệ nên lỗi này chưa từng lộ ra; nay global-setup đăng nhập thành công thật, context
+    // "riêng" ở đây từng vô tình kế thừa một phiên ĐÃ đăng nhập thật nếu không override tường minh.
+    const context = await browser.newContext({
+      baseURL: frontendBaseUrl(),
+      storageState: undefined,
+    });
     const page = await context.newPage();
-    await page.goto('/login');
+
+    // Khẳng định context THẬT SỰ chưa có phiên nào — bằng chứng trực tiếp cho việc storageState đã
+    // được vô hiệu hoá đúng cách, không chỉ suy luận gián tiếp qua hành vi điều hướng.
+    expect((await context.cookies()).find((c) => c.name === 'refresh_token')).toBeUndefined();
+
+    // Baseline #1 — unauthenticated: route được bảo vệ phải bật về /login (middleware.ts).
+    await page.goto('/dashboard');
+    await page.waitForURL('**/login', { timeout: 15_000 });
+
+    // Baseline #2 — đăng nhập qua UI thật.
     await page.getByLabel('Mã tổ chức').fill(fixtures.organizationSlug);
     await page.getByLabel('Email').fill(fixtures.adminEmail);
     await page.getByLabel('Mật khẩu').fill(fixtures.adminPassword);
     await page.getByRole('button', { name: 'Đăng nhập' }).click();
-    await page.waitForURL('**/dashboard');
+    await page.waitForURL('**/dashboard', { timeout: 30_000 });
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+
+    // Baseline #3 — thuộc tính cookie thật đúng hợp đồng (T051.08B/C).
+    const refreshCookie = (await context.cookies()).find((c) => c.name === 'refresh_token');
+    expect(refreshCookie, 'refresh_token cookie phải tồn tại sau khi đăng nhập').toBeDefined();
+    expect(refreshCookie?.httpOnly).toBe(true);
+    expect(refreshCookie?.secure).toBe(false);
+    expect(refreshCookie?.sameSite).toBe('Lax');
+    expect(refreshCookie?.path).toBe('/');
+
+    // Baseline #4 — refresh giữ được phiên (dùng chung cookie jar của chính page).
+    const refreshRes = await page.request.post(`${backendBaseUrl()}/auth/refresh`);
+    expect(
+      refreshRes.ok(),
+      `refresh thất bại: ${refreshRes.status()} ${await refreshRes.text()}`,
+    ).toBeTruthy();
+    const refreshBody = await refreshRes.json();
+    expect(typeof refreshBody.data.accessToken).toBe('string');
+    expect((refreshBody.data.accessToken as string).length).toBeGreaterThan(0);
+
+    // Baseline #5 — dashboard vẫn còn truy cập được sau refresh (phiên vẫn hợp lệ, không chỉ quan
+    // sát được 1 lần).
+    await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+
     await context.close();
   });
 
@@ -231,6 +293,12 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
       fixtures.productId,
     );
     expect(afterComplete).toBe(expectedAfterReturn);
+
+    // T051.08 §9 — phương trình tồn kho đầu-cuối, đối chiếu thẳng với Q0 (không qua chuỗi suy diễn
+    // từng bước): Q3 = Q0 + nhận hàng − bán hàng + trả hàng.
+    expect(afterComplete).toBe(
+      initialInventory + RECEIVE_QUANTITY - SELL_QUANTITY + RETURN_QUANTITY,
+    );
   });
 
   // ============================================================
