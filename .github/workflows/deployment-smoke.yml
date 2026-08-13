@@ -235,10 +235,18 @@ jobs:
           echo "DUMP_FILE=${DUMP_FILE}" >> "$GITHUB_ENV"
           test -s "${DUMP_FILE}"
 
+      # restore.ts tạo database đích bằng CREATE DATABASE qua PrismaClient kết nối THẬT tới
+      # DATABASE_URL (không đi qua `docker compose exec` như chính pg_restore) — khác với bước
+      # backup ở trên (chỉ dùng docker-compose exec, không cần kết nối host thật nên postgres:5432
+      # vẫn chạy được). Vì vậy DATABASE_URL ở bước này PHẢI trỏ localhost:5432 (cổng đã lộ ra host
+      # qua docker-compose.override.yml), không phải postgres:5432 (chỉ resolve được TRONG mạng
+      # compose, không resolve được từ runner) — cùng lý do với bước verify-restore bên dưới.
+      # BACKUP_MODE=docker-compose vẫn giữ nguyên: pg_restore THẬT vẫn chạy qua `docker compose
+      # exec` (tự dùng localhost:5432 bên trong container, không đọc host/port từ DATABASE_URL).
       - name: T051.03 §12 HARD GATE — real restore via docker-compose path into isolated DB
         working-directory: backend
         env:
-          DATABASE_URL: "postgresql://pos_erp_ci:${{ env.CI_POSTGRES_PASSWORD }}@postgres:5432/pos_erp_ci?schema=public"
+          DATABASE_URL: "postgresql://pos_erp_ci:${{ env.CI_POSTGRES_PASSWORD }}@localhost:5432/pos_erp_ci?schema=public"
           BACKUP_MODE: docker-compose
         run: npm run ops:restore -- "${DUMP_FILE}" pos_erp_ci_restore_smoke
 
