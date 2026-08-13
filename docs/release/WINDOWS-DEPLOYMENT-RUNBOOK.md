@@ -56,6 +56,7 @@ Mở `backend\.env` bằng Notepad, đổi **tất cả** các dòng sau (mặc 
 ```
 NODE_ENV=production
 SWAGGER_ENABLED=false
+CORS_ORIGIN=http://localhost:3001,http://127.0.0.1:3001
 JWT_ACCESS_SECRET=<chuỗi ngẫu nhiên dài, tự đặt — KHÔNG dùng giá trị mẫu "change-me-..."'>
 JWT_REFRESH_SECRET=<chuỗi ngẫu nhiên dài khác — KHÔNG trùng JWT_ACCESS_SECRET>
 FIRST_ADMIN_EMAIL=<email quản trị viên đầu tiên của bạn>
@@ -67,6 +68,14 @@ FIRST_ADMIN_PASSWORD=<mật khẩu quản trị viên đầu tiên — tối thi
 `true`/chưa set, đúng chủ đích chặn triển khai thật vô tình để lộ Swagger UI. Nếu quên đổi
 `NODE_ENV`, ứng dụng vẫn chạy được nhưng ở chế độ PHÁT TRIỂN (Swagger UI công khai tại
 `/api/docs`, log chi tiết hơn mức cần) — không đúng cấu hình vận hành đã duyệt.
+
+**Bắt buộc đổi `CORS_ORIGIN` khỏi giá trị mẫu**: cùng guard production ở trên cũng từ chối khởi
+động nếu `CORS_ORIGIN` vẫn giữ NGUYÊN VĂN giá trị mặc định đóng gói sẵn (`http://localhost:3001`,
+một mình, không kèm gì khác) — chủ đích buộc người vận hành xác nhận đã cấu hình có chủ đích, không
+vô tình để nguyên default. Với triển khai 1 máy (frontend phục vụ tại `http://localhost:3001`),
+giá trị đúng vừa hợp lệ vừa đủ nghĩa là một DANH SÁCH (phân tách bởi dấu phẩy) vẫn chứa origin đó,
+ví dụ giá trị mẫu ở trên (`http://localhost:3001,http://127.0.0.1:3001`) — không cần đổi sang miền
+khác nếu máy chỉ phục vụ cục bộ.
 
 Sinh chuỗi ngẫu nhiên cho JWT secrets bằng PowerShell (tuỳ chọn, không bắt buộc dùng đúng lệnh này):
 ```powershell
