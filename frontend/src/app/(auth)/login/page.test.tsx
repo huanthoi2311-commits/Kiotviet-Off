@@ -35,17 +35,26 @@ describe('LoginPage', () => {
   it('logs in successfully and redirects to /dashboard (AC1, FR1)', async () => {
     const token = buildAccessToken({ sub: 'user-1', organizationId: 'org-1', permissions: [] });
     server.use(
+      // T051.08A — real envelope shape (backend's TransformInterceptor wraps every 2xx body);
+      // the old flat `{ accessToken, userInfo }` body here is exactly what masked login()'s
+      // envelope-unwrap bug from every test until a real browser hit a real backend (T051.08).
       http.post(`${API_BASE_URL}/auth/login`, () =>
         HttpResponse.json({
-          accessToken: token,
-          userInfo: {
-            id: 'user-1',
-            email: 'owner@kiotviet-off.vn',
-            username: 'owner',
-            organizationId: 'org-1',
-            branchId: null,
-            permissions: [],
+          success: true,
+          data: {
+            accessToken: token,
+            userInfo: {
+              id: 'user-1',
+              email: 'owner@kiotviet-off.vn',
+              username: 'owner',
+              organizationId: 'org-1',
+              branchId: null,
+              permissions: [],
+            },
           },
+          meta: null,
+          traceId: 't-1',
+          timestamp: new Date().toISOString(),
         }),
       ),
     );

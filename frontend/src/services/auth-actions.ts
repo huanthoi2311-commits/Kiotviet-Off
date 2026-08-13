@@ -1,4 +1,4 @@
-import { apiClient } from './api-client';
+import { apiClient, type ApiSuccessEnvelope, type NormalizedApiError } from './api-client';
 
 export interface LoginPayload {
   organizationSlug: string;
@@ -20,10 +20,27 @@ export interface LoginResult {
   userInfo: UserInfo;
 }
 
-/** POST /auth/login (SPEC-T031 FR1) — a fresh explicit login, not routed through §12's refresh coordination. */
+/**
+ * POST /auth/login (SPEC-T031 FR1) — a fresh explicit login, not routed through §12's refresh
+ * coordination. T051.08A — the backend's `TransformInterceptor` wraps every 2xx body into
+ * `ApiSuccessEnvelope<LoginResult>`; `response.data` is that whole envelope, not `LoginResult`
+ * directly (confirmed via T051.08's real-browser suite: a real login form crashed against a real
+ * backend because this previously typed `response.data` as `LoginResult` without unwrapping
+ * `.data`). The invariant check below fails loudly instead of handing `auth-store` an `undefined`
+ * token, which used to crash inside `decodeJwt()` with an opaque, unnormalized TypeError.
+ */
 export async function login(payload: LoginPayload): Promise<LoginResult> {
-  const response = await apiClient.post<LoginResult>('/auth/login', payload);
-  return response.data;
+  const response = await apiClient.post<ApiSuccessEnvelope<LoginResult>>('/auth/login', payload);
+  const result = response.data.data;
+  if (!result?.accessToken || !result?.userInfo) {
+    const malformed: NormalizedApiError = {
+      kind: 'api-error',
+      code: 'MALFORMED_AUTH_RESPONSE',
+      message: 'Phản hồi đăng nhập không hợp lệ từ máy chủ (thiếu accessToken/userInfo).',
+    };
+    throw malformed;
+  }
+  return result;
 }
 
 /** POST /auth/logout — revokes only the current device's session (SPEC-T031 FR4). */

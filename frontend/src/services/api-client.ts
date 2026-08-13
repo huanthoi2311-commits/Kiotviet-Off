@@ -44,6 +44,23 @@ function isBackendErrorEnvelope(data: unknown): data is BackendErrorEnvelope {
 }
 
 /**
+ * T051.08A — the success-path mirror of `BackendErrorEnvelope`. Every 2xx response is wrapped by
+ * the backend's global `TransformInterceptor` (`backend/src/common/interceptors/transform.interceptor.ts`)
+ * into this shape — `response.data` from Axios is the WHOLE envelope, never the payload directly.
+ * Any hand-written call (outside the Orval-generated `apiClientMutator`, which already unwraps
+ * `.data.data`) MUST type its response as `ApiSuccessEnvelope<T>` and read `response.data.data`,
+ * not `response.data` — see `login()` (auth-actions.ts) and `refreshAccessToken()` below, both
+ * fixed under T051.08A after this exact mistake reached a real login form against a real backend.
+ */
+export interface ApiSuccessEnvelope<T> {
+  success: true;
+  data: T;
+  meta: Record<string, unknown> | null;
+  traceId: string | null;
+  timestamp: string;
+}
+
+/**
  * Single normalization point for every API error (SPEC-T031 FR9, §20).
  * Calling code must never parse `error.response.data` itself, and a
  * network-level failure (no response at all) must never be coerced into
@@ -113,14 +130,22 @@ apiClient.interceptors.request.use((config) => {
  * duplicating it.
  */
 export async function refreshAccessToken(): Promise<string> {
-  const response = await axios.post<{ accessToken: string }>(
+  const response = await axios.post<ApiSuccessEnvelope<{ accessToken: string }>>(
     `${API_BASE_URL}/auth/refresh`,
     undefined,
     {
       withCredentials: true,
     },
   );
-  const { accessToken } = response.data;
+  const { accessToken } = response.data.data;
+  if (!accessToken) {
+    const malformed: NormalizedApiError = {
+      kind: 'api-error',
+      code: 'MALFORMED_AUTH_RESPONSE',
+      message: 'Phản hồi làm mới phiên không hợp lệ từ máy chủ (thiếu accessToken).',
+    };
+    throw malformed;
+  }
   useAuthStore.getState().setAccessToken(accessToken);
   return accessToken;
 }
