@@ -42,18 +42,14 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   test.beforeAll(async () => {
     fixtures = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf-8')) as ReleaseFixtures;
 
-    // KHÔNG dùng `baseURL` context + path bắt đầu bằng "/" — xem ghi chú trong `global-setup.ts`
-    // (WHATWG URL: path bắt đầu bằng "/" thay thế toàn bộ path của baseURL, xoá mất "/api/v1").
+    // Tái dùng token bootstrap của chính global-setup.ts thay vì tự đăng nhập THÊM một lần nữa —
+    // /auth/login bị Throttle giới hạn 5 lần/60s; một lần đăng nhập thừa ở đây từng cộng dồn đủ
+    // (cùng với login của global-setup + login UI thật của test 1) để chạm ThrottlerException thật
+    // MỖI KHI test.describe.serial retry (toàn khối chạy lại từ đầu) — xác nhận qua CI thật
+    // (T051.08 resume). `api` context không cần pre-auth: mọi lời gọi dưới đây (readInventoryQuantity,
+    // v.v.) đều tự gắn header Authorization riêng qua `accessToken`.
     api = await playwrightRequest.newContext();
-    const loginRes = await api.post(`${backendBaseUrl()}/auth/login`, {
-      data: {
-        organizationSlug: fixtures.organizationSlug,
-        email: fixtures.adminEmail,
-        password: fixtures.adminPassword,
-      },
-    });
-    expect(loginRes.ok()).toBeTruthy();
-    accessToken = (await loginRes.json()).data.accessToken;
+    accessToken = fixtures.adminAccessToken;
 
     initialInventory = await readInventoryQuantity(
       api,
@@ -156,13 +152,17 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
     purchaseOrderId = page.url().split('/purchase-orders/')[1];
     expect(purchaseOrderId).toMatch(/^[0-9a-f-]{36}$/);
 
-    await expect(page.getByText('Nháp')).toBeVisible();
+    await expect(page.getByText('Nháp', { exact: true })).toBeVisible();
 
     await confirmLifecycleAction(page, 'Duyệt', 'Duyệt');
-    await expect(page.getByText('Đã duyệt')).toBeVisible();
+    // {exact: true} bắt buộc — toast thành công "Đã duyệt đơn nhập hàng" (purchase-order-action-
+    // dialog.tsx) chứa "Đã duyệt" như một CHUỖI CON, khiến getByText không-exact khớp NHẦM cả toast
+    // lẫn field trạng thái thật (<dd>Đã duyệt</dd>) — xác nhận qua lỗi CI thật (strict mode
+    // violation, T051.08 resume).
+    await expect(page.getByText('Đã duyệt', { exact: true })).toBeVisible();
 
     await confirmLifecycleAction(page, 'Xác nhận nhận hàng', 'Xác nhận nhận hàng');
-    await expect(page.getByText('Đã nhận hàng')).toBeVisible();
+    await expect(page.getByText('Đã nhận hàng', { exact: true })).toBeVisible();
 
     // Đọc tồn kho qua chính UI /inventory — chứng minh UI hiển thị đúng, không chỉ backend đúng.
     await page.goto('/inventory');
@@ -259,18 +259,22 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
     await page.waitForURL(/\/sales-returns\/[0-9a-f-]{36}$/);
     salesReturnId = page.url().split('/sales-returns/')[1];
     expect(salesReturnId).toMatch(/^[0-9a-f-]{36}$/);
-    await expect(page.getByText('Nháp')).toBeVisible();
+    await expect(page.getByText('Nháp', { exact: true })).toBeVisible();
 
     await confirmLifecycleAction(page, 'Gửi duyệt', 'Gửi duyệt');
     await expect(page.getByText('Chờ duyệt')).toBeVisible();
 
     await confirmLifecycleAction(page, 'Duyệt', 'Duyệt');
-    await expect(page.getByText('Đã duyệt')).toBeVisible();
+    // {exact: true} bắt buộc — toast thành công "Đã duyệt đơn nhập hàng" (purchase-order-action-
+    // dialog.tsx) chứa "Đã duyệt" như một CHUỖI CON, khiến getByText không-exact khớp NHẦM cả toast
+    // lẫn field trạng thái thật (<dd>Đã duyệt</dd>) — xác nhận qua lỗi CI thật (strict mode
+    // violation, T051.08 resume).
+    await expect(page.getByText('Đã duyệt', { exact: true })).toBeVisible();
 
     // Transition duy nhất tạo hiệu ứng tồn kho (InventoryDomainService.increase(), xem
     // sales-return.service.ts) — bất biến quan trọng nhất của bước này.
     await confirmLifecycleAction(page, 'Xác nhận nhận hàng', 'Xác nhận nhận hàng');
-    await expect(page.getByText('Đã nhận hàng')).toBeVisible();
+    await expect(page.getByText('Đã nhận hàng', { exact: true })).toBeVisible();
 
     const expectedAfterReturn = before + RETURN_QUANTITY;
     const afterReceive = await readInventoryQuantity(

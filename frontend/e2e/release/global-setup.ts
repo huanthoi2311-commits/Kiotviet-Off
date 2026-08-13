@@ -29,6 +29,12 @@ interface ReleaseFixtures {
   organizationSlug: string;
   adminEmail: string;
   adminPassword: string;
+  // T051.08 (resume) — token bootstrap CÓ SẴN, chia sẻ lại cho critical-path.spec.ts's beforeAll
+  // thay vì tự đăng nhập THÊM một lần nữa — endpoint /auth/login bị Throttle giới hạn 5 lần/60s
+  // (auth.controller.ts); khi test.describe.serial retry (toàn bộ khối chạy lại từ đầu), một lần
+  // đăng nhập THỪA ở đây từng cộng dồn đủ để chạm ThrottlerException thật (xác nhận qua CI thật,
+  // T051.08 resume) — token này còn hạn đủ lâu (JWT_ACCESS_EXPIRES_IN=15m) cho toàn bộ suite.
+  adminAccessToken: string;
   branchId: string;
   branchName: string;
   warehouseId: string;
@@ -164,6 +170,7 @@ export default async function globalSetup(): Promise<void> {
     organizationSlug,
     adminEmail,
     adminPassword,
+    adminAccessToken: accessToken,
     branchId,
     branchName,
     warehouseId,
