@@ -378,6 +378,32 @@ describe('validateEnv — T030.7 (authoritative startup validation contract)', (
     }
   });
 
+  // T051.08B — cùng strict boolean parsing với SWAGGER_ENABLED, nhưng KHÔNG có assertion "phải
+  // đúng 1 giá trị ở production" (cả 'true' lẫn 'false' đều hợp lệ ở production, tuỳ topology
+  // triển khai — khác SWAGGER_ENABLED chỉ có đúng 1 giá trị an toàn) — xem configuration.spec.ts
+  // cho hành vi fallback khi biến này KHÔNG được set.
+  it('[7b] AUTH_COOKIE_SECURE="yes" bị từ chối (strict boolean — chỉ "true"/"false")', () => {
+    expect(() =>
+      validateEnv({ ...validProdConfig, AUTH_COOKIE_SECURE: 'yes' }),
+    ).toThrow();
+  });
+
+  it('AUTH_COOKIE_SECURE không được set → KHÔNG throw (optional, không có default ở schema)', () => {
+    expect(() => validateEnv({ ...validProdConfig })).not.toThrow();
+  });
+
+  it('AUTH_COOKIE_SECURE="false" ở production → KHÔNG throw (hợp lệ cho topology HTTP đóng gói)', () => {
+    expect(() =>
+      validateEnv({ ...validProdConfig, AUTH_COOKIE_SECURE: 'false' }),
+    ).not.toThrow();
+  });
+
+  it('AUTH_COOKIE_SECURE="true" ở production → KHÔNG throw (hợp lệ cho topology HTTPS)', () => {
+    expect(() =>
+      validateEnv({ ...validProdConfig, AUTH_COOKIE_SECURE: 'true' }),
+    ).not.toThrow();
+  });
+
   it('[8] DATABASE_URL không parse được → throw', () => {
     expect(() =>
       validateEnv({ ...validProdConfig, DATABASE_URL: 'not-a-url' }),

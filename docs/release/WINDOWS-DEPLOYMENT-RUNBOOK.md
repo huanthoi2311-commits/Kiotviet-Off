@@ -57,6 +57,7 @@ Mở `backend\.env` bằng Notepad, đổi **tất cả** các dòng sau (mặc 
 NODE_ENV=production
 SWAGGER_ENABLED=false
 CORS_ORIGIN=http://localhost:3001,http://127.0.0.1:3001
+AUTH_COOKIE_SECURE=false
 JWT_ACCESS_SECRET=<chuỗi ngẫu nhiên dài, tự đặt — KHÔNG dùng giá trị mẫu "change-me-..."'>
 JWT_REFRESH_SECRET=<chuỗi ngẫu nhiên dài khác — KHÔNG trùng JWT_ACCESS_SECRET>
 FIRST_ADMIN_EMAIL=<email quản trị viên đầu tiên của bạn>
@@ -68,6 +69,15 @@ FIRST_ADMIN_PASSWORD=<mật khẩu quản trị viên đầu tiên — tối thi
 `true`/chưa set, đúng chủ đích chặn triển khai thật vô tình để lộ Swagger UI. Nếu quên đổi
 `NODE_ENV`, ứng dụng vẫn chạy được nhưng ở chế độ PHÁT TRIỂN (Swagger UI công khai tại
 `/api/docs`, log chi tiết hơn mức cần) — không đúng cấu hình vận hành đã duyệt.
+
+**Bắt buộc `AUTH_COOKIE_SECURE=false` (T051.08B)**: cookie `refresh_token` (giữ phiên đăng nhập)
+có cờ `Secure` — trình duyệt CHỈ lưu cookie `Secure` qua kết nối HTTPS. Gói triển khai 1 máy này
+phục vụ qua HTTP thuần trên `localhost` (không có TLS/reverse-proxy), nên **nếu bỏ trống biến
+này**, hệ thống sẽ dùng lại quy tắc cũ (`Secure` = có `NODE_ENV=production` hay không) → cookie
+`Secure=true` bị trình duyệt âm thầm từ chối lưu → đăng nhập báo thành công nhưng bị bật lại
+`/login` ngay sau đó (phiên không giữ được). Đây KHÔNG làm giảm mức độ an toàn của gói triển khai
+này — cờ `Secure` vốn chỉ có ý nghĩa khi có kênh HTTPS để bảo vệ; deployment thật đứng sau HTTPS
+(reverse-proxy/TLS) trong tương lai đặt `AUTH_COOKIE_SECURE=true` mà không cần đổi mã nguồn.
 
 **Bắt buộc đổi `CORS_ORIGIN` khỏi giá trị mẫu**: cùng guard production ở trên cũng từ chối khởi
 động nếu `CORS_ORIGIN` vẫn giữ NGUYÊN VĂN giá trị mặc định đóng gói sẵn (`http://localhost:3001`,
@@ -259,6 +269,7 @@ xác minh xong mới cutover thủ công. Không có "un-migrate" tự động.
 | `npm run ops:backup` báo lỗi "docker: command not found" | Máy chạy lệnh backup không có Docker CLI trên PATH | Chạy đúng trên máy Windows có Docker Desktop (không chạy trong container khác, không chạy trên máy thứ 2 không có Docker) |
 | Ổ đĩa đầy giữa lúc backup | `pg_dump` thất bại rõ ràng, không để lại file `.partial` mồ côi | Giải phóng dung lượng đĩa, chạy lại `npm run ops:backup` |
 | Ngay sau khi Postgres tự khởi động lại (không phải toàn bộ stack), một request tới backend thoáng báo lỗi 500 | Bình thường, không phải lỗi cấu hình — backend KHÔNG bị restart theo, nên tiến trình đang chạy cần một khoảnh khắc để Prisma engine tự reconnect tới kết nối Postgres mới (hành vi reconnect chuẩn của Prisma). `docker compose ps`/`/health` sẽ báo `healthy` ngay khi kết nối thật đã phục hồi | Thử lại request sau vài giây; nếu `/health` vẫn báo `degraded`/`503` liên tục quá 30 giây, xem `docker compose logs backend` |
+| Đăng nhập báo thành công (không có thông báo lỗi) nhưng bị đưa ngay lại `/login`, không vào được `/dashboard` | `AUTH_COOKIE_SECURE` chưa được set thành `false` trong `backend\.env` (T051.08B) — trình duyệt âm thầm không lưu cookie `refresh_token` vì cờ `Secure` không tương thích với HTTP | Thêm `AUTH_COOKIE_SECURE=false` vào `backend\.env`, `docker compose up -d --wait` (không cần build lại — đây là biến runtime, khác `NEXT_PUBLIC_API_URL`) |
 
 ## 15. Bảo mật (tóm tắt — chi tiết đầy đủ ở §21 báo cáo T051.04)
 
@@ -266,6 +277,9 @@ xác minh xong mới cutover thủ công. Không có "un-migrate" tự động.
 - Swagger BẮT BUỘC tắt ở production (`SWAGGER_ENABLED=false`, §3) — `env.validation.ts` từ chối
   khởi động nếu quên, không dựa vào giá trị mặc định của `.env.example` (mặc định đó dành cho
   phát triển, xem cảnh báo ở §3).
+- `AUTH_COOKIE_SECURE=false` (§3, T051.08B) chỉ đúng vì gói triển khai này phục vụ qua HTTP
+  `localhost`, không có nghĩa là "kém an toàn hơn" — cờ `Secure` chỉ có tác dụng khi có kênh HTTPS
+  để bảo vệ. Một deployment thật đứng sau HTTPS PHẢI đổi lại thành `AUTH_COOKIE_SECURE=true`.
 - Không commit `.env`/`backend\.env`/file backup `.dump` vào git — đã có `.gitignore`.
 - Log không chứa mật khẩu/token (đã audit `winston.logger.ts` — chỉ log message/level/requestId).
 

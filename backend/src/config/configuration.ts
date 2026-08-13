@@ -24,6 +24,17 @@ export default () => ({
     refreshSecret: process.env.JWT_REFRESH_SECRET,
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '30d',
   },
+  // T051.08B — transport (HTTP/HTTPS) của `refresh_token` cookie, tách khỏi `env` (NODE_ENV) ở
+  // trên: khi AUTH_COOKIE_SECURE chưa được set, GIỮ NGUYÊN hành vi cũ (secure = production) để
+  // không phá vỡ mọi dev/test hiện có; khi được set tường minh, override — gói triển khai V1
+  // (production + HTTP localhost, không TLS) set AUTH_COOKIE_SECURE=false tường minh trong
+  // docker-compose.yml, một deployment HTTPS tương lai set =true.
+  auth: {
+    cookieSecure:
+      process.env.AUTH_COOKIE_SECURE !== undefined
+        ? process.env.AUTH_COOKIE_SECURE === 'true'
+        : process.env.NODE_ENV === 'production',
+  },
   swagger: {
     enabled: (process.env.SWAGGER_ENABLED ?? 'true') === 'true',
     path: process.env.SWAGGER_PATH ?? 'api/docs',

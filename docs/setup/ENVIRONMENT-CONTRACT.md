@@ -17,7 +17,7 @@ Every variable lists: consumer file(s), required/optional, accepted format, defa
 ## 1. Core
 
 ### `NODE_ENV` — hardened by T030.11 (DISCOVERY-T030 F20 — CLOSED)
-- **Consumer(s)**: `backend/src/config/env.validation.ts`; `backend/src/config/configuration.ts:2`; `backend/src/logger/winston.logger.ts:9`; `backend/src/modules/auth/presentation/auth.controller.ts:261`; `backend/prisma/seed.ts:8` (and compiled `seed.js:41`)
+- **Consumer(s)**: `backend/src/config/env.validation.ts`; `backend/src/config/configuration.ts:2`; `backend/src/logger/winston.logger.ts:9`; `backend/prisma/seed.ts:8` (and compiled `seed.js:41`) — **as of T051.08B, no longer `auth.controller.ts`**: the refresh-token cookie's `Secure` attribute now derives from `auth.cookieSecure` (falling back to this variable only when `AUTH_COOKIE_SECURE` is unset — see §4b)
 - **Required/Optional**: **Required, no default** (T030.11 — previously Optional with a silent `development` default)
 - **Format**: enum (`development`, `test`, `production`, per `NodeEnv`)
 - **Default**: none — `@IsEnum(NodeEnv)` alone, no `@IsOptional()`, no initializer; missing/empty/unrecognized values all fail `validateSync()` the same way `DATABASE_URL`/`JWT_ACCESS_SECRET` already did before T030.11
@@ -124,6 +124,22 @@ No separate BullMQ-specific environment variables exist. BullMQ's connection (`b
 **Risk (resolved)**: WebSocket CORS can no longer silently diverge from REST CORS — both transports are driven by the same validated array, and production-unsafe values are now rejected for both, not just REST. DISCOVERY-T030 finding F21 (High) is closed.
 
 **Implemented by**: T030.6 (52 new/extended tests — parser unit tests, production-guard extension tests, adapter tests, decorator-metadata test, and a dedicated structural spec confirming single-source-of-truth — all passing; full 221-suite/2168-test backend regression green; see IMPLEMENTATION REPORT — T030.6).
+
+---
+
+## 4b. Auth cookie transport — `AUTH_COOKIE_SECURE` — introduced by T051.08B
+
+- **Consumer(s)**: `backend/src/config/env.validation.ts` (strict `'true'`/`'false'` syntax check only, no production-safety assertion — see below); `backend/src/config/configuration.ts` (`auth.cookieSecure`, the only place that computes the effective boolean); `backend/src/modules/auth/presentation/auth.controller.ts` (`cookieAttributes()`, shared by every `res.cookie`/`res.clearCookie` call for `refresh_token` — login, refresh, logout, logout-all)
+- **Required/Optional**: Optional, **no schema-level default** (unlike `SWAGGER_ENABLED`/`METRICS_ENABLED`) | **Format**: string, strictly `'true'`/`'false'` only (`@IsIn(['true', 'false'])`) when present
+- **Effective value when unset**: `configuration.ts` falls back to the pre-T051.08B behavior, `NODE_ENV === 'production'` — this preserves every existing dev/test/CI flow that never set this variable, byte-for-byte
+- **Sensitivity**: Non-sensitive
+- **Validation status**: Syntax validated by `env.validation.ts` when present (any value other than `'true'`/`'false'` fails startup in every environment); **not** subject to a production-specific "must equal X" assertion like `SWAGGER_ENABLED`/`CORS_ORIGIN`, because — unlike those — either value is legitimate in production depending on deployment topology (see below)
+- **Failure behavior**: Startup throws if a value is present but is neither `'true'` nor `'false'`
+- **Deprecation/Unused**: Active
+
+**Why this exists (T051.08B)**: before this package, the `refresh_token` cookie's `Secure` attribute was derived directly from `NODE_ENV === 'production'` (`auth.controller.ts`, pre-T051.08B). `NODE_ENV` answers "is this a production build/runtime," not "is this connection transported over HTTPS." The approved V1 packaged deployment (T051.04) is deliberately `NODE_ENV=production` served over plain HTTP on `localhost` (no TLS/reverse-proxy anywhere in the Compose stack — see `WINDOWS-DEPLOYMENT-RUNBOOK.md`), so the old logic emitted a `Secure=true` cookie that no browser will store over a non-HTTPS origin — the refresh session was silently unusable, and `middleware.ts`'s cookie-presence check bounced every post-login navigation back to `/login`. Discovered via T051.08's real-browser E2E suite after T051.08A's separate response-envelope fix let execution reach this stage for the first time.
+
+**Packaged V1 value**: `docker-compose.yml`'s `backend` service sets `AUTH_COOKIE_SECURE=false` explicitly (HTTP localhost topology). `NODE_ENV` remains `production` — this variable is intentionally independent of it. A future HTTPS deployment sets `AUTH_COOKIE_SECURE=true` — no source change required to move between the two.
 
 ---
 
