@@ -108,6 +108,33 @@ T051.03 for full verification detail.
 
 ---
 
+**STATUS UPDATE (2026-08-13, T051.04).** AD-3 resolved: **Option E** (packaging-only, AD01/AD02
+Docker-mandatory NOT reopened) implemented per this section's own "smallest safe fix." Closed
+every gap this discovery pass found:
+- Frontend Dockerfile added (`frontend/Dockerfile`, standalone Next.js output) — the "no frontend
+  Dockerfile exists" gap.
+- `docker-compose.yml`'s `bring-up` service was **found silently broken** during T051.04's own
+  fresh audit — it referenced `npm run prisma:production-bring-up`, a script that did not exist in
+  `package.json` (`bring-up` would have failed immediately with "Missing script" on any real
+  `docker compose up`). Fixed by adding the missing `prisma:bootstrap-permissions` /
+  `prisma:bootstrap-first-admin` / `prisma:production-bring-up` scripts (`backend/prisma/
+  bootstrap-*.ts`), completing the SPEC-T022A/T022B1 mechanism that `first-admin-initializer.ts`
+  (already-shipped, reviewed code) was written for but never got a working CLI entry point.
+- `backend_logs` named volume added — the "logs do not survive container recreation" gap.
+- Windows auto-start: Option C (Windows service) evaluated and **not** built — no evidence found
+  that Docker Desktop's own `restart: unless-stopped` + "start on login" is insufficient for V1;
+  documented as the mechanism plus its one known limitation (`docker compose down` removes
+  containers entirely, nothing to auto-restart) rather than building unrequested infrastructure.
+- Real runbook: `docs/release/WINDOWS-DEPLOYMENT-RUNBOOK.md`.
+- Postgres/Redis host port exposure removed from the operational config (`docker-compose.yml`);
+  preserved for local dev via the Compose-native `docker-compose.override.yml` auto-merge
+  convention — zero dev-workflow change.
+- `docker-compose*.yml` and CI's real Docker Compose stack are now genuinely proven, not merely
+  present — see FINAL SPRINT REPORT — T051.04 for the actual build→up→persistence→backup→restore
+  evidence.
+
+---
+
 ## 3. RB-3 — Purchase Receive Concurrency / Idempotency
 
 **This finding is materially different from the original one-line description in the T051 authorization — the deep audit below supersedes it.**

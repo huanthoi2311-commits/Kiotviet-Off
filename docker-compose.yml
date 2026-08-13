@@ -3,6 +3,15 @@
 # dùng bên dưới, vốn chỉ nạp biến môi trường VÀO BÊN TRONG container, không dùng để nội suy ${VAR}).
 # `:?...` khiến `docker compose` thoát ngay với lỗi rõ ràng nếu biến chưa được set — không còn giá
 # trị mặc định hoạt động được nào bị commit trong file này. Xem docs/setup/ENVIRONMENT-CONTRACT.md §12.
+#
+# T051.04 §12 — file này (dùng riêng, không kèm docker-compose.override.yml) là cấu hình VẬN HÀNH
+# THẬT cho vận hành viên: KHÔNG map cổng Postgres(5432)/Redis(6379) ra host — cả hai chỉ cần truy
+# cập trong mạng nội bộ Compose (backend nối qua tên service `postgres`/`redis`, backup T051.03
+# dùng `docker compose exec` chứ không qua TCP host). Máy phát triển vẫn giữ nguyên trải nghiệm cũ
+# (map cổng ra host để chạy backend/frontend trực tiếp trên host) qua `docker-compose.override.yml`
+# — Compose TỰ ĐỘNG merge file đó khi có mặt, không cần thêm cờ `-f`. Vận hành viên chạy đúng lệnh
+# `docker compose -f docker-compose.yml up -d` (bỏ qua override) — xem
+# docs/release/WINDOWS-DEPLOYMENT-RUNBOOK.md.
 services:
   postgres:
     image: postgres:16-alpine
@@ -11,8 +20,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER chưa được set — copy .env.example thành .env ở thư mục gốc repo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD chưa được set — copy .env.example thành .env ở thư mục gốc repo}
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB chưa được set — copy .env.example thành .env ở thư mục gốc repo}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,8 +31,6 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -40,6 +45,17 @@ services:
   # runtime image bị strip devDependencies (`npm ci --omit=dev`) nên không có `ts-node` để chạy
   # `prisma:production-bring-up`; stage "build" vẫn còn đủ node_modules + mã nguồn `prisma/*.ts`.
   # Chỉ cần `postgres` healthy — bring-up không dùng Redis.
+  #
+  # T051.04 §10 — Migration owner DUY NHẤT của toàn hệ thống là service này. `npm run
+  # prisma:production-bring-up` (backend/package.json) chạy tuần tự: `prisma migrate deploy` →
+  # `prisma:bootstrap-permissions` (upsert PERMISSION_CATALOG, idempotent) →
+  # `prisma:bootstrap-first-admin` (tạo Organization/Branch/Administrator đầu tiên nếu CHƯA có —
+  # idempotent, tự bỏ qua nếu đã khởi tạo). Backend KHÔNG BAO GIỜ tự chạy migration khi start —
+  # chỉ phục vụ request sau khi bring-up đã hoàn tất thành công (xem `depends_on` bên dưới). Trước
+  # T051.04, npm script `prisma:production-bring-up` được tham chiếu ở đây nhưng KHÔNG TỒN TẠI
+  # trong package.json — service này sẽ thất bại ngay khi chạy (`npm error Missing script`) — đã
+  # sửa bằng cách thêm 3 script `prisma:bootstrap-permissions`/`prisma:bootstrap-first-admin`/
+  # `prisma:production-bring-up` còn thiếu (backend/prisma/bootstrap-*.ts).
   bring-up:
     build:
       context: ./backend
@@ -67,6 +83,13 @@ services:
       REDIS_PORT: 6379
     ports:
       - "3000:3000"
+    # T051.04 §16 — log JSON hằng ngày (winston-daily-rotate-file, dirname "logs" tương đối
+    # WORKDIR /app) trước đây bị MẤT mỗi khi container bị tạo lại (`docker compose up --build`,
+    # `down`+`up`...) vì ghi vào filesystem tạm thời của container. Named volume giữ log qua các
+    # lần tái tạo container — an toàn hơn bind-mount trên Windows Docker Desktop (tránh vấn đề
+    # quyền truy cập/hiệu năng đã biết của bind mount trên WSL2 backend).
+    volumes:
+      - backend_logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,6 +115,41 @@ services:
       retries: 5
       start_period: 10s
 
+  # T051.04 §5 — build context là GỐC REPO (không phải ./frontend) vì frontend/orval.config.ts
+  # đọc `../docs/api/openapi.json` (ngoài thư mục frontend/) — xem frontend/Dockerfile. Chỉ khởi
+  # động sau khi backend healthy (browser gọi thẳng backend qua NEXT_PUBLIC_API_URL — nhúng vào
+  # bundle client lúc BUILD, không phải lúc chạy container, nên KHÔNG cần backend đã healthy tại
+  # thời điểm BUILD, chỉ cần healthy trước khi vận hành viên thực sự dùng UI).
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000/api/v1}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-http://localhost:3000}
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    depends_on:
+      backend:
+        condition: service_healthy
+    # Next.js standalone không có endpoint /health riêng — dùng chính `node` có sẵn trong image
+    # để GET trang chủ, cùng kỹ thuật với backend healthcheck (SPEC-T023 Finding 12), không cần
+    # cài thêm curl/wget vào base Alpine.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3001/', (res) => process.exit(res.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 volumes:
   postgres_data:
   redis_data:
+  backend_logs:
