@@ -110,6 +110,20 @@ class EnvironmentVariables {
   @IsOptional()
   METRICS_ENABLED: string = 'false';
 
+  // T051.08B — transport security của cookie `refresh_token` KHÔNG được suy ra một mình từ
+  // NODE_ENV (NODE_ENV trả lời "đây có phải runtime production không", KHÔNG trả lời "kết nối này
+  // có chạy qua HTTPS không") — gói triển khai V1 CHỦ Ý là production + HTTP trên localhost (không
+  // TLS/reverse-proxy, xem WINDOWS-DEPLOYMENT-RUNBOOK.md), nên `secure: NODE_ENV==='production'`
+  // khiến trình duyệt ÂM THẦM không lưu cookie Secure qua kênh không mã hoá — chặn hẳn việc giữ
+  // phiên đăng nhập (T051.08B). KHÔNG có default ở đây (@IsOptional() không kèm giá trị mặc định
+  // — khác SWAGGER_ENABLED/METRICS_ENABLED): hành vi fallback khi biến này chưa được set nằm ở
+  // `configuration.ts` (giữ nguyên `NODE_ENV==='production'` như cũ — không phá vỡ mọi dev/test
+  // hiện có chưa từng set biến này), CHỈ validate cú pháp strict boolean ở đây khi CÓ giá trị.
+  @IsString()
+  @IsIn(['true', 'false'])
+  @IsOptional()
+  AUTH_COOKIE_SECURE?: string;
+
   @IsString()
   @IsOptional()
   SMTP_HOST?: string;

@@ -20,6 +20,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { ApiCommonErrors } from '../../../common/swagger/api-common-errors.decorator';
@@ -49,6 +50,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly forgotPasswordService: ForgotPasswordService,
+    private readonly config: ConfigService,
   ) {}
 
   @Post('login')
@@ -119,7 +121,7 @@ export class AuthController {
       await this.authService.logout(rawToken, user.sub);
     }
     if (clientType === 'WEB') {
-      res.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_COOKIE_PATH });
+      res.clearCookie(REFRESH_COOKIE_NAME, this.cookieAttributes());
     }
   }
 
@@ -136,7 +138,7 @@ export class AuthController {
   ): Promise<void> {
     await this.authService.logoutAll(user.sub);
     if (this.getClientType(req) === 'WEB') {
-      res.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_COOKIE_PATH });
+      res.clearCookie(REFRESH_COOKIE_NAME, this.cookieAttributes());
     }
   }
 
@@ -263,16 +265,36 @@ export class AuthController {
     }
 
     res.cookie(REFRESH_COOKIE_NAME, issued.response.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: REFRESH_COOKIE_PATH,
+      ...this.cookieAttributes(),
       expires: issued.refreshTokenExpiresAt,
     });
 
     return {
       accessToken: issued.response.accessToken,
       userInfo: issued.response.userInfo,
+    };
+  }
+
+  /**
+   * T051.08B — thuộc tính dùng chung cho MỌI thao tác set/clear `refresh_token` cookie (login,
+   * refresh, logout, logout-all): `httpOnly`/`sameSite`/`path` không đổi từ trước; `secure` đọc từ
+   * `auth.cookieSecure` (`configuration.ts` — tách khỏi NODE_ENV, xem ghi chú ở đó) thay vì tự đọc
+   * `process.env.NODE_ENV` trực tiếp như trước T051.08B. Trích ra 1 helper DUY NHẤT để set và clear
+   * KHÔNG BAO GIỜ lệch thuộc tính nhau (vd Secure lúc set khác Secure lúc clear khiến trình duyệt
+   * không xoá được cookie) — không phải một framework cookie tổng quát, chỉ scope trong controller
+   * này.
+   */
+  private cookieAttributes(): {
+    httpOnly: true;
+    secure: boolean;
+    sameSite: 'lax';
+    path: string;
+  } {
+    return {
+      httpOnly: true,
+      secure: this.config.get<boolean>('auth.cookieSecure') ?? true,
+      sameSite: 'lax',
+      path: REFRESH_COOKIE_PATH,
     };
   }
 
