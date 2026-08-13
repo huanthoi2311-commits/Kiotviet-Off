@@ -37,6 +37,20 @@ describe('initializeFirstAdmin — SPEC-T022B1 (First Administrator / Tenant Ini
           .fn()
           .mockResolvedValue([{ id: 'perm-1' }, { id: 'perm-2' }]),
       },
+      // T051.08D — `organizationSettings`/`organizationSubscription` được dùng CẢ ở tx (luồng tạo
+      // mới, bên trong transaction) LẪN ở top-level prisma (luồng vá tổ chức đã tồn tại, ngoài
+      // transaction) — `createMockPrisma()` bên dưới cố ý dùng LẠI ĐÚNG object này cho cả 2 vai
+      // trò, giống hệt cách `organization`/`branch`/... đã dùng chung từ trước.
+      organizationSettings: {
+        create: jest.fn().mockResolvedValue({ id: 'settings-1' }),
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({ id: 'settings-1' }),
+      },
+      organizationSubscription: {
+        create: jest.fn().mockResolvedValue({ id: 'subscription-1' }),
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn().mockResolvedValue({ id: 'subscription-1' }),
+      },
     };
   }
 
@@ -51,6 +65,8 @@ describe('initializeFirstAdmin — SPEC-T022B1 (First Administrator / Tenant Ini
       user: tx.user,
       userRole: tx.userRole,
       permission: tx.permission,
+      organizationSettings: tx.organizationSettings,
+      organizationSubscription: tx.organizationSubscription,
       $transaction: jest.fn(
         async (callback: (tx: MockTx) => Promise<unknown>) => callback(tx),
       ),
@@ -69,6 +85,8 @@ describe('initializeFirstAdmin — SPEC-T022B1 (First Administrator / Tenant Ini
       | 'user'
       | 'userRole'
       | 'permission'
+      | 'organizationSettings'
+      | 'organizationSubscription'
       | '$transaction'
     >;
   }
@@ -91,6 +109,16 @@ describe('initializeFirstAdmin — SPEC-T022B1 (First Administrator / Tenant Ini
       expect(tx.user.create).toHaveBeenCalledTimes(1);
       expect(tx.userRole.create).toHaveBeenCalledTimes(1);
       expect(tx.organization.update).toHaveBeenCalledTimes(1);
+      // T051.08D §9(1)(2)(3) — OrganizationSettings/OrganizationSubscription tạo đúng 1 lần mỗi
+      // loại, đúng organizationId, cùng transaction với Organization/Branch/User/Role.
+      expect(tx.organizationSettings.create).toHaveBeenCalledTimes(1);
+      expect(tx.organizationSettings.create).toHaveBeenCalledWith({
+        data: { organizationId: 'org-1' },
+      });
+      expect(tx.organizationSubscription.create).toHaveBeenCalledTimes(1);
+      expect(tx.organizationSubscription.create).toHaveBeenCalledWith({
+        data: { organizationId: 'org-1' },
+      });
     });
 
     it('Organization được tạo với đúng code/displayName/slug từ input, KHÔNG set ownerUserId ở bước create', async () => {
@@ -199,7 +227,7 @@ describe('initializeFirstAdmin — SPEC-T022B1 (First Administrator / Tenant Ini
   });
 
   describe('[3] idempotency — đã khởi tạo trước đó (đã có Organization)', () => {
-    it('KHÔNG tạo record nào, trả về outcome ALREADY_INITIALIZED, KHÔNG mở transaction', async () => {
+    it('KHÔNG tạo record Organization/Branch/Role/User nào, trả về outcome ALREADY_INITIALIZED, KHÔNG mở transaction', async () => {
       const tx = createMockTx();
       tx.organization.findFirst.mockResolvedValue({ id: 'existing-org' });
       const prisma = createMockPrisma(tx);
@@ -209,13 +237,122 @@ describe('initializeFirstAdmin — SPEC-T022B1 (First Administrator / Tenant Ini
         validInput,
       );
 
-      expect(result).toEqual({ outcome: 'ALREADY_INITIALIZED' });
+      expect(result).toEqual({
+        outcome: 'ALREADY_INITIALIZED',
+        organizationId: 'existing-org',
+        companionsRepaired: true,
+      });
       expect(prisma.$transaction).not.toHaveBeenCalled();
       expect(tx.organization.create).not.toHaveBeenCalled();
       expect(tx.branch.create).not.toHaveBeenCalled();
       expect(tx.role.create).not.toHaveBeenCalled();
       expect(tx.user.create).not.toHaveBeenCalled();
       expect(tx.userRole.create).not.toHaveBeenCalled();
+    });
+
+    // T051.08D §5/§9(4)(5)(6)(7) — Organization đã tồn tại nhưng OrganizationSettings/
+    // OrganizationSubscription (bootstrap từ trước T051.08D) có thể thiếu 1, thiếu cả 2, hoặc đã
+    // đủ cả 2 — bootstrap phải tự vá đúng phần thiếu, không đụng phần đã có, không tạo lại
+    // Organization/Branch/User/Role.
+    describe('T051.08D — tự vá OrganizationSettings/OrganizationSubscription cho tổ chức đã tồn tại', () => {
+      it('[4][8] rerun khi CẢ 2 đã tồn tại đầy đủ → companionsRepaired=false, KHÔNG tạo trùng, KHÔNG tạo lại Organization/Branch/User/Role', async () => {
+        const tx = createMockTx();
+        tx.organization.findFirst.mockResolvedValue({ id: 'existing-org' });
+        tx.organizationSettings.findUnique.mockResolvedValue({
+          id: 'settings-existing',
+        });
+        tx.organizationSubscription.findUnique.mockResolvedValue({
+          id: 'subscription-existing',
+        });
+        const prisma = createMockPrisma(tx);
+
+        const result = await initializeFirstAdmin(
+          asPrismaPick(prisma),
+          validInput,
+        );
+
+        expect(result).toEqual({
+          outcome: 'ALREADY_INITIALIZED',
+          organizationId: 'existing-org',
+          companionsRepaired: false,
+        });
+        expect(tx.organization.create).not.toHaveBeenCalled();
+        expect(tx.branch.create).not.toHaveBeenCalled();
+        expect(tx.user.create).not.toHaveBeenCalled();
+      });
+
+      it('[5] chỉ OrganizationSettings thiếu → được vá (create qua upsert), Subscription không bị đụng vào lại, companionsRepaired=true', async () => {
+        const tx = createMockTx();
+        tx.organization.findFirst.mockResolvedValue({ id: 'existing-org' });
+        tx.organizationSettings.findUnique.mockResolvedValue(null);
+        tx.organizationSubscription.findUnique.mockResolvedValue({
+          id: 'subscription-existing',
+        });
+        const prisma = createMockPrisma(tx);
+
+        const result = await initializeFirstAdmin(
+          asPrismaPick(prisma),
+          validInput,
+        );
+
+        expect(result).toEqual({
+          outcome: 'ALREADY_INITIALIZED',
+          organizationId: 'existing-org',
+          companionsRepaired: true,
+        });
+        expect(tx.organizationSettings.upsert).toHaveBeenCalledWith({
+          where: { organizationId: 'existing-org' },
+          create: { organizationId: 'existing-org' },
+          update: {},
+        });
+      });
+
+      it('[6] chỉ OrganizationSubscription thiếu → được vá (create qua upsert), Settings không bị đụng vào lại, companionsRepaired=true', async () => {
+        const tx = createMockTx();
+        tx.organization.findFirst.mockResolvedValue({ id: 'existing-org' });
+        tx.organizationSettings.findUnique.mockResolvedValue({
+          id: 'settings-existing',
+        });
+        tx.organizationSubscription.findUnique.mockResolvedValue(null);
+        const prisma = createMockPrisma(tx);
+
+        const result = await initializeFirstAdmin(
+          asPrismaPick(prisma),
+          validInput,
+        );
+
+        expect(result).toEqual({
+          outcome: 'ALREADY_INITIALIZED',
+          organizationId: 'existing-org',
+          companionsRepaired: true,
+        });
+        expect(tx.organizationSubscription.upsert).toHaveBeenCalledWith({
+          where: { organizationId: 'existing-org' },
+          create: { organizationId: 'existing-org' },
+          update: {},
+        });
+      });
+
+      it('[7] cả 2 đã tồn tại — upsert vẫn được gọi nhưng với update:{} (no-op), không ghi đè giá trị đã có', async () => {
+        const tx = createMockTx();
+        tx.organization.findFirst.mockResolvedValue({ id: 'existing-org' });
+        tx.organizationSettings.findUnique.mockResolvedValue({
+          id: 'settings-existing',
+        });
+        tx.organizationSubscription.findUnique.mockResolvedValue({
+          id: 'subscription-existing',
+        });
+        const prisma = createMockPrisma(tx);
+
+        await initializeFirstAdmin(asPrismaPick(prisma), validInput);
+
+        expect(tx.organizationSettings.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({ update: {} }),
+        );
+        expect(tx.organizationSubscription.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({ update: {} }),
+        );
+      });
     });
   });
 
