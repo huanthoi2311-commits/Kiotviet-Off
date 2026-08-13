@@ -1,0 +1,245 @@
+name: Deployment Smoke (T051.04)
+
+# T051.04 §17/§18/§19/§24 — bằng chứng THẬT cho gói triển khai Docker Compose: build ảnh thật,
+# dựng cả stack thật, health-check thật, drill khởi động lại/persistence thật, VÀ đường backup
+# docker-compose thật (T051.03 §12 đã hoãn bằng chứng này sang T051.04 — đây chính là gate đó).
+#
+# Tách khỏi backend-ci.yml/frontend-ci.yml (quá nặng cho mọi PR thường — build 2 image + dựng cả
+# stack mất nhiều phút hơn hẳn job E2E hiện có) — chỉ chạy khi có thay đổi thực sự liên quan tới
+# gói triển khai, cộng với push lên main và trigger thủ công.
+#
+# Runner ubuntu-latest CÓ SẴN Docker Engine + Docker Compose v2 (đã xác nhận qua tài liệu chính
+# thức GitHub Actions — khác hẳn sandbox phát triển cục bộ của phiên làm việc này, nơi HOÀN TOÀN
+# không có Docker) — đây là môi trường DUY NHẤT trong toàn bộ hạ tầng có thể chạy Compose thật.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker-compose*.yml"
+      - ".dockerignore"
+      - "backend/Dockerfile"
+      - "backend/.dockerignore"
+      - "frontend/Dockerfile"
+      - "backend/prisma/backup.ts"
+      - "backend/prisma/restore.ts"
+      - "backend/prisma/verify-restore.ts"
+      - "backend/prisma/bootstrap-permissions.ts"
+      - "backend/prisma/bootstrap-first-admin.ts"
+      - "backend/src/modules/platform/backup/**"
+      - "backend/src/modules/platform/bootstrap/**"
+      - ".github/workflows/deployment-smoke.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "docker-compose*.yml"
+      - ".dockerignore"
+      - "backend/Dockerfile"
+      - "backend/.dockerignore"
+      - "frontend/Dockerfile"
+      - "backend/prisma/backup.ts"
+      - "backend/prisma/restore.ts"
+      - "backend/prisma/verify-restore.ts"
+      - "backend/prisma/bootstrap-permissions.ts"
+      - "backend/prisma/bootstrap-first-admin.ts"
+      - "backend/src/modules/platform/backup/**"
+      - "backend/src/modules/platform/bootstrap/**"
+      - ".github/workflows/deployment-smoke.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deployment-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Compose build → up → health → persistence → backup → restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      # T051.04 §13 — không dùng placeholder cố định: NODE_ENV=production ở backend/.env kích
+      # hoạt env.validation.ts's guard chặn placeholder JWT (đã xác nhận qua
+      # src/config/env.validation.spec.ts) — sinh giá trị ngẫu nhiên thật, mask ngay khỏi log.
+      - name: Generate CI-only secrets and .env files (masked, never committed)
+        run: |
+          set -euo pipefail
+          POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+          JWT_ACCESS_SECRET="$(openssl rand -hex 32)"
+          JWT_REFRESH_SECRET="$(openssl rand -hex 32)"
+          FIRST_ADMIN_PASSWORD="$(openssl rand -hex 12)Aa1!"
+
+          echo "::add-mask::${POSTGRES_PASSWORD}"
+          echo "::add-mask::${JWT_ACCESS_SECRET}"
+          echo "::add-mask::${JWT_REFRESH_SECRET}"
+          echo "::add-mask::${FIRST_ADMIN_PASSWORD}"
+
+          cat > .env <<EOF
+          POSTGRES_USER=pos_erp_ci
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          POSTGRES_DB=pos_erp_ci
+          NEXT_PUBLIC_API_URL=http://localhost:3000/api/v1
+          NEXT_PUBLIC_WS_URL=http://localhost:3000
+          EOF
+
+          cat > backend/.env <<EOF
+          NODE_ENV=production
+          PORT=3000
+          CORS_ORIGIN=http://localhost:3001
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+          JWT_ACCESS_EXPIRES_IN=15m
+          JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+          JWT_REFRESH_EXPIRES_IN=30d
+          SWAGGER_ENABLED=false
+          METRICS_ENABLED=false
+          FIRST_ADMIN_EMAIL=admin@pos-erp-ci.local
+          FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD}
+          FIRST_ADMIN_ORG_SLUG=pos-erp-ci
+          EOF
+
+          {
+            echo "CI_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}"
+            echo "CI_FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD}"
+          } >> "$GITHUB_ENV"
+
+      # §19 — Full clean-start drill: build ảnh THẬT, không có container nào đang chạy trước đó.
+      # Dùng base + dev override CHỈ để lộ cổng Postgres cho bước verify-restore ở cuối job tự kết
+      # nối — cơ chế backup/restore qua `docker compose exec` (đang được chứng minh ở §17) HOÀN
+      # TOÀN không phụ thuộc port có lộ ra host hay không.
+      - name: docker compose build (base + dev override)
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml build
+
+      - name: docker compose up -d --wait (Postgres/Redis healthy → bring-up → Backend healthy → Frontend healthy)
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait --wait-timeout 180
+
+      - name: docker compose ps (bằng chứng trạng thái từng service)
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml ps
+
+      - name: Verify backend /health
+        run: |
+          curl -sf http://localhost:3000/health | tee /tmp/health.json
+          grep -q '"status":"ok"' /tmp/health.json
+
+      - name: Verify frontend reachability
+        run: curl -sf -o /dev/null -w "%{http_code}\n" http://localhost:3001/ | grep -qE "^(200|307|308)$"
+
+      # §18 — Persistence drill, bước 1: đăng nhập bằng First Admin thật (bring-up đã tạo), tạo dữ
+      # liệu đại diện.
+      - name: Login as bootstrapped first admin
+        run: |
+          set -euo pipefail
+          TOKEN=$(curl -sf -X POST http://localhost:3000/api/v1/auth/login \
+            -H "Content-Type: application/json" \
+            -d "{\"organizationSlug\":\"pos-erp-ci\",\"email\":\"admin@pos-erp-ci.local\",\"password\":\"${CI_FIRST_ADMIN_PASSWORD}\"}" \
+            | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).data.accessToken))")
+          echo "::add-mask::${TOKEN}"
+          echo "ACCESS_TOKEN=${TOKEN}" >> "$GITHUB_ENV"
+
+      - name: Create representative business data (Unit)
+        run: |
+          set -euo pipefail
+          curl -sf -X POST http://localhost:3000/api/v1/units \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -d '{"code":"CI-DRILL","name":"Persistence Drill Unit","symbol":"pd"}' | tee /tmp/unit.json
+          grep -q '"code":"CI-DRILL"' /tmp/unit.json
+
+      - name: Verify data helper script
+        run: |
+          cat > /tmp/verify-unit.sh <<'EOF'
+          #!/bin/sh
+          set -eu
+          RES=$(curl -sf http://localhost:3000/api/v1/units?search=CI-DRILL \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}")
+          echo "$RES" | grep -q '"code":"CI-DRILL"' || { echo "MISSING CI-DRILL unit: $RES"; exit 1; }
+          echo "OK: CI-DRILL unit present"
+          EOF
+          chmod +x /tmp/verify-unit.sh
+
+      - name: Verify data present (baseline)
+        run: /tmp/verify-unit.sh
+
+      # §18 drill — restart backend container, verify data untouched.
+      - name: Restart backend container
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.override.yml restart backend
+          docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait --wait-timeout 120
+      - name: Verify data after backend restart
+        run: /tmp/verify-unit.sh
+
+      # §18 drill — restart Postgres container itself, verify data untouched.
+      - name: Restart Postgres container
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.override.yml restart postgres
+          docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait --wait-timeout 120
+      - name: Verify data after Postgres restart
+        run: /tmp/verify-unit.sh
+
+      # §18 drill — hard stop: docker compose down (KHÔNG -v) rồi up lại, chứng minh named volume
+      # sống sót qua việc TOÀN BỘ container bị xoá và tạo lại (không chỉ restart).
+      - name: docker compose down (WITHOUT -v — must NOT touch postgres_data volume)
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml down
+      - name: docker compose up -d --wait (full recreate)
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait --wait-timeout 180
+      - name: Verify data after full stack down/up (named volume persistence proof)
+        run: /tmp/verify-unit.sh
+
+      # §17 HARD GATE — đường backup THẬT qua docker-compose (không phải direct-binary đã chứng
+      # minh ở T051.03). Chạy `ops:backup`/`ops:restore`/`ops:verify-restore` TỪ RUNNER (đóng vai
+      # trò máy vận hành viên Windows), BACKUP_MODE=docker-compose khiến pg_dump/pg_restore chạy
+      # QUA `docker compose exec` vào chính container `postgres` đang sống — con đường thật vận
+      # hành viên sẽ dùng, chỉ khác hệ điều hành runner (Linux CI so với Windows), không khác cơ
+      # chế gọi lệnh.
+      - name: Install backend dependencies on runner (to invoke ops:* scripts directly)
+        working-directory: backend
+        run: |
+          npm ci
+          npx prisma generate
+
+      - name: T051.03 §12 HARD GATE — real backup via docker-compose path
+        working-directory: backend
+        env:
+          DATABASE_URL: "postgresql://pos_erp_ci:${{ env.CI_POSTGRES_PASSWORD }}@postgres:5432/pos_erp_ci?schema=public"
+          BACKUP_MODE: docker-compose
+          BACKUP_DIR: /tmp/ci-backups
+        run: |
+          npm run ops:backup
+          ls -la /tmp/ci-backups
+          DUMP_FILE=$(ls /tmp/ci-backups/*.dump | head -1)
+          echo "DUMP_FILE=${DUMP_FILE}" >> "$GITHUB_ENV"
+          test -s "${DUMP_FILE}"
+
+      - name: T051.03 §12 HARD GATE — real restore via docker-compose path into isolated DB
+        working-directory: backend
+        env:
+          DATABASE_URL: "postgresql://pos_erp_ci:${{ env.CI_POSTGRES_PASSWORD }}@postgres:5432/pos_erp_ci?schema=public"
+          BACKUP_MODE: docker-compose
+        run: npm run ops:restore -- "${DUMP_FILE}" pos_erp_ci_restore_smoke
+
+      # Verify-restore cần kết nối THẬT tới Postgres (không chỉ docker compose exec) — dùng cổng
+      # đã lộ ra host qua docker-compose.override.yml (chỉ phục vụ MỤC ĐÍCH KIỂM TRA của job này,
+      # không phải một phần của cơ chế backup/restore đang được chứng minh — cơ chế đó đã chạy
+      # xong ở 2 bước trên, hoàn toàn qua `docker compose exec`, không đụng gì tới cổng host).
+      - name: T051.03 §12 HARD GATE — verify restored database (real Postgres connection via host-exposed port)
+        working-directory: backend
+        env:
+          DATABASE_URL: "postgresql://pos_erp_ci:${{ env.CI_POSTGRES_PASSWORD }}@localhost:5432/pos_erp_ci?schema=public"
+        run: npm run ops:verify-restore -- pos_erp_ci_restore_smoke --compare-source
+
+      - name: Dump docker compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml logs --no-color
+
+      - name: Final teardown (CI cleanup only — operators must NEVER use -v normally, see runbook)
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml down -v

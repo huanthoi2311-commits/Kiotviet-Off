@@ -1,0 +1,36 @@
+# T051.04 — áp dụng cho build context GỐC REPO (dùng bởi frontend/Dockerfile, context: .).
+# backend/Dockerfile dùng context: ./backend riêng, có backend/.dockerignore riêng.
+
+.git
+.github
+
+# Node
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/*.tsbuildinfo
+
+# Env / secrets — KHÔNG BAO GIỜ đưa vào build context
+.env
+.env.local
+**/.env
+**/.env.local
+
+# T051.03 backup artifacts
+backend/backups
+**/*.dump
+
+# Logs
+logs
+**/*.log
+
+# Editor/OS
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+**/test-results
+**/playwright-report

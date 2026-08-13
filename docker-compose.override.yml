@@ -1,0 +1,21 @@
+# T051.04 §12 — Docker Compose TỰ ĐỘNG merge file này khi có mặt cùng thư mục với
+# docker-compose.yml (chạy `docker compose up` bình thường, không cần cờ `-f` nào) — đây là quy
+# ước CHÍNH THỨC của Compose cho "local override", không phải phát minh riêng của dự án.
+#
+# Mục đích DUY NHẤT: khôi phục map cổng Postgres/Redis ra host, giữ nguyên trải nghiệm phát triển
+# đã có TỪ TRƯỚC T051.04 (backend/frontend chạy trực tiếp trên host qua `npm run start:dev`, nối
+# vào Postgres/Redis Dockerized qua `localhost:5432`/`localhost:6379` — xem
+# docs/setup/DEVELOPMENT-SETUP.md). File `docker-compose.yml` (không kèm file này) giờ là cấu hình
+# VẬN HÀNH THẬT — không map 2 cổng này ra host (§12: "Postgres should not be publicly exposed
+# unless operational tooling truly requires host access" — bình thường vận hành viên KHÔNG cần).
+#
+# Vận hành viên chạy đúng: `docker compose -f docker-compose.yml up -d` (bỏ qua file này).
+# Nhà phát triển chạy: `docker compose up` (Compose tự merge file này, không cần biết gì thêm).
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"

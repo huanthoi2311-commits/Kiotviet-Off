@@ -188,25 +188,70 @@ All 9 variables below are **script-level required/optional**, not part of `env.v
 
 ---
 
-## 8. Backup / Restore Tooling
+## 8. Backup / Restore Tooling (T051.03 — SUPERSEDES earlier discovery-only draft below the line)
 
-### `PG_DUMP_BINARY` / `PG_RESTORE_BINARY`
-- **Consumer(s)**: `backend/src/modules/platform/backup/backup-runner.ts:26`; `restore-runner.ts:19`
-- **Required/Optional**: Optional | **Default**: `pg_dump` / `pg_restore` (PATH-resolved)
+**Correction (T051.04)**: the entries this section previously described (`PG_DUMP_BINARY`/
+`PG_RESTORE_BINARY`, `BACKUP_RETENTION_DAYS`, consumer paths `backup-runner.ts:26`) were written
+during T051 discovery, before T051.03 was implemented, and do not match what actually shipped —
+the real implementation never reads `PG_DUMP_BINARY`/`PG_RESTORE_BINARY` (the tool name is fixed
+per mode, see `pg-tool-invocation.ts`) and uses `BACKUP_RETENTION_COUNT` (a count, not a day span),
+not `BACKUP_RETENTION_DAYS`. Corrected below; full detail in
+`docs/release/BACKUP-RESTORE-RUNBOOK.md`.
+
+### `BACKUP_DIR`
+- **Consumer(s)**: `backend/prisma/backup.ts` (CLI wrapper for `backup-runner.ts`)
+- **Required/Optional**: Optional | **Default**: `./backups` (relative to CLI invocation cwd)
 - **Sensitivity**: Non-sensitive
-- **Validation status**: Unvalidated, **absent from `.env.example`** (DISCOVERY-T030 finding F25)
-- **Deprecation/Unused**: Active but undocumented
 
-### `BACKUP_DIR` / `BACKUP_RETENTION_DAYS`
-- **Consumer(s)**: `backend/prisma/backup.ts:17-18`
-- Optional, defaults `./backups` / `14` respectively. Non-sensitive. Undocumented (F25). Active.
+### `BACKUP_MODE`
+- **Consumer(s)**: `backend/prisma/backup.ts`, `restore.ts`, `verify-restore.ts`
+- **Required/Optional**: Optional | **Default**: `docker-compose` | **Values**: `docker-compose` | `direct`
+- **Sensitivity**: Non-sensitive
+
+### `BACKUP_RETENTION_COUNT`
+- **Consumer(s)**: `backend/prisma/backup.ts`
+- **Required/Optional**: Optional | **Default**: `7` (number of backups kept, not a day span)
+- **Sensitivity**: Non-sensitive
+
+### `DOCKER_COMPOSE_SERVICE`
+- **Consumer(s)**: `backend/prisma/backup.ts`, `restore.ts` | Only used when `BACKUP_MODE=docker-compose`
+- **Required/Optional**: Optional | **Default**: `postgres` (must match the service name in `docker-compose.yml`)
+- **Sensitivity**: Non-sensitive
+
+### `BACKUP_TIMEOUT_MS` / `RESTORE_TIMEOUT_MS`
+- **Consumer(s)**: `backend/prisma/backup.ts` / `restore.ts`
+- **Required/Optional**: Optional | **Default**: `600000` (10 min) / `900000` (15 min)
+- **Sensitivity**: Non-sensitive
 
 ### `PG_BIN_DIR`
 - **Consumer(s)**: `backend/test/t029-12-disposable-db-safety.ts:186-216` (`resolvePgBinDir`)
 - **Required/Optional**: Optional — on Windows, auto-probes `C:\Program Files\PostgreSQL\<version>\bin` if unset; otherwise resolves the bare binary name via PATH
 - **Sensitivity**: Non-sensitive
 - **Validation status**: Unvalidated, undocumented in `.env.example`
-- **Deprecation/Unused**: Active, T029.12-scoped only
+- **Deprecation/Unused**: Active, T029.12-scoped only — unrelated to T051.03's own backup tooling (different consumer, predates it).
+
+---
+
+## 8a. First-Admin Bootstrap (T051.04)
+
+Consumed once by `backend/prisma/bootstrap-first-admin.ts`, invoked by the `bring-up` service in
+`docker-compose.yml` (`npm run prisma:production-bring-up`). Idempotent — skipped automatically on
+every subsequent `docker compose up` once any Organization exists.
+
+### `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD`
+- **Required/Optional**: **Required** — bring-up fails fast with a clear error if either is unset
+- **Sensitivity**: `FIRST_ADMIN_PASSWORD` is sensitive (rejected outright if it matches a known
+  demo/weak placeholder — see `first-admin-initializer.ts`'s `KNOWN_WEAK_ADMIN_PASSWORDS`)
+- **Validation status**: Validated by `initializeFirstAdmin()` (min length 8, rejects known weak values)
+
+### `FIRST_ADMIN_ORG_CODE` / `FIRST_ADMIN_ORG_NAME` / `FIRST_ADMIN_ORG_SLUG`
+- **Required/Optional**: Optional | **Default**: `MAIN` / `Cửa hàng của tôi` / `cua-hang-cua-toi`
+
+### `FIRST_ADMIN_BRANCH_CODE` / `FIRST_ADMIN_BRANCH_NAME`
+- **Required/Optional**: Optional | **Default**: `MAIN` / `Chi nhánh chính`
+
+### `FIRST_ADMIN_USERNAME` / `FIRST_ADMIN_FULL_NAME`
+- **Required/Optional**: Optional | **Default**: `admin` / *(none)*
 
 ---
 
