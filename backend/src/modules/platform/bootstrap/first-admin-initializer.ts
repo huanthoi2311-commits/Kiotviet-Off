@@ -9,12 +9,11 @@ import * as argon2 from 'argon2';
  *
  * Mượn ĐÚNG pattern giao dịch đã có, đã review, đang chạy thật ở
  * `PrismaOrganizationRepository.createWithOwner()` (Organization → User chủ sở hữu → cập nhật lại
- * `ownerUserId` → Role "owner" → gán toàn bộ Permission hiện có → UserRole) — KHÔNG gọi lại chính
- * class đó (vốn được thiết kế cho luồng có actor đã đăng nhập qua PlatformAdminGuard, đòi hỏi
- * `actorUserId`/`AuditContext` không tồn tại ở bối cảnh bootstrap chưa có ai đăng nhập cả), mà tái
- * hiện lại đúng trình tự đã được chứng minh đúng, không phát minh trình tự mới. Không tạo
- * OrganizationSettings/OrganizationSubscription/AuditLog — ngoài phạm vi SPEC-T022B1 (chỉ liệt kê
- * Organization/Branch/Role/RolePermission/User/UserRole).
+ * `ownerUserId` → Role "owner" → gán toàn bộ Permission hiện có → UserRole → OrganizationSettings
+ * → OrganizationSubscription) — KHÔNG gọi lại chính class đó (vốn được thiết kế cho luồng có actor
+ * đã đăng nhập qua PlatformAdminGuard, đòi hỏi `actorUserId`/`AuditContext` không tồn tại ở bối
+ * cảnh bootstrap chưa có ai đăng nhập cả), mà tái hiện lại đúng trình tự đã được chứng minh đúng,
+ * không phát minh trình tự mới.
  *
  * KHÔNG có decorator NestJS, không đăng ký vào Module nào — chỉ gọi thủ công qua
  * `prisma/bootstrap-first-admin.ts`, ngoài hoàn toàn tầng HTTP API và ngoài `main.ts`/bootstrap()
@@ -25,6 +24,19 @@ import * as argon2 from 'argon2';
  * quyền như ở Phase 1) — xem `initializeFirstAdmin()`. Không đổi thứ tự tạo record, không đổi
  * transaction boundary, không đổi idempotency, không đổi khả năng tương thích đăng nhập đã xác
  * minh ở Phase 1 — chỉ đổi hành vi của ĐÚNG 1 nhánh trước đây "bỏ qua trong im lặng".
+ *
+ * T051.08D (release-blocking — supersedes the Phase 1 scope note below) — Phase 1's SPEC-T022B1
+ * đã CHỦ Ý loại OrganizationSettings/OrganizationSubscription/AuditLog khỏi phạm vi (chỉ liệt kê
+ * Organization/Branch/Role/RolePermission/User/UserRole). Thực tế vận hành xác nhận (real-browser
+ * E2E, T051.08 resume): `OrganizationRepository.findById()` — nguồn của
+ * `GET /organizations/current` — coi Organization/Settings/Subscription là MỘT aggregate bắt buộc
+ * đủ cả 3 (đúng những gì `createWithOwner()` đã tạo), nên tổ chức bootstrap (thiếu 2 bảng sau)
+ * luôn trả 404 "Không tìm thấy tổ chức" — hiển thị thành toast lỗi thật trên MỌI trang dashboard
+ * (`useCurrentOrganization()` gọi ở `dashboard-shell.tsx`, dù kết quả bị bỏ qua, lỗi truy vấn vẫn
+ * kích hoạt toast lỗi toàn cục của React Query). Từ T051.08D: bootstrap tạo ĐỦ cả 2 bảng còn thiếu
+ * — khi tạo tổ chức mới (trong CÙNG transaction với Organization/Branch/User/Role) VÀ khi phát
+ * hiện tổ chức đã tồn tại nhưng thiếu 1 trong 2 (tự vá cho deployment cũ tạo trước T051.08D, xem
+ * `upsertOrganizationCompanions()`) — không bắt vận hành viên xoá/tạo lại tổ chức để sửa.
  */
 
 const MIN_PASSWORD_LENGTH = 8; // Cùng chuẩn ResetPasswordDto (BR2) — đây là baseline độ mạnh
@@ -81,7 +93,14 @@ export type FirstAdminInitializationResult =
       roleId: string;
       userId: string;
     }
-  | { outcome: 'ALREADY_INITIALIZED' };
+  | {
+      outcome: 'ALREADY_INITIALIZED';
+      organizationId: string;
+      // T051.08D — true khi lần chạy này vừa tự vá OrganizationSettings/OrganizationSubscription
+      // còn thiếu cho một tổ chức bootstrap từ TRƯỚC T051.08D — vận hành viên cần biết đã có sửa
+      // chữa xảy ra (script CLI in ra thông báo khác nhau tuỳ giá trị này), không chỉ "đã có sẵn".
+      companionsRepaired: boolean;
+    };
 
 type FirstAdminPrismaClient = Pick<
   PrismaClient,
@@ -92,6 +111,8 @@ type FirstAdminPrismaClient = Pick<
   | 'user'
   | 'userRole'
   | 'permission'
+  | 'organizationSettings'
+  | 'organizationSubscription'
   | '$transaction'
 >;
 
@@ -127,14 +148,59 @@ function assertCredentialAllowed(password: string): void {
  * SPEC-T022B1 Rev1 §4 xác nhận rõ là chiến lược được chấp nhận, với phạm vi hiểu đúng: chỉ có
  * nghĩa "cơ chế bootstrap NÀY đã chạy thành công cho deployment NÀY", không phải khẳng định kiến
  * trúc "hệ thống chỉ hỗ trợ 1 tenant mãi mãi" — FR6 cho phép đọc/query phục vụ mục đích này).
+ *
+ * T051.08D — trả về id (không chỉ boolean) để nhánh "đã khởi tạo" bên dưới còn dùng được cho
+ * `upsertOrganizationCompanions()`.
  */
-async function isAlreadyInitialized(
+async function findExistingOrganizationId(
   prisma: FirstAdminPrismaClient,
-): Promise<boolean> {
+): Promise<string | null> {
   const existing = await prisma.organization.findFirst({
     select: { id: true },
   });
-  return existing !== null;
+  return existing?.id ?? null;
+}
+
+/**
+ * T051.08D — vá OrganizationSettings/OrganizationSubscription còn thiếu cho MỘT tổ chức đã tồn
+ * tại (deployment bootstrap từ trước T051.08D, hoặc bất kỳ lý do nào khác khiến 1 trong 2 bảng
+ * chưa có). Dùng `upsert` (không phải `findThenCreate` thủ công) để an toàn ngay cả khi có 2 tiến
+ * trình bootstrap chạy gần như đồng thời (dù kịch bản vận hành thật — `docker compose up` một lần
+ * — không tạo ra tình huống đó) — `update: {}` là no-op nếu record đã tồn tại, không ghi đè bất kỳ
+ * giá trị nào người vận hành/hệ thống đã tự chỉnh sau khi tạo (SPEC-ORG-001: chỉ module
+ * `organization` được ghi trực tiếp — bootstrap script đã là ngoại lệ đã được chấp nhận từ Phase 1
+ * cho Organization/Branch/User/Role, mở rộng thêm 2 bảng này không phải tiền lệ mới).
+ *
+ * Trả về `true` nếu THẬT SỰ có vá (1 trong 2 bảng từng thiếu) — dùng để vận hành viên biết có sửa
+ * chữa xảy ra, không chỉ "đã có sẵn, không làm gì".
+ */
+async function upsertOrganizationCompanions(
+  prisma: FirstAdminPrismaClient,
+  organizationId: string,
+): Promise<boolean> {
+  const [settingsBefore, subscriptionBefore] = await Promise.all([
+    prisma.organizationSettings.findUnique({
+      where: { organizationId },
+      select: { id: true },
+    }),
+    prisma.organizationSubscription.findUnique({
+      where: { organizationId },
+      select: { id: true },
+    }),
+  ]);
+
+  await prisma.organizationSettings.upsert({
+    where: { organizationId },
+    create: { organizationId },
+    update: {},
+  });
+  await prisma.organizationSubscription.upsert({
+    where: { organizationId },
+    create: { organizationId },
+    update: {},
+  });
+
+  return settingsBefore === null || subscriptionBefore === null;
 }
 
 /**
@@ -149,8 +215,20 @@ export async function initializeFirstAdmin(
 ): Promise<FirstAdminInitializationResult> {
   assertCredentialAllowed(input.administrator.password);
 
-  if (await isAlreadyInitialized(prisma)) {
-    return { outcome: 'ALREADY_INITIALIZED' };
+  const existingOrganizationId = await findExistingOrganizationId(prisma);
+  if (existingOrganizationId !== null) {
+    // T051.08D — deployment đã bootstrap từ trước (có thể từ trước T051.08D, khi
+    // OrganizationSettings/OrganizationSubscription còn chưa được tạo) — vá nếu thiếu, KHÔNG tạo
+    // lại Organization/Branch/User/Role (giữ nguyên idempotency đã có từ Phase 1).
+    const companionsRepaired = await upsertOrganizationCompanions(
+      prisma,
+      existingOrganizationId,
+    );
+    return {
+      outcome: 'ALREADY_INITIALIZED',
+      organizationId: existingOrganizationId,
+      companionsRepaired,
+    };
   }
 
   const passwordHash = await argon2.hash(input.administrator.password, {
@@ -225,6 +303,19 @@ export async function initializeFirstAdmin(
 
     await tx.userRole.create({
       data: { userId: administrator.id, roleId: ownerRole.id },
+    });
+
+    // T051.08D — provisioning parity với `PrismaOrganizationRepository.createWithOwner()`:
+    // OrganizationSettings/OrganizationSubscription là 1 phần bắt buộc của aggregate Organization
+    // (`OrganizationRepository.findById()` — nguồn của `GET /organizations/current` — coi thiếu
+    // 1 trong 2 là "tổ chức không tồn tại"). Chỉ cần `organizationId` — mọi field khác đã có default
+    // hợp lý ở schema.prisma (plan=FREE, status=ACTIVE, ngôn ngữ=vi, tiền tệ=VND, ...), đúng những
+    // gì luồng tạo tổ chức bình thường (`POST /organizations`) cũng dùng — không tự bịa giá trị.
+    await tx.organizationSettings.create({
+      data: { organizationId: organization.id },
+    });
+    await tx.organizationSubscription.create({
+      data: { organizationId: organization.id },
     });
 
     return {

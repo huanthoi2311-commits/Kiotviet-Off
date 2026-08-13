@@ -146,6 +146,18 @@ jobs:
           echo "::add-mask::${TOKEN}"
           echo "ACCESS_TOKEN=${TOKEN}" >> "$GITHUB_ENV"
 
+      # T051.08D §17 — bằng chứng THẬT qua đường triển khai Docker Compose đầy đủ (không phải test
+      # double): tổ chức do `bring-up` (bootstrap-first-admin) tạo phải đủ Organization+Settings+
+      # Subscription ngay từ THẬT stack production packaging, không chỉ ở unit test/E2E Postgres cô
+      # lập (§10). 404 "ORGANIZATION_NOT_FOUND" ở đây tức là bootstrap trong ảnh production thật vẫn
+      # thiếu 1 phần aggregate — đúng khiếm khuyết T051.08D sửa.
+      - name: Verify GET /organizations/current = 200 (bootstrap organization aggregate complete)
+        run: |
+          set -euo pipefail
+          curl -sf http://localhost:3000/api/v1/organizations/current \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" | tee /tmp/current-org.json
+          grep -q '"slug":"pos-erp-ci"' /tmp/current-org.json
+
       - name: Create representative business data (Unit)
         run: |
           set -euo pipefail
