@@ -42,7 +42,9 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3001
 
-COPY --from=build /app/public ./public
+## Dự án hiện KHÔNG có frontend/public/ (đã xác nhận: không tồn tại trong repo) — không COPY thư
+## mục này. Nếu về sau thêm static assets vào frontend/public/, phải bổ sung lại dòng
+## `COPY --from=build /app/public ./public` tại đây.
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 
