@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e:auth": "playwright test",
+    "test:e2e:release": "playwright test --config=playwright.release.config.ts",
     "format": "prettier --write .",
     "generate:api": "orval --config orval.config.ts",
     "check:api-client-drift": "npm run generate:api && tsc --noEmit"

@@ -1,0 +1,161 @@
+name: Release E2E — Real Browser Critical Path (T051.08)
+
+# T051.08 §1/§2 — bằng chứng release nhỏ nhất, THẬT: trình duyệt Chromium thật lái qua frontend
+# thật, gọi tới backend thật, ghi vào PostgreSQL/Redis thật (KHÔNG MSW, KHÔNG backend giả) —
+# chứng minh hành trình nghiệp vụ trọng yếu V1.0 (Đăng nhập → Purchase Order → Nhận hàng → Bán
+# hàng POS → Hoá đơn → Trả hàng) hoạt động đúng trên gói triển khai thật, không phải coverage
+# toàn diện.
+#
+# §15 — workflow RIÊNG (Option A), không nhét vào job Playwright Auth E2E hiện có (mock network,
+# nhẹ, chạy mọi PR frontend) — job này dựng cả stack Docker Compose thật (tái dùng nguyên xi bước
+# build/up/health của deployment-smoke.yml, xem §16) nên nặng hơn hẳn, chỉ chạy khi có thay đổi
+# thực sự liên quan tới release-E2E, cộng với push lên main và trigger thủ công.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/e2e/release/**"
+      - "frontend/playwright.release.config.ts"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "docker-compose*.yml"
+      - "backend/Dockerfile"
+      - "frontend/Dockerfile"
+      - ".github/workflows/release-e2e.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "frontend/e2e/release/**"
+      - "frontend/playwright.release.config.ts"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "docker-compose*.yml"
+      - "backend/Dockerfile"
+      - "frontend/Dockerfile"
+      - ".github/workflows/release-e2e.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-e2e:
+    name: Compose build → up → health → real-browser critical path
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      # §16 — tái dùng NGUYÊN XI bước sinh secret/.env của deployment-smoke.yml (T051.04): giá trị
+      # ngẫu nhiên thật, mask ngay, NODE_ENV=production để kích hoạt đúng guard chặn placeholder JWT
+      # (env.validation.ts) — chứng minh trên chính gói triển khai người vận hành thật sẽ chạy, không
+      # phải một cấu hình test riêng biệt.
+      - name: Generate CI-only secrets and .env files (masked, never committed)
+        run: |
+          set -euo pipefail
+          POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+          JWT_ACCESS_SECRET="$(openssl rand -hex 32)"
+          JWT_REFRESH_SECRET="$(openssl rand -hex 32)"
+          FIRST_ADMIN_PASSWORD="$(openssl rand -hex 12)Aa1!"
+
+          echo "::add-mask::${POSTGRES_PASSWORD}"
+          echo "::add-mask::${JWT_ACCESS_SECRET}"
+          echo "::add-mask::${JWT_REFRESH_SECRET}"
+          echo "::add-mask::${FIRST_ADMIN_PASSWORD}"
+
+          cat > .env <<EOF
+          POSTGRES_USER=pos_erp_release_e2e
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          POSTGRES_DB=pos_erp_release_e2e
+          NEXT_PUBLIC_API_URL=http://localhost:3000/api/v1
+          NEXT_PUBLIC_WS_URL=http://localhost:3000
+          EOF
+
+          cat > backend/.env <<EOF
+          NODE_ENV=production
+          PORT=3000
+          CORS_ORIGIN=http://localhost:3001,http://127.0.0.1:3001
+          AUTH_COOKIE_SECURE=false
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+          JWT_ACCESS_EXPIRES_IN=15m
+          JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+          JWT_REFRESH_EXPIRES_IN=30d
+          SWAGGER_ENABLED=false
+          METRICS_ENABLED=false
+          FIRST_ADMIN_EMAIL=admin@pos-erp-release-e2e.local
+          FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD}
+          FIRST_ADMIN_ORG_SLUG=pos-erp-release-e2e
+          EOF
+
+          {
+            echo "CI_FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD}"
+          } >> "$GITHUB_ENV"
+
+      - name: docker compose build (base + dev override)
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml build
+
+      - name: docker compose up -d --wait (Postgres/Redis healthy → bring-up → Backend healthy → Frontend healthy)
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait --wait-timeout 180
+
+      - name: docker compose ps (bằng chứng trạng thái từng service)
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml ps
+
+      - name: Verify backend /health
+        run: |
+          curl -sf http://localhost:3000/health | tee /tmp/health.json
+          grep -q '"status":"ok"' /tmp/health.json
+
+      - name: Verify frontend reachability
+        run: curl -sf -o /dev/null -w "%{http_code}\n" http://localhost:3001/ | grep -qE "^(200|307|308)$"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright Chromium browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # §5/§7 — first-admin thật, tạo sẵn bởi chính bring-up của docker-compose (T051.04), không
+      # có mật khẩu mặc định — global-setup.ts (T051.08) THẤT BẠI có chủ đích nếu thiếu biến này.
+      - name: Run real-browser release E2E suite
+        working-directory: frontend
+        env:
+          RELEASE_E2E_BASE_URL: http://localhost:3001
+          RELEASE_E2E_API_URL: http://localhost:3000/api/v1
+          RELEASE_E2E_ORG_SLUG: pos-erp-release-e2e
+          RELEASE_E2E_ADMIN_EMAIL: admin@pos-erp-release-e2e.local
+          RELEASE_E2E_ADMIN_PASSWORD: ${{ env.CI_FIRST_ADMIN_PASSWORD }}
+        run: npm run test:e2e:release
+
+      # §17 — thất bại phải có bằng chứng chẩn đoán: trace/screenshot/report Playwright (đã cấu
+      # hình `retain-on-failure`/`only-on-failure` trong playwright.release.config.ts) cộng log
+      # container thật — KHÔNG log nào chứa secret (đã mask ở bước sinh .env).
+      - name: Upload Playwright release report (on failure only)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-release-report
+          path: |
+            frontend/playwright-release-report/
+            frontend/test-results/
+          retention-days: 7
+
+      - name: Dump docker compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml logs --no-color
+
+      - name: Final teardown (CI cleanup only — operators must NEVER use -v normally, see runbook)
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml down -v

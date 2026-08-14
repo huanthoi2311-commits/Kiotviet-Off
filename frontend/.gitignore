@@ -14,8 +14,12 @@
 /coverage
 /test-results/
 /playwright-report/
+/playwright-release-report/
 /blob-report/
 /playwright/.cache/
+# T051.08 — global-setup.ts sinh ra lúc chạy (mật khẩu bootstrap thật + cookie session thật) —
+# KHÔNG BAO GIỜ commit.
+/e2e/release/.auth/
 
 # next.js
 /.next/

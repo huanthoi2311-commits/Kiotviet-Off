@@ -139,10 +139,16 @@ jobs:
       - name: Login as bootstrapped first admin
         run: |
           set -euo pipefail
+          # T051.08 (resume round 3) — `process.stdin.on('data', ...)` fires once per OS-buffered
+          # chunk of the piped curl output; the previous one-liner JSON.parse()'d EACH chunk
+          # individually instead of accumulating until 'end', so any response split across chunks
+          # threw "Unterminated string" — confirmed via real CI failure (SyntaxError at position
+          # 4096) on the merge-commit run for T051.08D, a pre-existing bug unrelated to that
+          # package's own changes. Accumulate then parse once.
           TOKEN=$(curl -sf -X POST http://localhost:3000/api/v1/auth/login \
             -H "Content-Type: application/json" \
             -d "{\"organizationSlug\":\"pos-erp-ci\",\"email\":\"admin@pos-erp-ci.local\",\"password\":\"${CI_FIRST_ADMIN_PASSWORD}\"}" \
-            | node -e "process.stdin.on('data',d=>console.log(JSON.parse(d).data.accessToken))")
+            | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).data.accessToken))")
           echo "::add-mask::${TOKEN}"
           echo "ACCESS_TOKEN=${TOKEN}" >> "$GITHUB_ENV"
 
