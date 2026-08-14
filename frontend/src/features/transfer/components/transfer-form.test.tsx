@@ -113,6 +113,13 @@ describe('TransferCreateForm (T044 Phase L)', () => {
     expect(screen.getByRole('combobox', { name: 'Sản phẩm' })).toBeInTheDocument();
   });
 
+  // T051.09 — 6 sequential combobox/option interactions plus a char-by-char `type('10')` and 2
+  // `waitFor` checks is legitimately a lot of async work for one test; the default 5000ms Vitest
+  // timeout was intermittently exceeded under the full 98-file suite's CPU contention (confirmed via
+  // repeated full-suite reproduction: a generic "Test timed out in 5000ms" — not a wrong-value
+  // assertion failure — occurring only under full-suite load, never in isolation). No logic bug:
+  // every assertion is correct once given enough wall-clock time. Matches the project's existing
+  // precedent of per-test timeout overrides for legitimately slow tests (e.g. real-Postgres E2E specs).
   it('submits the expected payload and navigates to the detail page on success', async () => {
     let capturedBody: Record<string, unknown> | undefined;
     server.use(
@@ -135,7 +142,7 @@ describe('TransferCreateForm (T044 Phase L)', () => {
       }),
     );
     await waitFor(() => expect(push).toHaveBeenCalledWith('/transfers/tr-new-1'));
-  });
+  }, 15_000);
 
   it('blocks submission and makes zero network calls when required fields are missing', async () => {
     let called = false;

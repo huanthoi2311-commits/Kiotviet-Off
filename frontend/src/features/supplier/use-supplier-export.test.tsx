@@ -144,19 +144,36 @@ describe('useSupplierExport (T049 AD-1 §6)', () => {
   });
 
   it('duplicate-click protection: a second click while pending does not fire a second request', async () => {
-    const getSpy = mockApiClientGet(
-      {
-        data: new Blob(['fake-xlsx-bytes']),
-        headers: { 'content-disposition': 'attachment; filename="suppliers.xlsx"' },
+    // T051.09 — the guard under test is purely `disabled={isPending}` (use-supplier-export.ts has
+    // no lock of its own inside the mutation). The original version of this test used a real
+    // `setTimeout(100)` delay to keep the mutation "pending" long enough for the extra clicks to
+    // land — this raced real wall-clock time against CPU-contention-dependent JS scheduling: under
+    // the full 98-file suite, more than 100ms could elapse between clicks, letting the mutation
+    // settle (isPending flip back to false) BEFORE the next click fired, making it a legitimately
+    // new (non-duplicate) request — confirmed via repeated full-suite reproduction (deterministic
+    // 5/5 pass in isolation, ~1-in-2 fail under full-suite load, even after first adding a
+    // `waitFor(toBeDisabled)` sync point, which narrowed the race but didn't remove the wall-clock
+    // dependency). Fix: a manually-controlled Promise that literally cannot settle until this test
+    // calls `resolveRequest()` — removes the race entirely, not just narrows its window.
+    let resolveRequest!: (value: { data: Blob; headers: Record<string, string> }) => void;
+    const requestPromise = new Promise<{ data: Blob; headers: Record<string, string> }>(
+      (resolve) => {
+        resolveRequest = resolve;
       },
-      { delayMs: 100 },
     );
+    const getSpy = vi.spyOn(apiClientModule.apiClient, 'get').mockReturnValue(requestPromise);
 
     renderHarness({});
     const button = screen.getByRole('button', { name: 'Xuất Excel' });
     await userEvent.click(button);
+    await waitFor(() => expect(button).toBeDisabled());
     await userEvent.click(button);
     await userEvent.click(button);
+
+    resolveRequest({
+      data: new Blob(['fake-xlsx-bytes']),
+      headers: { 'content-disposition': 'attachment; filename="suppliers.xlsx"' },
+    });
 
     await waitFor(() => expect(clickSpy).toHaveBeenCalled());
     expect(getSpy).toHaveBeenCalledTimes(1);

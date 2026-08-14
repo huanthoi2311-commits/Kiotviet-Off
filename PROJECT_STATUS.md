@@ -2,41 +2,41 @@
 
 **Nguồn trạng thái chính của dự án** (Decision T006-R04, thu gọn phạm vi theo Decision P04 — chỉ giữ Version/Sprint hiện tại/Release; Progress/Module Status/Overall Project/Roadmap chuyển hẳn sang `docs/SPRINT_DASHBOARD.md`, không lặp lại ở đây). Đọc file này + `SPRINT_DASHBOARD.md` trước khi bắt đầu bất kỳ task mới nào sau khi hết session.
 
-**Cập nhật lần cuối:** 2026-08-13 (T051.05 Documentation Sync — thay thế nội dung cũ mô tả trạng thái T013/T014, đã lệch thực tế ~40 task).
+**Cập nhật lần cuối:** 2026-08-14 (T051.09 Final V1.0 Finalization).
 
 ---
 
 ## Version
 
-**Tag chính thức gần nhất:** `v0.10.0-sales-return-exchange` (2026-07-27) — xem `git tag -l` cho toàn bộ 11 tag từ `v0.1.0-foundation`. **HEAD hiện tại (`main` @ `d13fa15`) đã vượt xa tag này** — toàn bộ chuỗi T030 (Environment Recovery) → T031 (Frontend Foundation) → T032 (Platform Recovery) → T033-T050 (module hoá lại Category/Brand/Unit/Product/Inventory/Purchase/Sales/SalesReturn/Customer/Supplier/Purchase Report theo numbering phụ thuộc mới) → T051 (Release Hardening series) đã merge vào `main` **CHƯA GẮN TAG mới**. Việc đồng bộ version 3 `package.json` (hiện không nhất quán: root `0.1.0`, backend `0.0.1`, frontend `0.1.0`) + tạo tag `v1.0.0-rc1` nằm trong lộ trình hoàn tất V1.0 dưới đây — **CHƯA thực hiện ở package này (T051.05 chỉ là docs-sync).**
+**Tag chính thức gần nhất:** `v0.10.0-sales-return-exchange` (2026-07-27) — xem `git tag -l` cho toàn bộ 11 tag từ `v0.1.0-foundation`. **HEAD hiện tại đã vượt xa tag này** — toàn bộ chuỗi T030 → T051.09 đã merge vào `main`, **CHƯA GẮN TAG mới**. **Git tag là nguồn định danh phát hành chính thức duy nhất của dự án** (xác nhận qua lịch sử: cả 10 tag `v0.1.0-foundation` → `v0.10.0-sales-return-exchange` đều KHÔNG đồng bộ với version trong 3 `package.json`, vốn vẫn giữ nguyên `0.1.0`/`0.0.1`/`0.1.0` xuyên suốt — 3 file này KHÔNG dùng làm định danh phát hành, không cần đồng bộ). Tag tiếp theo dự kiến: **`v1.0.0`** (không hậu tố — bản GA đầu tiên, khác quy ước hậu tố theo module của các tag trước) — **CHƯA được tạo, chờ Architect uỷ quyền riêng.**
 
-## Giai đoạn hiện tại: RELEASE HARDENING — FEATURE FREEZE ĐANG HIỆU LỰC
+## Giai đoạn hiện tại: V1.0 READY FOR RELEASE — FEATURE FREEZE ĐANG HIỆU LỰC
 
-Phát triển tính năng nghiệp vụ mới **ĐANG ĐÓNG BĂNG**. Toàn bộ domain nghiệp vụ cốt lõi cho phạm vi V1 (Product/Category/Brand/Unit/Barcode, Customer/Supplier, Purchase/PurchaseReturn, Sales/SalesReturn, Inventory/Transfer/StockCount/InventoryAdjustment, Checkout/Invoice/Payment, Purchase Report, RBAC) đã hoàn tất triển khai — **T050 (Purchase Report) là task nghiệp vụ cuối cùng, ĐÃ ĐÓNG** (PR #40). Từ đó trở đi, công việc là chuỗi **T051.x — Release Hardening**, không phải tính năng mới:
+Phát triển tính năng nghiệp vụ mới **ĐANG ĐÓNG BĂNG**. Toàn bộ domain nghiệp vụ cốt lõi cho phạm vi V1 đã hoàn tất triển khai — **T050 (Purchase Report) là task nghiệp vụ cuối cùng, ĐÃ ĐÓNG** (PR #40). Toàn bộ chuỗi **T051.x — Release Hardening** đã đóng:
 
 | Package | Nội dung | Trạng thái |
 |---|---|---|
 | T051.00 | RBAC Tenant Isolation — vá 1 lỗ hổng cross-tenant đã xác nhận trên endpoint role/permission | **ĐÃ ĐÓNG** (PR #41) |
+| T051.01 | Branch Protection (`main`) — GitHub Repository Ruleset (ID 20395629) | **ĐÃ ĐÓNG**, tái xác nhận T051.09 (xem ghi chú dưới) |
 | T051.02 | Concurrency Hardening — optimistic-lock/CAS cho PurchaseOrder.receive, PurchaseReturn.complete, Transfer transitions, StockCount.complete, InventoryAdjustment.complete | **ĐÃ ĐÓNG** (PR #42) |
-| T051.03 | Backup / Restore (PostgreSQL) — pg_dump/pg_restore, xác minh bằng `pg_restore --list`, retention, loại trừ Redis khỏi phạm vi backup | **ĐÃ ĐÓNG** (PR #43, #44) |
-| T051.04 | Deployment Packaging — Windows → Docker Desktop/Compose → Postgres+Redis → bring-up → backend → frontend, đã chứng minh thật qua CI trên merge commit | **ĐÃ ĐÓNG** (PR #45) |
-| — | **V1.0 Release Candidate Readiness Audit** — đánh giá lại từ nguồn sau 4 package trên | **HOÀN TẤT — 0 RC blocker được xác nhận** (`docs/release/T051-V1-RELEASE-CANDIDATE-READINESS.md`) |
-| T051.05 | Documentation Sync (package này) — đồng bộ `PROJECT_STATUS.md`/`SPRINT_DASHBOARD.md` với thực tế post-T051.04 | **ĐANG THỰC HIỆN** |
+| T051.03 | Backup / Restore (PostgreSQL) | **ĐÃ ĐÓNG** (PR #43, #44) |
+| T051.04 | Deployment Packaging | **ĐÃ ĐÓNG** (PR #45) |
+| T051.05 | Documentation Sync | **ĐÃ ĐÓNG** |
+| T051.06A/B | Checkout Tenant Isolation / Tenant-Owned Foreign-ID Hardening | **ĐÃ ĐÓNG** |
+| T051.08A-D | Auth Envelope / Cookie Secure Transport / Cookie Path / Bootstrap Organization Completeness | **ĐÃ ĐÓNG** |
+| T051.08 | Real-Browser Release E2E (7/7 test, stack đóng gói thật) | **ĐÃ ĐÓNG** |
+| T051.09 | Final V1.0 Finalization (package này) — ổn định 2 flaky test, sửa `useCurrentOrganization` envelope, audit raw Axios, tái xác nhận security/tenant/concurrency, release notes, acceptance matrix | **ĐANG HOÀN TẤT** — xem `docs/release/V1.0.0-RELEASE-NOTES.md` |
 
-**Phần việc còn lại là hoàn thiện phát hành (release finalization), KHÔNG phải phát triển tính năng mới.** Xem mục "Lộ trình hoàn tất V1.0" bên dưới.
+**T051.01 Branch Protection — ghi chú quan trọng (T051.09)**: audit độc lập ban đầu dùng sai API endpoint (legacy `branches/{branch}/protection`, trả 404) và tưởng nhầm protection đã mất. Xác nhận lại qua đúng API Repository Ruleset: ruleset `20395629` "Protect main" **vẫn active liên tục từ 2026-08-04**, chưa từng bị xoá/tắt — 404 ở endpoint cũ là do repo dùng cơ chế Ruleset (mới hơn), không phải Classic Branch Protection. Không có khoảng trống bảo vệ thật nào từng xảy ra.
+
+**Phần việc còn lại**: chờ Architect xác nhận ma trận chấp nhận phát hành (T051.09) rồi uỷ quyền tạo tag `v1.0.0` + GitHub Release — KHÔNG phải phát triển thêm.
 
 ## Release
 
-- **Tag chính thức gần nhất:** `v0.10.0-sales-return-exchange` (2026-07-27). ~2.5 tuần công việc (T030 → T051.04, PR #3 → #45) đã merge vào `main` nhưng chưa gắn tag mới — xem mục "Version" ở trên.
-- **V1.0 Release Candidate Readiness Audit** (2026-08-13, `docs/release/T051-V1-RELEASE-CANDIDATE-READINESS.md`): đánh giá lại TỪ NGUỒN (không tái sử dụng audit cũ chưa xác minh) 4 package hardening + toàn bộ hạng mục RC (branch protection, tenant isolation, concurrency, frontend E2E, migration/rollback, first-admin bootstrap, operator experience, security, docs, versioning). Kết luận: **0 RC blocker xác nhận**. Feature completeness ước tính ~90-95%, Release readiness ước tính ~80-85% (hai số không gộp — xem tài liệu gốc để hiểu rõ khác biệt).
-- **Lộ trình hoàn tất V1.0** (đã Architect duyệt, thứ tự cố định — không phải RC blocker, là điều kiện cho FINAL v1.0.0):
-  1. **T051.05 — Documentation Sync** (package này)
-  2. Branch Protection phạm vi thu hẹp (required status checks + chặn force-push `main`)
-  3. Tenant Audit phạm vi thu hẹp — CHỈ 6 module (`supplier-debt`/payment, `customer-point`, `discount`, `payment`, `product-price`, `cart`), không phải toàn bộ 27 module
-  4. Playwright suite tối thiểu — 1 kịch bản liền mạch Login→PO→Receive→Inventory→Checkout→Invoice→SalesReturn→Inventory
-  5. Ổn định 2 test flaky đã biết (`use-supplier-export.test.tsx`, `use-purchase-report-export.test.tsx` — real-timer race, không phải lỗi production)
-  6. Xác minh phát hành cuối + gắn tag `v1.0.0` chính thức
-- **Versioning Policy** (Decision T006-R07, vẫn hiệu lực): giữ `v0.x.y` cho tới khi hoàn tất đầy đủ domain theo roadmap — **điều kiện này nay đã thoả** (xem giai đoạn hiện tại ở trên); chuyển `v1.0.0` được thực hiện qua đúng lộ trình 6 bước trên, không phát hành sớm/ngoài quy trình.
+- **Tag chính thức gần nhất:** `v0.10.0-sales-return-exchange` (2026-07-27). Toàn bộ T030 → T051.09 đã merge vào `main` nhưng chưa gắn tag mới.
+- **V1.0 Release Candidate Readiness Audit** (2026-08-13, `docs/release/T051-V1-RELEASE-CANDIDATE-READINESS.md`): 0 RC blocker xác nhận tại thời điểm đó.
+- **T051.09 Final V1.0 Finalization** (2026-08-14): ổn định `use-supplier-export.test.tsx` VÀ `use-purchase-report-export.test.tsx` (cả 2 cùng 1 lớp lỗi real-timer race trong test — đã sửa bằng Promise tự kiểm soát thay vì `setTimeout` thật, xác nhận qua 10 lần chạy toàn bộ Vitest suite liên tiếp không lỗi); sửa `useCurrentOrganization()` (cùng lớp lỗi envelope đã sửa ở T051.08A, latent nhưng đã xác nhận đủ điều kiện sửa trước V1); audit raw Axios lần cuối (không còn consumer envelope chưa xác định); tái xác nhận security/tenant/concurrency/branch-protection; release notes + acceptance matrix. Chi tiết đầy đủ: `docs/release/V1.0.0-RELEASE-NOTES.md`.
+- **Versioning Policy** (Decision T006-R07, vẫn hiệu lực): giữ `v0.x.y` cho tới khi hoàn tất đầy đủ domain theo roadmap — điều kiện này đã thoả. Chuyển `v1.0.0` chờ Architect uỷ quyền riêng (KHÔNG tự tạo tag/GitHub Release trong package T051.09).
 
 ## Tài liệu tham chiếu nhanh
 

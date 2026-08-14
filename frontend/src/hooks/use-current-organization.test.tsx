@@ -32,16 +32,34 @@ describe('organization context (FR7)', () => {
     const token = buildAccessToken({ sub: 'user-1', organizationId: 'org-42', permissions: [] });
     useAuthStore.getState().setAccessToken(token);
 
+    // T051.09 — mock the REAL response shape: every 2xx body is wrapped by the backend's
+    // TransformInterceptor into { success, data, meta, traceId, timestamp } (T051.08A envelope
+    // class). Previously this mock returned the entity directly, unwrapped — which meant the
+    // hook's own former bug (returning `response.data`, the whole envelope, instead of
+    // `response.data.data`) went undetected: the test's fake response happened to already be
+    // shaped like the entity, masking exactly the mismatch this test exists to catch.
     server.use(
       http.get(`${API_BASE_URL}/organizations/current`, () =>
-        HttpResponse.json({ id: 'org-42', name: 'KiotViet Off', slug: 'kiotviet-off' }),
+        HttpResponse.json({
+          success: true,
+          data: { id: 'org-42', name: 'KiotViet Off', slug: 'kiotviet-off' },
+          meta: null,
+          traceId: 't-1',
+          timestamp: new Date().toISOString(),
+        }),
       ),
     );
 
     const { result } = renderHook(() => useCurrentOrganization(), { wrapper });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toMatchObject({ id: 'org-42', name: 'KiotViet Off' });
+    // Regression proof: the cached value is the unwrapped entity, not the envelope — `success`/
+    // `meta`/`traceId` must NOT leak into the query's data.
+    expect(result.current.data).toEqual({
+      id: 'org-42',
+      name: 'KiotViet Off',
+      slug: 'kiotviet-off',
+    });
   });
 
   it('does not fetch when unauthenticated', () => {

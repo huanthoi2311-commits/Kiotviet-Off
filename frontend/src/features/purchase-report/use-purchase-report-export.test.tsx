@@ -157,19 +157,31 @@ describe('usePurchaseReportExport (T050 AD-2)', () => {
   });
 
   it('duplicate-click protection: a second click while pending does not fire a second request', async () => {
-    const getSpy = mockApiClientGet(
-      {
-        data: new Blob(['fake-xlsx-bytes']),
-        headers: { 'content-disposition': 'attachment; filename="purchase-report-supplier.xlsx"' },
+    // T051.09 — mirrors the fix in use-supplier-export.test.tsx (same T050 AD-2 downloadFile()
+    // utility, same TestHarness shape): the previous real `setTimeout(100)` delay raced wall-clock
+    // time against CPU-contention-dependent JS scheduling under the full suite, letting the
+    // mutation settle (isPending flip back to false) before a later click fired, making it a
+    // legitimately new (non-duplicate) request. A manually-controlled Promise removes the race
+    // entirely — it cannot settle until this test explicitly resolves it.
+    let resolveRequest!: (value: { data: Blob; headers: Record<string, string> }) => void;
+    const requestPromise = new Promise<{ data: Blob; headers: Record<string, string> }>(
+      (resolve) => {
+        resolveRequest = resolve;
       },
-      { delayMs: 100 },
     );
+    const getSpy = vi.spyOn(apiClientModule.apiClient, 'get').mockReturnValue(requestPromise);
 
     renderHarness({ groupBy: 'SUPPLIER', format: 'EXCEL' });
     const button = screen.getByRole('button', { name: 'Xuất báo cáo' });
     await userEvent.click(button);
+    await waitFor(() => expect(button).toBeDisabled());
     await userEvent.click(button);
     await userEvent.click(button);
+
+    resolveRequest({
+      data: new Blob(['fake-xlsx-bytes']),
+      headers: { 'content-disposition': 'attachment; filename="purchase-report-supplier.xlsx"' },
+    });
 
     await waitFor(() => expect(clickSpy).toHaveBeenCalled());
     expect(getSpy).toHaveBeenCalledTimes(1);
