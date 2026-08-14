@@ -30,6 +30,7 @@ test.describe.serial('T052.03C — RBAC Management (real stack)', () => {
 
   let limitedRoleId: string;
   let limitedRoleCode: string;
+  let limitedRoleName: string;
 
   test.beforeAll(() => {
     fixtures = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf-8')) as ReleaseFixtures;
@@ -38,6 +39,12 @@ test.describe.serial('T052.03C — RBAC Management (real stack)', () => {
     secondEmail = `rbac-e2e-${suffix}@pos-erp-release-e2e.local`;
     secondPassword = `RbacE2ePass@${suffix}`;
     limitedRoleCode = `re2e_limited_${suffix}`;
+    // §14 — `test.describe.serial` retries the WHOLE block on failure (`playwright.release.config.ts`
+    // `retries: 1` on CI), and `beforeAll` re-runs on that retry, but data from the FAILED attempt is
+    // never cleaned up. A static role name would then exist twice (leftover attempt + retry attempt),
+    // making CASE 2's role-option selection ambiguous — the suffix must be in the NAME too, not just
+    // the code (confirmed the hard way: this is exactly what happened on the first CI run).
+    limitedRoleName = `RBAC E2E Role ${suffix}`;
   });
 
   const LOGIN_THROTTLE_MAX_ATTEMPTS = 5;
@@ -96,7 +103,7 @@ test.describe.serial('T052.03C — RBAC Management (real stack)', () => {
     await page.waitForURL('**/roles/new');
 
     await page.getByLabel('Mã vai trò').fill(limitedRoleCode);
-    await page.getByLabel('Tên vai trò').fill('RBAC E2E Limited Role');
+    await page.getByLabel('Tên vai trò').fill(limitedRoleName);
     await page.getByRole('button', { name: 'Tạo vai trò' }).click();
 
     await page.waitForURL(/\/roles\/[0-9a-f-]{36}$/, { timeout: 15_000 });
@@ -142,7 +149,7 @@ test.describe.serial('T052.03C — RBAC Management (real stack)', () => {
     const assignDialog = ownerPage.getByRole('dialog');
     await expect(assignDialog).toBeVisible();
     await assignDialog.getByRole('combobox', { name: 'Vai trò' }).click();
-    await ownerPage.getByRole('option', { name: /RBAC E2E Limited Role/ }).click();
+    await ownerPage.getByRole('option', { name: limitedRoleName, exact: true }).click();
     await assignDialog.getByRole('button', { name: 'Gán vai trò' }).click();
     await expect(assignDialog).toBeHidden({ timeout: 15_000 });
 
@@ -268,7 +275,14 @@ test.describe.serial('T052.03C — RBAC Management (real stack)', () => {
 
     await page.goto('/roles');
     await page.getByPlaceholder('Tìm theo tên hoặc mã vai trò...').fill('owner');
-    await page.getByRole('link', { name: 'Xem' }).click();
+    // Search is client-side and debounced (300ms, `SearchToolbar`) — clicking "Xem" immediately
+    // after `.fill()` can race the still-unfiltered (multi-row) table, making the link ambiguous
+    // (confirmed the hard way against real CI: "resolved to 2 elements"). Scoping to the row whose
+    // own text actually contains "owner" both waits for the filter to settle (via locator retry)
+    // and removes any ambiguity even if it doesn't.
+    const ownerRow = page.getByRole('row').filter({ hasText: 'owner' });
+    await expect(ownerRow).toHaveCount(1, { timeout: 5_000 });
+    await ownerRow.getByRole('link', { name: 'Xem' }).click();
     await page.waitForURL(/\/roles\/[0-9a-f-]{36}$/, { timeout: 15_000 });
 
     const roleUpdateCheckbox = page.getByRole('checkbox', { name: /role:update/ });
