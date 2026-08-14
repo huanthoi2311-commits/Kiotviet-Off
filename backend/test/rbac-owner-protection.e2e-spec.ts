@@ -40,7 +40,31 @@ describe('RBAC Owner-Lockout Protection (e2e, T052.03B)', () => {
   let ownerRoleAId: string;
   let ownerRoleBId: string;
   let otherRoleId: string;
-  let ownerToken: string;
+
+  /**
+   * T052.03B — deliberately re-signs a FRESH token (fresh `permissionVersion` read from DB) before
+   * every call, rather than reusing one token signed once in `beforeAll`. `assignPermissions`/
+   * `removeRoleFromUser` bump `User.permissionVersion` for every affected user (pre-existing
+   * behavior, see `RbacService`'s "JWT nhúng sẵn quyền cũ — bump version để buộc login lại"
+   * comment) — CASE B below mutates the owner's OWN role, which bumps the owner's OWN
+   * `permissionVersion`, which would make a token signed before that point fail
+   * `AUTH_PERMISSION_VERSION_MISMATCH` (401) on every subsequent call in this suite. That 401 is
+   * correct product behavior, not a bug — the fix belongs in this test helper, not in RbacService.
+   */
+  async function signOwnerToken(): Promise<string> {
+    const owner = await prisma.user.findUniqueOrThrow({
+      where: { id: ownerUserId },
+    });
+    return app.get(JwtService).sign({
+      sub: owner.id,
+      organizationId,
+      branchId: null,
+      email: owner.email,
+      permissions: ['role:update', 'role:view', 'user:update'],
+      permissionVersion: owner.permissionVersion,
+      isPlatformAdmin: false,
+    });
+  }
 
   async function seedRole(
     orgId: string,
@@ -157,16 +181,6 @@ describe('RBAC Owner-Lockout Protection (e2e, T052.03B)', () => {
       imports: [AppModule],
     }).compile();
     app = await createE2eApp(moduleFixture);
-
-    ownerToken = app.get(JwtService).sign({
-      sub: owner.id,
-      organizationId,
-      branchId: null,
-      email: owner.email,
-      permissions: ['role:update', 'role:view', 'user:update'],
-      permissionVersion: owner.permissionVersion,
-      isPlatformAdmin: false,
-    });
   });
 
   afterAll(async () => {
@@ -177,7 +191,7 @@ describe('RBAC Owner-Lockout Protection (e2e, T052.03B)', () => {
   it('CASE A — assignPermissions: owner does not hold the role being mutated -> allowed regardless of content', async () => {
     await request(app.getHttpServer())
       .post(`/api/v1/roles/${otherRoleId}/permissions`)
-      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('Authorization', `Bearer ${await signOwnerToken()}`)
       .send({ permissionCodes: ['product:view', 'customer:view'] })
       .expect(201);
 
@@ -193,7 +207,7 @@ describe('RBAC Owner-Lockout Protection (e2e, T052.03B)', () => {
   it('CASE D — removeRoleFromUser: target user is not the owner -> allowed', async () => {
     await request(app.getHttpServer())
       .delete(`/api/v1/roles/${otherRoleId}/users/${regularUserId}`)
-      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('Authorization', `Bearer ${await signOwnerToken()}`)
       .expect(204);
 
     const assignment = await prisma.userRole.findUnique({
@@ -209,7 +223,7 @@ describe('RBAC Owner-Lockout Protection (e2e, T052.03B)', () => {
 
     await request(app.getHttpServer())
       .post(`/api/v1/roles/${ownerRoleAId}/permissions`)
-      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('Authorization', `Bearer ${await signOwnerToken()}`)
       .send({ permissionCodes: ['role:update', 'role:view', 'user:update'] })
       .expect(201);
 
@@ -225,7 +239,7 @@ describe('RBAC Owner-Lockout Protection (e2e, T052.03B)', () => {
   it('CASE E (multi-role, §15) — removeRoleFromUser: owner loses one of TWO role:update-granting roles -> allowed (still has the other)', async () => {
     await request(app.getHttpServer())
       .delete(`/api/v1/roles/${ownerRoleAId}/users/${ownerUserId}`)
-      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('Authorization', `Bearer ${await signOwnerToken()}`)
       .expect(204);
 
     const assignment = await prisma.userRole.findUnique({
@@ -246,7 +260,7 @@ describe('RBAC Owner-Lockout Protection (e2e, T052.03B)', () => {
 
     const res = await request(app.getHttpServer())
       .post(`/api/v1/roles/${ownerRoleBId}/permissions`)
-      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('Authorization', `Bearer ${await signOwnerToken()}`)
       .send({ permissionCodes: ['user:update'] })
       .expect(409);
     expect(res.body.code).toBe('RBAC_006');
@@ -266,7 +280,7 @@ describe('RBAC Owner-Lockout Protection (e2e, T052.03B)', () => {
   it('CASE F-alt — removeRoleFromUser: removing owner_role_b (sole remaining role:update source) from the owner is rejected', async () => {
     const res = await request(app.getHttpServer())
       .delete(`/api/v1/roles/${ownerRoleBId}/users/${ownerUserId}`)
-      .set('Authorization', `Bearer ${ownerToken}`)
+      .set('Authorization', `Bearer ${await signOwnerToken()}`)
       .expect(409);
     expect(res.body.code).toBe('RBAC_006');
 
