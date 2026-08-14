@@ -1,5 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ErrorCode } from '../../../common/errors/error-codes';
+import { withCode } from '../../../common/errors/with-code';
 import {
   RoleEntity,
   RoleWithPermissions,
@@ -14,15 +17,30 @@ export class PrismaRoleRepository implements IRoleRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(input: CreateRoleInput): Promise<RoleEntity> {
-    const role = await this.prisma.role.create({
-      data: {
-        organizationId: input.organizationId,
-        code: input.code,
-        name: input.name,
-        description: input.description,
-      },
-    });
-    return this.toEntity(role);
+    try {
+      const role = await this.prisma.role.create({
+        data: {
+          organizationId: input.organizationId,
+          code: input.code,
+          name: input.name,
+          description: input.description,
+        },
+      });
+      return this.toEntity(role);
+    } catch (error) {
+      // T052.03B (D7) — pre-check trong RbacService.createRole() có race window giữa 2 request
+      // đồng thời cùng code; đây là fallback ở tầng DB unique constraint để không lộ lỗi Prisma
+      // thô (P2002 -> 500) khi race xảy ra. Cùng pattern PrismaBrandRepository.translateWriteError.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          withCode(ErrorCode.RBAC_ROLE_CODE_CONFLICT, 'Mã vai trò đã tồn tại'),
+        );
+      }
+      throw error;
+    }
   }
 
   async findById(
@@ -111,6 +129,23 @@ export class PrismaRoleRepository implements IRoleRepository {
       select: { organizationId: true },
     });
     return user?.organizationId ?? null;
+  }
+
+  /**
+   * T052.03B — RBAC POLICY READ PORT. Direct, read-only, single-column query against
+   * `Organization` scoped by `id = organizationId`. Deliberately bypasses the full Organization
+   * aggregate/repository (`OrganizationModule`'s own `IOrganizationRepository`) — RBAC has no
+   * business reading anything else on that aggregate, and importing that module would recreate
+   * the module cycle rejected during T052.03B round 2.
+   */
+  async findOrganizationOwnerUserId(
+    organizationId: string,
+  ): Promise<string | null> {
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { ownerUserId: true },
+    });
+    return organization?.ownerUserId ?? null;
   }
 
   async getRoleCodesForUser(userId: string): Promise<string[]> {

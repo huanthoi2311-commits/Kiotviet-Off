@@ -178,6 +178,23 @@ describe('RBAC Cross-Tenant Isolation (e2e, T051.00)', () => {
       'rbac-iso-org-b-user',
     );
 
+    // T052.03B — RbacService.assignPermissions()/removeRoleFromUser() now unconditionally resolve
+    // Organization.ownerUserId (owner-lockout invariant, see RbacService.getOwnerUserId()); an
+    // organization without a resolvable owner throws a 500 by design, which would break every
+    // assignPermissions call in this suite. Bootstrap ownerUserId same as the real product flow
+    // (create Organization -> create owner User -> UPDATE Organization.ownerUserId), same pattern
+    // `user-management.e2e-spec.ts` already established. Neither org's admin user holds `role:update`
+    // ONLY via a role also used as a mutation target in tests 1/3/5/8 below, so this does not change
+    // any existing assertion in this file.
+    await prisma.organization.update({
+      where: { id: orgAId },
+      data: { ownerUserId: orgAAdminUserId },
+    });
+    await prisma.organization.update({
+      where: { id: orgBId },
+      data: { ownerUserId: orgBUserId },
+    });
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -291,5 +308,50 @@ describe('RBAC Cross-Tenant Isolation (e2e, T051.00)', () => {
       .set('Authorization', `Bearer ${orgANoRbacPermToken}`)
       .send({ userId: orgATargetUserId, roleId: orgATargetRoleId })
       .expect(403);
+  });
+
+  // T052.03B — DELETE /roles/:roleId/users/:userId (newly exposed) must carry the exact same
+  // tenant-isolation guarantees as the other 5 role-mutation endpoints proven above.
+  it('9. DELETE /roles/:roleId/users/:userId is tenant-isolated (cross-org user, cross-org role, same-org success)', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/roles/assign')
+      .set('Authorization', `Bearer ${orgAAdminToken}`)
+      .send({ userId: orgATargetUserId, roleId: orgATargetRoleId })
+      .expect(201);
+
+    // 9a. cross-org target user (role is Org A's, user is Org B's) -> RBAC_USER_NOT_FOUND
+    const crossUserRes = await request(app.getHttpServer())
+      .delete(`/api/v1/roles/${orgATargetRoleId}/users/${orgBUserId}`)
+      .set('Authorization', `Bearer ${orgAAdminToken}`)
+      .expect(404);
+    expect(crossUserRes.body.code).toBe('RBAC_005');
+
+    // 9b. cross-org role (role is Org B's, user is Org A's) -> RBAC_ROLE_NOT_FOUND
+    const crossRoleRes = await request(app.getHttpServer())
+      .delete(`/api/v1/roles/${orgBRoleId}/users/${orgATargetUserId}`)
+      .set('Authorization', `Bearer ${orgAAdminToken}`)
+      .expect(404);
+    expect(crossRoleRes.body.code).toBe('RBAC_001');
+
+    // Neither cross-org attempt actually removed the real (same-org) assignment.
+    const stillAssigned = await prisma.userRole.findUnique({
+      where: {
+        userId_roleId: { userId: orgATargetUserId, roleId: orgATargetRoleId },
+      },
+    });
+    expect(stillAssigned).not.toBeNull();
+
+    // 9c. same-org, legitimate removal -> 204, DB reflects the removal.
+    await request(app.getHttpServer())
+      .delete(`/api/v1/roles/${orgATargetRoleId}/users/${orgATargetUserId}`)
+      .set('Authorization', `Bearer ${orgAAdminToken}`)
+      .expect(204);
+
+    const removed = await prisma.userRole.findUnique({
+      where: {
+        userId_roleId: { userId: orgATargetUserId, roleId: orgATargetRoleId },
+      },
+    });
+    expect(removed).toBeNull();
   });
 });
