@@ -16,6 +16,7 @@ import {
   Truck,
   Undo2,
   Users,
+  UsersRound,
   Warehouse,
 } from 'lucide-react';
 
@@ -42,6 +43,17 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: null,
     items: [{ label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }],
+  },
+  {
+    label: 'Tổ chức',
+    items: [
+      {
+        label: 'Nhân viên',
+        href: '/users',
+        icon: UsersRound,
+        permission: 'user:view',
+      },
+    ],
   },
   {
     label: 'Master Data',
