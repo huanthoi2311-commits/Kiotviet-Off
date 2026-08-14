@@ -92,6 +92,13 @@ export class RbacService {
       );
     }
 
+    await this.assertOwnerRetainsRoleUpdateAfterPermissionChange(
+      actor.organizationId,
+      roleId,
+      before.code,
+      permissionCodes,
+    );
+
     await this.roleRepository.replacePermissions(
       roleId,
       permissions.map((p) => p.id),
@@ -142,9 +149,9 @@ export class RbacService {
     });
   }
 
-  /** T051.00 — same tenant-ownership requirement as `assignRoleToUser`. Not currently wired to any
-   * controller route, but fixed alongside its sibling so a future caller cannot reintroduce the
-   * same cross-tenant gap by construction. */
+  /** T051.00 — same tenant-ownership requirement as `assignRoleToUser`.
+   * T052.03B — now wired to `DELETE /roles/:roleId/users/:userId`; protected by the same
+   * owner-lockout invariant as `assignPermissions`. */
   async removeRoleFromUser(
     userId: string,
     roleId: string,
@@ -152,6 +159,18 @@ export class RbacService {
   ): Promise<void> {
     await this.getRole(roleId, actor.organizationId);
     await this.assertUserInOrganization(userId, actor.organizationId);
+
+    if (userId === (await this.getOwnerUserId(actor.organizationId))) {
+      const ownerRoleCodes =
+        await this.roleRepository.getRoleCodesForUser(userId);
+      await this.assertOwnerRetainsRoleUpdate(
+        actor.organizationId,
+        ownerRoleCodes,
+        roleId,
+        [], // simulates the role being fully removed from the owner
+      );
+    }
+
     await this.roleRepository.removeRoleFromUser(userId, roleId);
   }
 
@@ -166,6 +185,101 @@ export class RbacService {
         withCode(ErrorCode.RBAC_USER_NOT_FOUND, 'Không tìm thấy người dùng'),
       );
     }
+  }
+
+  /**
+   * T052.03B §6 — Owner effective-permission algorithm, `assignPermissions` side. `roleCode` is
+   * the target role's own code (`before.code`), already resolved by the caller so we don't refetch
+   * it. Only runs the (more expensive) simulation when the owner actually holds the role being
+   * mutated — if not, this mutation cannot possibly affect the owner's effective permissions, so
+   * existing behavior continues unchanged (§6 step 3).
+   */
+  private async assertOwnerRetainsRoleUpdateAfterPermissionChange(
+    organizationId: string,
+    mutatedRoleId: string,
+    mutatedRoleCode: string,
+    newPermissionCodesForMutatedRole: string[],
+  ): Promise<void> {
+    const ownerUserId = await this.getOwnerUserId(organizationId);
+    const ownerRoleCodes =
+      await this.roleRepository.getRoleCodesForUser(ownerUserId);
+    if (!ownerRoleCodes.includes(mutatedRoleCode)) {
+      return;
+    }
+    await this.assertOwnerRetainsRoleUpdate(
+      organizationId,
+      ownerRoleCodes,
+      mutatedRoleId,
+      newPermissionCodesForMutatedRole,
+    );
+  }
+
+  /**
+   * T052.03B §6 — shared core of the owner effective-permission algorithm, reused by both
+   * `assignPermissions` (role permissions replaced) and `removeRoleFromUser` (role removed from
+   * owner entirely, modeled as "replaced by an empty permission set"). For every role the owner
+   * currently holds, sums up permission codes — using `newPermissionCodesForChangedRole` in place
+   * of `changedRoleId`'s real (pre-mutation) permissions, and each other role's real, current
+   * permissions untouched. Rejects only if `role:update` would be absent from every remaining
+   * effective owner role (§6: never by role code/name/`isSystem` alone).
+   */
+  private async assertOwnerRetainsRoleUpdate(
+    organizationId: string,
+    ownerRoleCodes: string[],
+    changedRoleId: string,
+    newPermissionCodesForChangedRole: string[],
+  ): Promise<void> {
+    const effectivePermissionCodes = new Set<string>();
+    for (const roleCode of ownerRoleCodes) {
+      const role = await this.roleRepository.findByCode(
+        organizationId,
+        roleCode,
+      );
+      if (!role) continue;
+      if (role.id === changedRoleId) {
+        newPermissionCodesForChangedRole.forEach((code) =>
+          effectivePermissionCodes.add(code),
+        );
+        continue;
+      }
+      const roleWithPermissions = await this.roleRepository.findById(
+        role.id,
+        organizationId,
+      );
+      roleWithPermissions?.permissionCodes.forEach((code) =>
+        effectivePermissionCodes.add(code),
+      );
+    }
+
+    if (!effectivePermissionCodes.has('role:update')) {
+      throw new ConflictException(
+        withCode(
+          ErrorCode.RBAC_OWNER_PERMISSION_REQUIRED,
+          'Thao tác sẽ khiến chủ sở hữu tổ chức mất quyền role:update — không thể thực hiện',
+        ),
+      );
+    }
+  }
+
+  /**
+   * T052.03B — RBAC POLICY READ PORT consumer (Architect decision, round-2 module-cycle
+   * resolution, option Q4). `organizationId` MUST come from `actor.organizationId` (an
+   * already-authenticated, tenant-scoped JWT claim) — never from client-controlled input. A valid
+   * organizationId must always resolve to an owner; if it doesn't, this is an invariant violation
+   * (not a "not found" case) and must NOT silently skip owner protection — surfaced as a plain
+   * `Error` so it reaches `HttpExceptionFilter`'s generic, already-established uncaught-exception
+   * path (logged server-side, generic 500 to the client), rather than inventing a new/misleading
+   * 404 for the RBAC target.
+   */
+  private async getOwnerUserId(organizationId: string): Promise<string> {
+    const ownerUserId =
+      await this.roleRepository.findOrganizationOwnerUserId(organizationId);
+    if (!ownerUserId) {
+      throw new Error(
+        `RBAC invariant violation: no resolvable owner for organization ${organizationId}`,
+      );
+    }
+    return ownerUserId;
   }
 
   async getPermissionCodesForUser(userId: string): Promise<string[]> {

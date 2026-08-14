@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -81,6 +83,24 @@ export class RolesController {
     @Req() req: Request,
   ) {
     return this.rbacService.assignRoleToUser(dto.userId, dto.roleId, {
+      userId: user.sub,
+      organizationId: user.organizationId,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+  }
+
+  @Delete(':roleId/users/:userId')
+  @RequirePermissions('user:update')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Gỡ vai trò khỏi người dùng' })
+  removeFromUser(
+    @Param('roleId', ParseUUIDPipe) roleId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @CurrentUser() user: JwtAccessPayload,
+    @Req() req: Request,
+  ) {
+    return this.rbacService.removeRoleFromUser(userId, roleId, {
       userId: user.sub,
       organizationId: user.organizationId,
       ip: req.ip,

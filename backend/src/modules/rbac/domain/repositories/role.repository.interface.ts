@@ -28,6 +28,19 @@ export interface IRoleRepository {
   /** JWT cache quyền theo permissionVersion — tăng version để buộc access token cũ hết hiệu lực. */
   incrementPermissionVersionForUser(userId: string): Promise<void>;
   incrementPermissionVersionForUsersWithRole(roleId: string): Promise<void>;
+  /**
+   * T052.03B — RBAC POLICY READ PORT (Architect-approved cross-table read, round-2 module-cycle
+   * decision, option Q4): RBAC owns the owner-lockout safety invariant and needs
+   * `Organization.ownerUserId` to enforce it, but `RbacModule` cannot import `OrganizationModule`
+   * (would recreate the `RbacModule -> OrganizationModule -> AuthModule -> RbacModule` cycle found
+   * during P1). This is a narrow, read-only, organizationId-scoped lookup of a single column — NOT
+   * a general Organization repository capability. Do not extend this to read any other
+   * Organization field. Returns null both when the Organization row cannot be found AND when
+   * `ownerUserId` is legitimately null (bootstrap window before the owner user exists) — callers
+   * MUST treat null as an invariant failure for any already-authenticated actor, never as "skip
+   * the check".
+   */
+  findOrganizationOwnerUserId(organizationId: string): Promise<string | null>;
 }
 
 export const ROLE_REPOSITORY = Symbol('ROLE_REPOSITORY');

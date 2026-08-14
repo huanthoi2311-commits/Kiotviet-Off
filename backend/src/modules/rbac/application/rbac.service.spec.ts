@@ -24,6 +24,7 @@ describe('RbacService', () => {
       findOrganizationIdForUser: jest.fn(),
       incrementPermissionVersionForUser: jest.fn(),
       incrementPermissionVersionForUsersWithRole: jest.fn(),
+      findOrganizationOwnerUserId: jest.fn(),
     };
     permissionRepository = { list: jest.fn(), findByCodes: jest.fn() };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
@@ -87,6 +88,14 @@ describe('RbacService', () => {
     };
 
     const actor = { userId: 'admin-1', organizationId: 'org-1' };
+
+    beforeEach(() => {
+      // T052.03B — owner-protection gate: mặc định owner KHÔNG giữ role 'sales_staff' (test data
+      // của owner-protection ở dưới sẽ override mock này), để 4 test case gốc (pre-T052.03B) giữ
+      // nguyên hành vi không bị ảnh hưởng bởi gate mới.
+      roleRepository.findOrganizationOwnerUserId.mockResolvedValue('owner-1');
+      roleRepository.getRoleCodesForUser.mockResolvedValue([]);
+    });
 
     it('gán permission hợp lệ, tăng permissionVersion cho user giữ role và ghi audit log', async () => {
       roleRepository.findById.mockResolvedValue(role);
@@ -158,6 +167,96 @@ describe('RbacService', () => {
           actor,
         ),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    describe('T052.03B — owner-lockout protection', () => {
+      beforeEach(() => {
+        roleRepository.findById.mockResolvedValue(role);
+        permissionRepository.findByCodes.mockImplementation((codes) =>
+          Promise.resolve(
+            codes.map((code) => ({
+              id: `p-${code}`,
+              code,
+              group: code.split(':')[0],
+              description: null,
+            })),
+          ),
+        );
+      });
+
+      it('owner không giữ role bị sửa -> gate bỏ qua, mutation tiến hành bình thường', async () => {
+        roleRepository.getRoleCodesForUser.mockResolvedValue(['other_role']);
+
+        await service.assignPermissions('role-1', ['customer:view'], actor);
+
+        expect(roleRepository.replacePermissions).toHaveBeenCalledWith(
+          'role-1',
+          ['p-customer:view'],
+        );
+      });
+
+      it('owner giữ role bị sửa, permission mới vẫn còn role:update -> cho phép', async () => {
+        roleRepository.getRoleCodesForUser.mockResolvedValue(['sales_staff']);
+        roleRepository.findByCode.mockResolvedValue(role);
+
+        await service.assignPermissions(
+          'role-1',
+          ['role:update', 'product:view'],
+          actor,
+        );
+
+        expect(roleRepository.replacePermissions).toHaveBeenCalled();
+      });
+
+      it('owner giữ role bị sửa, mất role:update ở role này NHƯNG còn role:update từ role khác -> cho phép (multi-role owner)', async () => {
+        const ownerSecondRole = {
+          id: 'role-2',
+          organizationId: 'org-1',
+          code: 'super_admin',
+          name: 'Super Admin',
+          isSystem: false,
+          description: null,
+          permissionCodes: ['role:update'],
+        };
+        roleRepository.getRoleCodesForUser.mockResolvedValue([
+          'sales_staff',
+          'super_admin',
+        ]);
+        roleRepository.findByCode.mockImplementation((_orgId, code) =>
+          Promise.resolve(code === 'sales_staff' ? role : ownerSecondRole),
+        );
+        roleRepository.findById.mockImplementation((id) =>
+          Promise.resolve(id === 'role-2' ? ownerSecondRole : role),
+        );
+
+        await service.assignPermissions('role-1', ['product:view'], actor);
+
+        expect(roleRepository.replacePermissions).toHaveBeenCalledWith(
+          'role-1',
+          ['p-product:view'],
+        );
+      });
+
+      it('owner giữ role bị sửa, mất role:update và KHÔNG còn role nào khác cấp role:update -> từ chối, ConflictException/RBAC_006', async () => {
+        roleRepository.getRoleCodesForUser.mockResolvedValue(['sales_staff']);
+        roleRepository.findByCode.mockResolvedValue(role);
+
+        await expect(
+          service.assignPermissions('role-1', ['product:view'], actor),
+        ).rejects.toThrow(ConflictException);
+        expect(roleRepository.replacePermissions).not.toHaveBeenCalled();
+      });
+
+      it('Organization không resolve được owner (invariant violation) -> ném lỗi generic, không phải HttpException/404', async () => {
+        roleRepository.findOrganizationOwnerUserId.mockResolvedValue(null);
+
+        await expect(
+          service.assignPermissions('role-1', ['product:view'], actor),
+        ).rejects.toThrow(
+          /RBAC invariant violation: no resolvable owner for organization/,
+        );
+        expect(roleRepository.replacePermissions).not.toHaveBeenCalled();
+      });
     });
   });
 
@@ -234,6 +333,13 @@ describe('RbacService', () => {
     };
     const actor = { userId: 'admin-1', organizationId: 'org-1' };
 
+    beforeEach(() => {
+      // T052.03B — owner-protection gate: target user 'user-1'/'user-of-org-2'/'missing-user'
+      // trong các test gốc bên dưới không phải là 'owner-1', nên gate luôn bị bỏ qua (giữ nguyên
+      // hành vi pre-T052.03B); test case owner-protection ở dưới dùng userId = 'owner-1'.
+      roleRepository.findOrganizationOwnerUserId.mockResolvedValue('owner-1');
+    });
+
     it('gỡ role hợp lệ khi role và user cùng thuộc tổ chức của actor', async () => {
       roleRepository.findById.mockResolvedValue(role);
       roleRepository.findOrganizationIdForUser.mockResolvedValue('org-1');
@@ -263,6 +369,60 @@ describe('RbacService', () => {
         service.removeRoleFromUser('user-of-org-2', 'role-1', actor),
       ).rejects.toThrow(NotFoundException);
       expect(roleRepository.removeRoleFromUser).not.toHaveBeenCalled();
+    });
+
+    describe('T052.03B — owner-lockout protection', () => {
+      beforeEach(() => {
+        roleRepository.findById.mockResolvedValue(role);
+        roleRepository.findOrganizationIdForUser.mockResolvedValue('org-1');
+      });
+
+      it('target != owner -> gate bỏ qua, mutation tiến hành bình thường', async () => {
+        await service.removeRoleFromUser('user-1', 'role-1', actor);
+        expect(roleRepository.removeRoleFromUser).toHaveBeenCalledWith(
+          'user-1',
+          'role-1',
+        );
+      });
+
+      it('target == owner, còn role:update từ role khác sau khi gỡ -> cho phép (multi-role owner)', async () => {
+        const ownerSecondRole = {
+          id: 'role-2',
+          organizationId: 'org-1',
+          code: 'super_admin',
+          name: 'Super Admin',
+          isSystem: false,
+          description: null,
+          permissionCodes: ['role:update'],
+        };
+        roleRepository.getRoleCodesForUser.mockResolvedValue([
+          'sales_staff',
+          'super_admin',
+        ]);
+        roleRepository.findByCode.mockImplementation((_orgId, code) =>
+          Promise.resolve(code === 'sales_staff' ? role : ownerSecondRole),
+        );
+        roleRepository.findById.mockImplementation((id) =>
+          Promise.resolve(id === 'role-2' ? ownerSecondRole : role),
+        );
+
+        await service.removeRoleFromUser('owner-1', 'role-1', actor);
+
+        expect(roleRepository.removeRoleFromUser).toHaveBeenCalledWith(
+          'owner-1',
+          'role-1',
+        );
+      });
+
+      it('target == owner, role bị gỡ là nguồn role:update DUY NHẤT -> từ chối, ConflictException/RBAC_006', async () => {
+        roleRepository.getRoleCodesForUser.mockResolvedValue(['sales_staff']);
+        roleRepository.findByCode.mockResolvedValue(role);
+
+        await expect(
+          service.removeRoleFromUser('owner-1', 'role-1', actor),
+        ).rejects.toThrow(ConflictException);
+        expect(roleRepository.removeRoleFromUser).not.toHaveBeenCalled();
+      });
     });
   });
 
