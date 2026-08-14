@@ -1,30 +1,29 @@
 # Sprint Dashboard
 
-**Cập nhật lần cuối:** 2026-08-13 (T051.05 Documentation Sync). Nội dung "Tổng quan"/"Trạng thái hiện tại" bên dưới phản ánh `main` @ `d13fa15` (sau T051.04). Các bảng roadmap cũ hơn (Foundation/Master Data Sprint-01/CRM/"Roadmap chốt lại" SC13) được GIỮ NGUYÊN làm hồ sơ lịch sử, đánh dấu rõ SUPERSEDED — không xoá, đúng nguyên tắc "không xoá lịch sử phát hiện/quyết định" đã áp dụng xuyên suốt dự án.
+**Cập nhật lần cuối:** 2026-08-14 (T051.09 Final V1.0 Finalization). Các bảng roadmap cũ hơn (Foundation/Master Data Sprint-01/CRM/"Roadmap chốt lại" SC13) được GIỮ NGUYÊN làm hồ sơ lịch sử, đánh dấu rõ SUPERSEDED — không xoá, đúng nguyên tắc "không xoá lịch sử phát hiện/quyết định" đã áp dụng xuyên suốt dự án.
 
 **Trạng thái module dùng đúng 8 giá trị cố định:** `NOT STARTED` → `AUDIT` → `RFC` → `SPEC` → `PLAN` → `IMPLEMENTING` → `REVIEW` → `DONE`.
 
 ---
 
-## Trạng thái hiện tại (2026-08-13, sau T051.04)
+## Trạng thái hiện tại (2026-08-14, sau T051.09)
 
 | | |
 |---|---|
-| **Tag chính thức gần nhất** | `v0.10.0-sales-return-exchange` (2026-07-27) — CHƯA có tag `v1.0.0`. `main` hiện tại đã vượt xa tag này (~69 commit, PR #3-#45 chưa gắn tag) |
-| **Giai đoạn hiện tại** | **RELEASE HARDENING — feature freeze đang hiệu lực.** Không phát triển tính năng nghiệp vụ mới. Xem `PROJECT_STATUS.md` mục "Giai đoạn hiện tại" |
+| **Tag chính thức gần nhất** | `v0.10.0-sales-return-exchange` (2026-07-27) — CHƯA có tag `v1.0.0`. `main` hiện tại đã vượt xa tag này (T030 → T051.09 chưa gắn tag) |
+| **Giai đoạn hiện tại** | **V1.0 READY FOR RELEASE — feature freeze đang hiệu lực.** Không phát triển tính năng nghiệp vụ mới. Xem `PROJECT_STATUS.md` mục "Giai đoạn hiện tại" |
 | **Task nghiệp vụ cuối cùng đã đóng** | **T050 — Purchase Report** (PR #40) |
-| **Chuỗi hardening đã đóng** | T051.00 (RBAC Tenant Isolation, PR #41), T051.02 (Concurrency Hardening, PR #42), T051.03 (Backup/Restore, PR #43-44), T051.04 (Deployment Packaging, PR #45) — cả 4 đã re-verify trên merge commit thật, không chỉ dựa vào nhãn cũ |
-| **V1.0 RC Readiness Audit** | HOÀN TẤT (2026-08-13) — **0 RC blocker xác nhận**. Chi tiết đầy đủ: `docs/release/T051-V1-RELEASE-CANDIDATE-READINESS.md` |
-| **Đang thực hiện** | **T051.05 — Documentation Sync** (package này) |
-| **Overall Progress (ước tính, KHÔNG gộp 2 chiều)** | Feature completeness ~90-95% · Release readiness ~80-85% — xem `docs/release/T051-V1-RELEASE-CANDIDATE-READINESS.md` §19 để hiểu khác biệt giữa 2 số |
+| **Chuỗi hardening đã đóng** | T051.00/.01/.02/.03/.04/.05/.06A/.06B/.08A-D/.08/.09 — toàn bộ chuỗi Release Hardening ĐÃ ĐÓNG, xem `PROJECT_STATUS.md` bảng đầy đủ |
+| **V1.0 RC Readiness Audit** | HOÀN TẤT (2026-08-13) — 0 RC blocker xác nhận tại thời điểm đó. `docs/release/T051-V1-RELEASE-CANDIDATE-READINESS.md` |
+| **T051.09 Final V1.0 Finalization** | ĐÃ HOÀN TẤT kỹ thuật — chờ Architect xác nhận ma trận chấp nhận phát hành trước khi tạo tag `v1.0.0`. Chi tiết: `docs/release/V1.0.0-RELEASE-NOTES.md` |
 
 ### Phân loại công việc còn lại
 
 | Loại | Nội dung |
 |---|---|
-| **COMPLETED** | Toàn bộ domain nghiệp vụ V1 (xem bảng "Recent Release History" bên dưới) + T051.00/.02/.03/.04 |
-| **CURRENT RELEASE-FINALIZATION WORK** | T051.05 (docs sync, đang chạy) → Branch Protection thu hẹp → Tenant Audit thu hẹp (6 module) → Playwright tối thiểu → ổn định flaky test → tag `v1.0.0` — xem `PROJECT_STATUS.md` mục "Lộ trình hoàn tất V1.0" |
-| **DEFERRED POST-V1** | Supplier Import UI, Supplier Payment UI, Customer Point mutation UI, RBAC management UI, Discount admin UI, Organization Settings UI, multi-branch management UI, custom Windows service, backup encryption at rest, thêm báo cáo — xác nhận vẫn deferred hợp lệ bởi V1.0 RC Readiness Audit, KHÔNG phải thiếu sót |
+| **COMPLETED** | Toàn bộ domain nghiệp vụ V1 (xem bảng "Recent Release History" bên dưới) + toàn bộ chuỗi T051.00 → T051.09 |
+| **CURRENT RELEASE-FINALIZATION WORK** | Chờ Architect uỷ quyền tạo tag `v1.0.0` + GitHub Release — KHÔNG còn hạng mục kỹ thuật nào mở |
+| **DEFERRED POST-V1** | Supplier Import UI, Supplier Payment UI (kèm điều kiện: sửa race SupplierPayment trước khi mở khoá UI), Customer Point mutation UI, RBAC management UI, Discount admin UI, Organization Settings UI, multi-branch management UI, custom Windows service, backup encryption at rest, thêm báo cáo, TLS packaging — xác nhận vẫn deferred hợp lệ, tái xác nhận T051.09, KHÔNG phải thiếu sót. Chi tiết: `docs/release/V1.0.0-RELEASE-NOTES.md` |
 | **HISTORICAL / SUPERSEDED TASK NUMBERING** | 3 lớp roadmap cũ bên dưới (Sprint-01 gốc → "Roadmap chốt lại" SC13 → numbering phụ thuộc T030+) — giữ nguyên tham khảo, không dùng để suy luận trạng thái hiện tại |
 
 ## Recent Release History (T030 → T051.04, xác minh trực tiếp từ PR đã merge)
