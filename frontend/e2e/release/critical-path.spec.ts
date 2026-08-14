@@ -371,7 +371,12 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
     await expect(page.getByText('Nháp', { exact: true })).toBeVisible();
 
     await confirmLifecycleAction(page, 'Gửi duyệt', 'Gửi duyệt');
-    await expect(page.getByText('Chờ duyệt')).toBeVisible();
+    // {exact: true} bắt buộc — cùng bug class đã ghi chú bên dưới (Đã duyệt): toast thành công
+    // "Đã gửi phiếu chờ duyệt" chứa "Chờ duyệt" như một CHUỖI CON (không phân biệt hoa/thường ở
+    // getByText mặc định), khiến match NHẦM cả toast lẫn field trạng thái thật (<dd>Chờ duyệt</dd>)
+    // — xác nhận qua lỗi CI thật (strict mode violation, T051.08 resume round 3, lần đầu suite chạy
+    // xa đủ tới bước này để lộ ra).
+    await expect(page.getByText('Chờ duyệt', { exact: true })).toBeVisible();
 
     await confirmLifecycleAction(page, 'Duyệt', 'Duyệt');
     // {exact: true} bắt buộc — toast thành công "Đã duyệt đơn nhập hàng" (purchase-order-action-
@@ -397,7 +402,11 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
     // Hoàn tất vòng đời — KHÔNG ảnh hưởng tồn kho (chỉ receive() gọi InventoryDomainService),
     // chứng minh trạng thái cuối THẬT SỰ đạt được qua UI, không dừng giữa chừng.
     await confirmLifecycleAction(page, 'Hoàn tất', 'Hoàn tất');
-    await expect(page.getByText('Hoàn tất')).toBeVisible();
+    // {exact: true} bắt buộc — cùng bug class (xem "Chờ duyệt"/"Đã duyệt" ở trên): toast thành công
+    // "Đã hoàn tất phiếu trả hàng" (sales-return-action-dialog.tsx) chứa "Hoàn tất" như một CHUỖI
+    // CON — xác nhận qua nguồn (copy.successMessage cho action COMPLETE), không chờ CI lộ ra lần
+    // nữa vì đã đủ bằng chứng nguồn cho đúng pattern đã lặp lại 3 lần trong cùng file này.
+    await expect(page.getByText('Hoàn tất', { exact: true })).toBeVisible();
 
     const afterComplete = await readInventoryQuantity(
       api,
