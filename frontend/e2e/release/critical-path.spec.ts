@@ -97,8 +97,13 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
     // cookie jar riêng; `storageState()` của nó trả về đúng cookie `refresh_token` thật (đủ thuộc
     // tính httpOnly/secure/sameSite/path) mà backend vừa set qua response `/auth/login` — cấy
     // thẳng vào `sharedContext` bằng `addCookies()`, không tự dựng lại cookie object thủ công.
-    const loginApi = await playwrightRequest.newContext({ baseURL: backendBaseUrl() });
-    const loginRes = await loginApi.post('/auth/login', {
+    //
+    // KHÔNG dùng `baseURL` của context + path bắt đầu bằng "/" — theo ngữ nghĩa WHATWG URL,
+    // `new URL('/auth/login', 'http://host/api/v1')` cho ra `http://host/auth/login` (path bắt đầu
+    // bằng "/" LUÔN thay thế toàn bộ path của base, xoá mất "/api/v1") — cùng gotcha đã được ghi
+    // chú/tránh ở `apiLogin()` (global-setup.ts) — luôn ghép URL tuyệt đối, không đặt `baseURL`.
+    const loginApi = await playwrightRequest.newContext();
+    const loginRes = await loginApi.post(`${backendBaseUrl()}/auth/login`, {
       data: {
         organizationSlug: fixtures.organizationSlug,
         email: fixtures.adminEmail,
@@ -132,7 +137,12 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
 
   test.afterAll(async () => {
     await api.dispose();
-    await sharedContext.close();
+    // Guard: nếu `beforeAll` throw TRƯỚC khi gán `sharedContext` (vd đăng nhập API thất bại),
+    // `afterAll` vẫn chạy — không để lỗi teardown thứ cấp ("Cannot read properties of undefined")
+    // che mất lỗi gốc thật sự đã khiến `beforeAll` thất bại.
+    if (sharedContext) {
+      await sharedContext.close();
+    }
   });
 
   // T051.08 §14 — test 2-7 KHÔNG còn dùng fixture `page` mặc định của Playwright (context riêng
