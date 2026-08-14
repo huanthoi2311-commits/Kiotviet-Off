@@ -256,6 +256,15 @@ describe('AuthService', () => {
     });
   });
 
+  describe('revokeAllSessionsForUser (T052.02, D5)', () => {
+    it('thu hồi toàn bộ session của user khác (đường boundary công khai cho UserModule)', async () => {
+      await service.revokeAllSessionsForUser('other-user-1');
+      expect(sessionRepository.revokeAllForUser).toHaveBeenCalledWith(
+        'other-user-1',
+      );
+    });
+  });
+
   describe('listSessions / revokeSession', () => {
     it('liệt kê session đang hoạt động của user', async () => {
       sessionRepository.listActiveForUser.mockResolvedValue([sessionRow]);

@@ -261,7 +261,7 @@ export const PERMISSION_CATALOG: PermissionSeed[] = [
     group: 'notification',
     description: 'Xem thông báo',
   },
-  ...crud('user', 'nhân viên'),
+  ...crud('user', 'nhân viên', ['activate', 'deactivate']),
   ...crud('role', 'vai trò'),
   {
     code: 'permission:view',
