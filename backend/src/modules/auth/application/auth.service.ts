@@ -179,6 +179,19 @@ export class AuthService {
     await this.sessionRepository.revokeAllForUser(userId);
   }
 
+  /**
+   * T052.02 — public application-boundary wrapper so other modules (User Management) can force
+   * a target user's sessions to end (deactivate, admin password reset) WITHOUT injecting
+   * `SESSION_REPOSITORY` directly (Architect Decision D5 — repository-boundary preserved,
+   * `AuthModule` exports only `AuthService`/`PASSWORD_HASHER`, never its persistence tokens).
+   * Same underlying call as `logoutAll()` (self-service) — kept as a separate, explicitly-named
+   * method because the caller here is an admin acting on a DIFFERENT user's account, not the
+   * user acting on their own session list.
+   */
+  async revokeAllSessionsForUser(userId: string): Promise<void> {
+    await this.sessionRepository.revokeAllForUser(userId);
+  }
+
   async listSessions(userId: string): Promise<SessionEntity[]> {
     return this.sessionRepository.listActiveForUser(userId);
   }

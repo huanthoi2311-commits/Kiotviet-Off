@@ -305,4 +305,37 @@ describe('RbacService', () => {
       expect(result).toEqual(['product:view']);
     });
   });
+
+  describe('getRoleCodesForUser (T052.02)', () => {
+    it('trả về danh sách role code khi user thuộc đúng tổ chức', async () => {
+      roleRepository.findOrganizationIdForUser.mockResolvedValue('org-1');
+      roleRepository.getRoleCodesForUser.mockResolvedValue(['owner']);
+
+      const result = await service.getRoleCodesForUser('user-1', 'org-1');
+
+      expect(roleRepository.findOrganizationIdForUser).toHaveBeenCalledWith(
+        'user-1',
+      );
+      expect(roleRepository.getRoleCodesForUser).toHaveBeenCalledWith('user-1');
+      expect(result).toEqual(['owner']);
+    });
+
+    it('ném NotFoundException khi user thuộc tổ chức khác, không gọi getRoleCodesForUser', async () => {
+      roleRepository.findOrganizationIdForUser.mockResolvedValue('org-2');
+
+      await expect(
+        service.getRoleCodesForUser('user-of-org-2', 'org-1'),
+      ).rejects.toThrow(NotFoundException);
+      expect(roleRepository.getRoleCodesForUser).not.toHaveBeenCalled();
+    });
+
+    it('ném NotFoundException khi user không tồn tại', async () => {
+      roleRepository.findOrganizationIdForUser.mockResolvedValue(null);
+
+      await expect(
+        service.getRoleCodesForUser('missing-user', 'org-1'),
+      ).rejects.toThrow(NotFoundException);
+      expect(roleRepository.getRoleCodesForUser).not.toHaveBeenCalled();
+    });
+  });
 });

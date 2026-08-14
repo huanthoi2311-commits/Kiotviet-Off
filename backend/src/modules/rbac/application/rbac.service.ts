@@ -171,4 +171,19 @@ export class RbacService {
   async getPermissionCodesForUser(userId: string): Promise<string[]> {
     return this.roleRepository.getPermissionCodesForUser(userId);
   }
+
+  /**
+   * T052.02 — smallest addition needed for `GET /users/:id` to display a user's current roles.
+   * `IRoleRepository.getRoleCodesForUser` already existed (used nowhere at the service layer
+   * before this) — this just adds the SAME tenant check already established for
+   * `assignRoleToUser`/`removeRoleFromUser`: a userId belonging to another organization must read
+   * as not-found, never leaked. No new repository capability, no role CRUD added.
+   */
+  async getRoleCodesForUser(
+    userId: string,
+    organizationId: string,
+  ): Promise<string[]> {
+    await this.assertUserInOrganization(userId, organizationId);
+    return this.roleRepository.getRoleCodesForUser(userId);
+  }
 }
