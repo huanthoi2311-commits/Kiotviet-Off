@@ -230,6 +230,29 @@ describe('SupplierPayment Concurrency (e2e, integration — Postgres thật)', (
       .expect(200);
   }
 
+  /** T052.01C — tạo 1 Purchase Order (draft, chưa approve/receive) chỉ để lấy ID hợp lệ thuộc
+   * đúng organization của `fixture` — dùng làm purchaseOrderId "thuộc tổ chức khác" trong CASE 5.
+   * Trạng thái PO không quan trọng ở đây vì xác minh chỉ kiểm tra organizationId sở hữu. */
+  async function createPurchaseOrderId(fixture: OrgFixture): Promise<string> {
+    const created = await request(app.getHttpServer())
+      .post('/api/v1/purchase-orders')
+      .set('Authorization', `Bearer ${fixture.accessToken}`)
+      .send({
+        branchId: fixture.branchId,
+        supplierId: fixture.supplierId,
+        items: [
+          {
+            productId: fixture.productId,
+            warehouseId: fixture.warehouseId,
+            quantity: 1,
+            unitCost: 1,
+          },
+        ],
+      })
+      .expect(201);
+    return (created.body as { data: { id: string } }).data.id;
+  }
+
   async function getBalance(fixture: OrgFixture): Promise<number> {
     const res = await request(app.getHttpServer())
       .get('/api/v1/supplier-debt')
@@ -252,13 +275,19 @@ describe('SupplierPayment Concurrency (e2e, integration — Postgres thật)', (
     await receivePurchaseOrder(fixture, shortfall, 1);
   }
 
-  function payRequest(fixture: OrgFixture, amount: number, branchId?: string) {
+  function payRequest(
+    fixture: OrgFixture,
+    amount: number,
+    branchId?: string,
+    purchaseOrderId?: string,
+  ) {
     return request(app.getHttpServer())
       .post('/api/v1/supplier-payment')
       .set('Authorization', `Bearer ${fixture.accessToken}`)
       .send({
         branchId: branchId ?? fixture.branchId,
         supplierId: fixture.supplierId,
+        ...(purchaseOrderId ? { purchaseOrderId } : {}),
         method: 'CASH',
         amount,
         paidAt: new Date().toISOString(),
@@ -359,6 +388,32 @@ describe('SupplierPayment Concurrency (e2e, integration — Postgres thật)', (
     await expect(getBalance(orgA)).resolves.toBe(balanceABefore - 300);
     await expect(getBalance(orgB)).resolves.toBe(balanceBBefore - 700);
   }, 30_000);
+
+  it('CASE 5 — purchaseOrderId thuộc tổ chức khác bị từ chối, không tạo Payment, không có quan hệ Payment↔PurchaseOrder cross-tenant nào tồn tại', async () => {
+    const otherOrgPurchaseOrderId = await createPurchaseOrderId(orgB);
+    const balanceABefore = await getBalance(orgA);
+    const balanceBBefore = await getBalance(orgB);
+
+    const res = await payRequest(orgA, 100, undefined, otherOrgPurchaseOrderId);
+    expect(res.status).toBe(404);
+    // Cùng đúng lỗi non-disclosure như purchaseOrderId không tồn tại — không có mã lỗi/message
+    // riêng biệt tiết lộ "purchaseOrderId này CÓ tồn tại nhưng thuộc tổ chức khác"
+    // (ErrorCode.PURCHASE_ORDER_NOT_FOUND = 'PURCHASE_ORDER_001', xem common/errors/error-codes.ts).
+    expect(res.body.code).toBe('PURCHASE_ORDER_001');
+
+    await expect(getBalance(orgA)).resolves.toBe(balanceABefore);
+    await expect(getBalance(orgB)).resolves.toBe(balanceBBefore);
+
+    // Bằng chứng TRẠNG THÁI DATABASE THẬT — không có Payment nào được ghi cho request bị từ chối,
+    // tức không thể tồn tại quan hệ Payment(orgA) → PurchaseOrder(orgB) nào trong dữ liệu thật.
+    const crossTenantPayments = await prisma.payment.findMany({
+      where: {
+        organizationId: orgA.organizationId,
+        purchaseOrderId: otherOrgPurchaseOrderId,
+      },
+    });
+    expect(crossTenantPayments).toHaveLength(0);
+  });
 
   it('CASE 4 — high-contention: bất biến SUM(payment đã commit) <= debt luôn đúng qua nhiều lần lặp', async () => {
     const CONCURRENT_REQUESTS = 10;

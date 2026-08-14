@@ -6,6 +6,7 @@ import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { BranchService } from '../../branch/application/branch.service';
+import type { IPurchaseOrderRepository } from '../../purchase-order/domain/repositories/purchase-order.repository.interface';
 import { SupplierDomainService } from '../../supplier/application/supplier-domain.service';
 import { SupplierEntity } from '../../supplier/domain/entities/supplier.entity';
 import { SupplierPaymentEntity } from '../domain/entities/supplier-debt.entity';
@@ -22,6 +23,9 @@ describe('SupplierDebtService', () => {
     Pick<SupplierDomainService, 'findById'>
   >;
   let branchService: jest.Mocked<Pick<BranchService, 'getById'>>;
+  let purchaseOrderRepository: jest.Mocked<
+    Pick<IPurchaseOrderRepository, 'findById'>
+  >;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
 
   const actor: ActorContext = { userId: 'user-1', organizationId: 'org-1' };
@@ -60,10 +64,14 @@ describe('SupplierDebtService', () => {
     };
     supplierDomainService = { findById: jest.fn() };
     branchService = { getById: jest.fn().mockResolvedValue(undefined) };
+    purchaseOrderRepository = {
+      findById: jest.fn().mockResolvedValue({ id: 'po-1' }),
+    };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
 
     service = new SupplierDebtService(
       supplierDebtRepository,
+      purchaseOrderRepository as unknown as IPurchaseOrderRepository,
       supplierDomainService as unknown as SupplierDomainService,
       branchService as unknown as BranchService,
       auditLogService as unknown as AuditLogService,
@@ -201,6 +209,108 @@ describe('SupplierDebtService', () => {
         ),
       ).rejects.toThrow(NotFoundException);
       expect(supplierDebtRepository.createPayment).not.toHaveBeenCalled();
+    });
+
+    // T052.01C — purchaseOrderId (tùy chọn) trước đây chảy thẳng vào Payment.create() không qua
+    // xác minh organizationId nào — cùng lớp lỗ hổng như branchId, phát hiện độc lập trong lần
+    // review T052.01B. Tái dùng đúng port đã có sẵn (`PURCHASE_ORDER_REPOSITORY.findById`, cùng
+    // pattern PurchaseReturnService đã dùng) — ném ĐÚNG 1 loại lỗi (NotFoundException/
+    // PURCHASE_ORDER_NOT_FOUND) cho CẢ 2 trường hợp "không tồn tại" và "thuộc tổ chức khác".
+    it('purchaseOrderId thuộc tổ chức khác bị từ chối với lỗi 404 PURCHASE_ORDER_NOT_FOUND, không tạo Payment', async () => {
+      supplierDomainService.findById.mockResolvedValue(makeSupplier());
+      purchaseOrderRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.createPayment(
+          {
+            branchId: 'branch-1',
+            supplierId: 'supplier-1',
+            purchaseOrderId: 'po-from-other-org',
+            method: 'CASH',
+            amount: 100000,
+            paidAt: '2026-01-01T00:00:00.000Z',
+          },
+          actor,
+        ),
+      ).rejects.toThrow(NotFoundException);
+      expect(purchaseOrderRepository.findById).toHaveBeenCalledWith(
+        'po-from-other-org',
+        'org-1',
+      );
+      expect(supplierDebtRepository.createPayment).not.toHaveBeenCalled();
+    });
+
+    it('purchaseOrderId không tồn tại bị từ chối với CÙNG loại lỗi như purchaseOrderId thuộc tổ chức khác (không tạo Payment)', async () => {
+      supplierDomainService.findById.mockResolvedValue(makeSupplier());
+      purchaseOrderRepository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.createPayment(
+          {
+            branchId: 'branch-1',
+            supplierId: 'supplier-1',
+            purchaseOrderId: 'po-does-not-exist',
+            method: 'CASH',
+            amount: 100000,
+            paidAt: '2026-01-01T00:00:00.000Z',
+          },
+          actor,
+        ),
+      ).rejects.toThrow(NotFoundException);
+      expect(supplierDebtRepository.createPayment).not.toHaveBeenCalled();
+    });
+
+    it('purchaseOrderId cùng tổ chức được chấp nhận, payment tạo bình thường', async () => {
+      supplierDomainService.findById.mockResolvedValue(makeSupplier());
+      purchaseOrderRepository.findById.mockResolvedValue({
+        id: 'po-1',
+      } as never);
+      supplierDebtRepository.createPayment.mockResolvedValue(
+        makePayment({ purchaseOrderId: 'po-1' }),
+      );
+
+      const result = await service.createPayment(
+        {
+          branchId: 'branch-1',
+          supplierId: 'supplier-1',
+          purchaseOrderId: 'po-1',
+          method: 'CASH',
+          amount: 500000,
+          paidAt: '2026-01-01T00:00:00.000Z',
+        },
+        actor,
+      );
+
+      expect(result.id).toBe('payment-1');
+      expect(purchaseOrderRepository.findById).toHaveBeenCalledWith(
+        'po-1',
+        'org-1',
+      );
+      expect(supplierDebtRepository.createPayment).toHaveBeenCalledWith(
+        expect.objectContaining({ purchaseOrderId: 'po-1' }),
+      );
+    });
+
+    it('purchaseOrderId bị bỏ trống (undefined) giữ nguyên hành vi hiện tại — không gọi purchaseOrderRepository.findById, payment vẫn tạo thành công', async () => {
+      supplierDomainService.findById.mockResolvedValue(makeSupplier());
+      supplierDebtRepository.createPayment.mockResolvedValue(makePayment());
+
+      const result = await service.createPayment(
+        {
+          branchId: 'branch-1',
+          supplierId: 'supplier-1',
+          method: 'CASH',
+          amount: 500000,
+          paidAt: '2026-01-01T00:00:00.000Z',
+        },
+        actor,
+      );
+
+      expect(result.id).toBe('payment-1');
+      expect(purchaseOrderRepository.findById).not.toHaveBeenCalled();
+      expect(supplierDebtRepository.createPayment).toHaveBeenCalledWith(
+        expect.objectContaining({ purchaseOrderId: null }),
+      );
     });
 
     it('dịch SupplierPaymentExceedsBalanceError sang UnprocessableEntityException', async () => {
