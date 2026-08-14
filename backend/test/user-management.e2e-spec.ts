@@ -355,13 +355,17 @@ describe('User Management (e2e, integration — Postgres thật)', () => {
     });
     expect(activeSessions).toHaveLength(0);
 
-    // Refresh token cũ (issued trước khi deactivate) không còn dùng được — status !== ACTIVE.
+    // Refresh token cũ (issued trước khi deactivate) không còn dùng được. Session của nó đã bị
+    // revoke (bước trên) NÊN AuthService.refreshToken() chặn ở nhánh "token đã bị thu hồi nhưng
+    // vẫn được dùng lại" (AUTH_REFRESH_TOKEN_REUSED — nghi ngờ bị đánh cắp, thu hồi phòng thủ toàn
+    // bộ session khác nếu có) TRƯỚC KHI kịp tới nhánh kiểm tra user.status — nhánh revoked-reuse
+    // luôn được kiểm tra trước nhánh status trong AuthService.refreshToken() hiện tại.
     const refreshAttempt = await request(app.getHttpServer())
       .post('/api/v1/auth/refresh')
       .set('X-Client-Type', 'mobile')
       .send({ refreshToken: targetRefreshToken })
       .expect(401);
-    expect(refreshAttempt.body.code).toBe('AUTH_002');
+    expect(refreshAttempt.body.code).toBe('AUTH_004');
 
     // Access token cũ (còn hạn, chữ ký hợp lệ) vẫn bị chặn — JwtAccessStrategy.validate() kiểm tra
     // status LIVE từ DB ở MỌI request, độc lập với việc revoke session đã xảy ra hay chưa.
@@ -396,6 +400,15 @@ describe('User Management (e2e, integration — Postgres thật)', () => {
       .send({ userId: secondAdminUserId, roleId: await getUmRoleId(orgA) })
       .expect(201);
 
+    // RbacService.assignRoleToUser() → PrismaRoleRepository.assignRoleToUser() tăng
+    // permissionVersion của user (buộc JWT cũ hết hiệu lực) — phải đọc giá trị THẬT từ DB sau khi
+    // gán role, không giả định vẫn là 1 (mặc định lúc tạo), nếu không JwtAccessStrategy.validate()
+    // sẽ chặn 401 AUTH_PERMISSION_VERSION_MISMATCH trước khi tới được business logic cần test.
+    const secondAdminAfterAssign = await prisma.user.findUniqueOrThrow({
+      where: { id: secondAdminUserId },
+      select: { permissionVersion: true },
+    });
+
     const secondAdminToken = app.get(JwtService).sign({
       sub: secondAdminUserId,
       organizationId: orgA.organizationId,
@@ -408,7 +421,7 @@ describe('User Management (e2e, integration — Postgres thật)', () => {
         'user:update',
         'user:create',
       ],
-      permissionVersion: 1,
+      permissionVersion: secondAdminAfterAssign.permissionVersion,
     });
 
     const ownerAttempt = await request(app.getHttpServer())
@@ -473,12 +486,15 @@ describe('User Management (e2e, integration — Postgres thật)', () => {
       })
       .expect(200);
 
+    // Cùng lý do đã ghi chú ở CASE 6 — session của refresh token cũ đã bị revoke bởi
+    // resetPassword(), nên nhánh "đã thu hồi nhưng vẫn dùng lại" (AUTH_REFRESH_TOKEN_REUSED) chặn
+    // trước khi tới nhánh kiểm tra user.status.
     const refreshOldSession = await request(app.getHttpServer())
       .post('/api/v1/auth/refresh')
       .set('X-Client-Type', 'mobile')
       .send({ refreshToken: oldRefreshToken })
       .expect(401);
-    expect(refreshOldSession.body.code).toBe('AUTH_002');
+    expect(refreshOldSession.body.code).toBe('AUTH_004');
   });
 
   async function getUmRoleId(fixture: OrgFixture): Promise<string> {
