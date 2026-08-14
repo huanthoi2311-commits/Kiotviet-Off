@@ -21,7 +21,17 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RoleResponseDto"
+                  }
+                }
+              }
+            }
           },
           "401": {
             "description": "Chưa đăng nhập / token không hợp lệ",
@@ -89,7 +99,14 @@
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleResponseDto"
+                }
+              }
+            }
           },
           "401": {
             "description": "Chưa đăng nhập / token không hợp lệ",
@@ -158,7 +175,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleWithPermissionsResponseDto"
+                }
+              }
+            }
           },
           "401": {
             "description": "Chưa đăng nhập / token không hợp lệ",
@@ -237,7 +261,14 @@
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleWithPermissionsResponseDto"
+                }
+              }
+            }
           },
           "401": {
             "description": "Chưa đăng nhập / token không hợp lệ",
@@ -444,7 +475,17 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PermissionResponseDto"
+                  }
+                }
+              }
+            }
           },
           "401": {
             "description": "Chưa đăng nhập / token không hợp lệ",
@@ -15870,6 +15911,77 @@
           "timestamp"
         ]
       },
+      "RoleResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "isSystem": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "code",
+          "name",
+          "isSystem",
+          "description"
+        ]
+      },
+      "RoleWithPermissionsResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "isSystem": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "object",
+            "nullable": true
+          },
+          "permissionCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "code",
+          "name",
+          "isSystem",
+          "description",
+          "permissionCodes"
+        ]
+      },
       "CreateRoleDto": {
         "type": "object",
         "properties": {
@@ -15927,6 +16039,30 @@
         "required": [
           "userId",
           "roleId"
+        ]
+      },
+      "PermissionResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "description": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "group",
+          "description"
         ]
       },
       "LoginDto": {
