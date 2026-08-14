@@ -29,6 +29,13 @@ import { backendBaseUrl, frontendBaseUrl } from './support';
  * tránh/vô hiệu hóa throttle.
  */
 test.describe.serial('T052.02C — User Management (real stack)', () => {
+  // Default per-test timeout (60s, playwright.release.config.ts) is shorter than the worst-case
+  // throttle-recovery wait below (up to 5 attempts × 15s backoff = 75s, plus the actual UI
+  // interaction time around it) — confirmed via real CI run (`page.waitForTimeout: Test ended`
+  // mid-backoff, the retry loop never got to finish). Not a bug in the retry logic itself, just a
+  // ceiling too low for legitimate throttle recovery — raised for this file only.
+  test.describe.configure({ timeout: 150_000 });
+
   let fixtures: ReleaseFixtures;
 
   let secondUserId: string;
