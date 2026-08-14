@@ -7,6 +7,7 @@ import {
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
+import { BranchService } from '../../branch/application/branch.service';
 import { SupplierDomainService } from '../../supplier/application/supplier-domain.service';
 import { SupplierPaymentEntity } from '../domain/entities/supplier-debt.entity';
 import {
@@ -33,6 +34,7 @@ export class SupplierDebtService {
     @Inject(SUPPLIER_DEBT_REPOSITORY)
     private readonly supplierDebtRepository: ISupplierDebtRepository,
     private readonly supplierDomainService: SupplierDomainService,
+    private readonly branchService: BranchService,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -72,6 +74,13 @@ export class SupplierDebtService {
         withCode(ErrorCode.SUPPLIER_NOT_FOUND, 'Không tìm thấy nhà cung cấp'),
       );
     }
+
+    // T052.01 — branchId trước đây chảy thẳng từ DTO vào Payment.create() không qua bất kỳ xác
+    // minh organizationId nào (FK Prisma chỉ đảm bảo Branch TỒN TẠI ở đâu đó, không đảm bảo thuộc
+    // ĐÚNG tổ chức của actor) — lỗ hổng độc lập phát hiện ở T052.01A, sửa ở đây bằng đúng port
+    // công khai đã duyệt (`BranchService.getById`, T051.06A), ném 404 KHÔNG PHÂN BIỆT branchId
+    // không tồn tại hay thuộc tổ chức khác — không tiết lộ sự tồn tại cross-tenant.
+    await this.branchService.getById(dto.branchId, actor);
 
     let payment: SupplierPaymentEntity;
     try {

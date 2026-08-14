@@ -88,6 +88,21 @@ export class PrismaSupplierDebtRepository implements ISupplierDebtRepository {
     input: CreateSupplierPaymentInput,
   ): Promise<SupplierPaymentEntity> {
     return this.prisma.$transaction(async (tx) => {
+      // T052.01 — không có bảng SupplierDebt/balance nào để CAS (xem docstring
+      // ISupplierDebtRepository) — balance là 1 aggregate TÍNH TỪ 2 sổ cái ghi-thêm, không phải
+      // trạng thái trên 1 dòng cụ thể. Khoá advisory THEO GIAO DỊCH (pg_advisory_xact_lock, tự
+      // giải phóng khi tx commit/rollback — KHÔNG BAO GIỜ dùng bản session-level
+      // `pg_advisory_lock`, vốn có thể rò rỉ qua khỏi giao dịch này nếu quên unlock thủ công),
+      // khoá theo khoá logic (organizationId, supplierId) — PHẢI chạy qua `tx` (không phải
+      // `this.prisma`): khoá lấy trên 1 connection KHÔNG thuộc transaction này thì không bảo vệ
+      // được gì cả. `hashtext()` chạy phía Postgres, tham số truyền qua template tag của Prisma
+      // (bind parameter thật, không nối chuỗi) — 2 tổ chức/nhà cung cấp khác nhau collide cực kỳ
+      // hiếm (2 lần hash 32-bit độc lập phải trùng đồng thời) và hậu quả một collision giả chỉ là
+      // 2 giao dịch KHÔNG liên quan chờ nhau 1 lần — không sai bất biến, không rò rỉ dữ liệu.
+      // PHẢI lấy khoá TRƯỚC computeBalance() — giao dịch thứ 2 (nếu có, cùng khoá) phải BỊ CHẶN ở
+      // đây tới khi giao dịch thứ 1 commit/rollback, rồi mới được đọc balance đã cập nhật thật.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${input.organizationId}), hashtext(${input.supplierId}))`;
+
       const balance = await this.computeBalance(
         tx,
         input.organizationId,
