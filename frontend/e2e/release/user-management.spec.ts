@@ -88,7 +88,11 @@ test.describe.serial('T052.02C — User Management (real stack)', () => {
     expect(response.status()).not.toBe(429);
     expect(response.ok()).toBeFalsy();
     // Stays on /login with a visible error alert — never reaches /dashboard.
-    await expect(page.getByRole('alert')).toBeVisible({ timeout: 15_000 });
+    // `[data-slot="alert"]`, not `getByRole('alert')`: Next.js's own built-in route announcer
+    // (`#__next-route-announcer__`) ALSO carries `role="alert"` (empty, screen-reader-only),
+    // making the role query ambiguous — confirmed via real CI run (strict-mode violation), the
+    // actual login-error Alert itself rendered correctly.
+    await expect(page.locator('[data-slot="alert"]')).toBeVisible({ timeout: 15_000 });
     expect(page.url()).toContain('/login');
   }
 
