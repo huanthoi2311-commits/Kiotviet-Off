@@ -89,7 +89,9 @@ test.describe.serial('T052.02C — User Management (real stack)', () => {
     await page
       .getByPlaceholder('Tìm theo tên đăng nhập, họ tên hoặc email...')
       .fill(secondUsername);
-    await expect(page.getByText(secondUsername)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole('cell', { name: secondUsername, exact: true })).toBeVisible({
+      timeout: 5_000,
+    });
 
     // §18 step 5 — real logout.
     await page.goto('/dashboard');
