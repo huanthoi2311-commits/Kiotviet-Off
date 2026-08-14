@@ -58,9 +58,16 @@ export interface ISupplierDebtRepository {
   /** Công nợ hiện tại của 1 Nhà cung cấp — dùng để validate trước khi tạo Payment. */
   getBalance(organizationId: string, supplierId: string): Promise<string>;
   /**
-   * Ghi 1 dòng Payment (direction OUT) trong 1 transaction: đọc lại balance NGAY TRONG
-   * transaction, ném SupplierPaymentExceedsBalanceError nếu amount > balance (chặn race
-   * condition khi 2 thanh toán được tạo đồng thời).
+   * Ghi 1 dòng Payment (direction OUT) trong 1 transaction: đọc balance rồi ném
+   * SupplierPaymentExceedsBalanceError nếu amount > balance.
+   *
+   * T052.01 — bất biến: việc kiểm tra + ghi Payment được TUẦN TỰ HOÁ theo đúng cặp
+   * (organizationId, supplierId) — 2 lệnh gọi createPayment() đồng thời cho CÙNG 1 cặp không
+   * bao giờ cùng đọc chung 1 giá trị balance-trước-khi-thanh-toán; lệnh gọi thứ 2 luôn thấy
+   * đúng balance ĐÃ CẬP NHẬT sau khi lệnh thứ 1 hoàn tất (commit hoặc rollback). 2 cặp
+   * (organizationId, supplierId) khác nhau không tuần tự hoá lẫn nhau. Cơ chế tuần tự hoá cụ
+   * thể là chi tiết hạ tầng (xem PrismaSupplierDebtRepository), không thuộc phạm vi interface
+   * miền này.
    */
   createPayment(
     input: CreateSupplierPaymentInput,

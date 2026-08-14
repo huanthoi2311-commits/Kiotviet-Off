@@ -142,6 +142,7 @@ describe('PrismaSupplierDebtRepository', () => {
       paymentSum?: Prisma.Decimal | null;
     }) {
       const tx = {
+        $executeRaw: jest.fn().mockResolvedValue(0),
         debt: {
           aggregate: jest
             .fn()
@@ -190,6 +191,37 @@ describe('PrismaSupplierDebtRepository', () => {
         SupplierPaymentExceedsBalanceError,
       );
       expect(tx.payment.create).not.toHaveBeenCalled();
+    });
+
+    // T052.01 — không có bảng nào để CAS (xem docstring interface); bảo vệ bất biến bằng
+    // pg_advisory_xact_lock theo khoá logic (organizationId, supplierId), PHẢI chạy qua `tx`
+    // (transaction client) — khoá trên connection khác không transaction này thì vô nghĩa — và
+    // PHẢI lấy TRƯỚC khi tính balance, không phải sau. Mock-level: chỉ chứng minh thứ tự lời gọi
+    // đúng như thiết kế — bằng chứng race THẬT nằm ở real-Postgres E2E (CASE 1-4), không phải ở
+    // đây (mock không thể mô phỏng lock contention thật).
+    it('lấy advisory lock QUA tx (không phải this.prisma) TRƯỚC KHI tính balance', async () => {
+      const tx = makeTx({ debtSum: new Prisma.Decimal(1000000) });
+
+      await repository.createPayment(input);
+
+      expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+      expect(prisma.debt.aggregate).not.toHaveBeenCalled();
+
+      const lockCallOrder = tx.$executeRaw.mock.invocationCallOrder[0];
+      const balanceCallOrder = tx.debt.aggregate.mock.invocationCallOrder[0];
+      expect(lockCallOrder).toBeLessThan(balanceCallOrder);
+    });
+
+    it('khoá advisory được tham số hoá bằng organizationId và supplierId (không nối chuỗi)', async () => {
+      const tx = makeTx({ debtSum: new Prisma.Decimal(1000000) });
+
+      await repository.createPayment(input);
+
+      const [, ...boundParams] = tx.$executeRaw.mock.calls[0] as [
+        TemplateStringsArray,
+        ...unknown[],
+      ];
+      expect(boundParams).toEqual([input.organizationId, input.supplierId]);
     });
   });
 });
