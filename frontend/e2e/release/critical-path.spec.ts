@@ -486,12 +486,20 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
     // danh sách toàn cục), bằng chính dữ liệu đã tạo trong suite.
     await page.goto('/purchase-orders/new');
 
+    // T051.08 (resume round 3) — `allTextContents()` đọc DOM ngay lập tức, không tự retry như
+    // `expect(locator)...`; Chi nhánh/Kho đều tự fetch qua React Query lúc mount (`useWarehouseOptions`
+    // không lọc theo branch, gọi `useWarehouseControllerSearch` độc lập) — nếu đọc trước khi query
+    // đó resolve, option list còn rỗng, không phải rò rỉ/lỗi tenant thật — xác nhận qua CI thật (mảng
+    // rỗng, không phải mảng chứa entity SAI tổ chức). `toHaveCount` đợi/retry đúng ngữ nghĩa Playwright
+    // TRƯỚC KHI đọc text — vẫn giữ nguyên bất biến đang kiểm chứng (đúng 1 option, đúng tên).
     await page.getByRole('combobox', { name: 'Chi nhánh' }).click();
+    await expect(page.getByRole('option')).toHaveCount(1);
     const branchOptions = await page.getByRole('option').allTextContents();
     expect(branchOptions).toEqual([fixtures.branchName]);
     await page.keyboard.press('Escape');
 
     await page.getByRole('combobox', { name: 'Kho nhận hàng' }).click();
+    await expect(page.getByRole('option')).toHaveCount(1);
     const warehouseOptions = await page.getByRole('option').allTextContents();
     expect(warehouseOptions).toEqual([fixtures.warehouseName]);
     await page.keyboard.press('Escape');
