@@ -149,7 +149,12 @@ test.describe.serial('T052.03C — RBAC Management (real stack)', () => {
     const assignDialog = ownerPage.getByRole('dialog');
     await expect(assignDialog).toBeVisible();
     await assignDialog.getByRole('combobox', { name: 'Vai trò' }).click();
-    await ownerPage.getByRole('option', { name: limitedRoleName, exact: true }).click();
+    // Rendered option text is "{role.name} ({role.code})" — `AssignRoleDialog`'s own composition —
+    // so `exact: true` against the bare name never matches (confirmed via the CI screenshot: the
+    // dropdown was open with the right option visible, but the click silently kept retrying forever
+    // since no element matched, until the outer 150s test timeout aborted it). `limitedRoleName` is
+    // already suffix-unique, so an unqualified substring match is unambiguous.
+    await ownerPage.getByRole('option', { name: limitedRoleName }).click();
     await assignDialog.getByRole('button', { name: 'Gán vai trò' }).click();
     await expect(assignDialog).toBeHidden({ timeout: 15_000 });
 
