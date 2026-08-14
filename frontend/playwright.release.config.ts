@@ -1,4 +1,3 @@
-import path from 'path';
 import { defineConfig, devices } from '@playwright/test';
 
 /**
@@ -12,9 +11,12 @@ import { defineConfig, devices } from '@playwright/test';
  *   --wait` (đúng stack đã chứng minh ở T051.04), không phải Playwright tự chạy `next dev`.
  * - KHÔNG mock network — mọi request đi thẳng tới backend thật (`NEXT_PUBLIC_API_URL` đã được
  *   nhúng vào bundle Next.js lúc `docker compose build`, không cấu hình lại được ở đây).
- * - `globalSetup` xác thực qua UI thật (đăng nhập, xem `e2e/release/global-setup.ts`), lưu
- *   `storageState` để các test còn lại khởi động đã đăng nhập sẵn — không phải mock, chỉ tái dùng
- *   session cookie refresh-token thật đã có từ 1 lần đăng nhập UI thật.
+ * - `globalSetup` chỉ bootstrap fixture qua API (`e2e/release/global-setup.ts`) — KHÔNG còn đăng
+ *   nhập/lưu `storageState` ở đây (bản snapshot cookie tĩnh 1-lần-dùng dưới cơ chế refresh-token
+ *   rotation-on-every-use, gây race khi `test.describe.serial` retry — T051.08 resume round 2).
+ *   `critical-path.spec.ts`'s test 1 đăng nhập qua UI với session riêng; `beforeAll` của nó tự
+ *   đăng nhập qua API cho phiên dùng chung mỗi lần chạy — không test nào trong file này còn dùng
+ *   `use.storageState` mặc định của config nữa, nên field đó không còn xuất hiện dưới đây nữa.
  */
 const DEFAULT_BASE_URL = process.env.RELEASE_E2E_BASE_URL ?? 'http://localhost:3001';
 
@@ -38,7 +40,6 @@ export default defineConfig({
     baseURL: DEFAULT_BASE_URL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    storageState: path.join(__dirname, 'e2e/release/.auth/storage-state.json'),
   },
   projects: [
     {

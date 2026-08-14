@@ -23,10 +23,10 @@ frontend/
 └── e2e/
     ├── auth/                     # không đụng — không có gì trong T051.08 sửa suite này
     └── release/
-        ├── global-setup.ts       # bootstrap fixture qua API + 1 lần đăng nhập UI thật → storageState
+        ├── global-setup.ts       # bootstrap fixture qua API (không còn đăng nhập/lưu storageState — xem §3)
         ├── support.ts            # helper dùng chung (combobox, lifecycle confirm, đọc tồn kho qua API)
         ├── critical-path.spec.ts # 7 test, test.describe.serial
-        └── .auth/                # SINH RA LÚC CHẠY — gitignore, không bao giờ commit (mật khẩu/cookie thật)
+        └── .auth/                # SINH RA LÚC CHẠY (chỉ fixtures.json) — gitignore, không bao giờ commit
 ```
 
 `playwright.release.config.ts` **không có `webServer`** — khác với suite auth (tự chạy `next dev`). Suite release trỏ vào một stack Docker Compose ĐÃ CHẠY SẴN từ bên ngoài (CI: `docker compose up`; local: T051.04's runbook), qua `RELEASE_E2E_BASE_URL`/`RELEASE_E2E_API_URL`.
@@ -39,7 +39,7 @@ frontend/
 |---|---|---|
 | Category/Unit/Supplier/Warehouse/Product | API thật (`global-setup.ts`, dùng token First Admin có sẵn từ bring-up T051.04) | Dữ liệu chủ không phải trọng tâm của suite — dùng UI để tạo sẽ chỉ làm chậm/thêm điểm hỏng không liên quan |
 | Branch | ĐỌC branch có sẵn từ bring-up (không tạo mới) | Bring-up First Admin đã tạo sẵn đúng 1 branch mặc định |
-| Đăng nhập | **UI thật** — form đăng nhập thật, 1 lần trong `global-setup.ts` để sinh `storageState` tái dùng, VÀ lặp lại độc lập (session riêng, không dùng storageState) trong test đầu tiên của `critical-path.spec.ts` để tự nó chứng minh hành vi đăng nhập | §5 — "no mocked auth"; test đầu tiên chứng minh chính hành vi đăng nhập, không chỉ dựa vào side-effect của global-setup |
+| Đăng nhập | **UI thật** — form đăng nhập thật, ĐỘC LẬP (session riêng) trong test đầu tiên của `critical-path.spec.ts`, tự nó chứng minh hành vi đăng nhập. **API thật** (không qua form) trong `critical-path.spec.ts`'s `beforeAll` để thiết lập phiên dùng chung cho test 2-7 — MỖI lần `beforeAll` chạy (kể cả khi `test.describe.serial` retry) đều tự đăng nhập lại lấy `refresh_token` MỚI, KHÔNG còn phục hồi từ 1 file `storageState` tĩnh (bản snapshot 1-lần-dùng dưới cơ chế refresh-token rotation-on-every-use — đã gây race giữa các LẦN CHẠY khi retry, xác nhận qua CI thật, T051.08 resume round 2) | §5 — "no mocked auth"; test đầu tiên chứng minh chính hành vi đăng nhập qua UI; §4 "API for setup" áp dụng cho phiên dùng chung (không phải hành trình đang kiểm chứng) |
 | Purchase Order (create/Duyệt/Nhận hàng) | **UI thật** — đây là hành trình đang được kiểm chứng | §4 — "UI for the user journey under test" |
 | POS Cart/Checkout | **UI thật** | nt |
 | Invoice (xem) | **UI thật** | nt |

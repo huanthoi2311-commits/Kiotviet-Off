@@ -7,7 +7,7 @@ import {
   BrowserContext,
   Page,
 } from '@playwright/test';
-import { FIXTURES_PATH, STORAGE_STATE_PATH, ReleaseFixtures } from './global-setup';
+import { FIXTURES_PATH, ReleaseFixtures } from './global-setup';
 import {
   backendBaseUrl,
   confirmLifecycleAction,
@@ -41,6 +41,21 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
   // (`/pos`, `/purchase-orders/new`) đều bị đúng triệu chứng này. `test.describe.serial` vốn mô
   // phỏng ĐÚNG 1 phiên người dùng liên tục — dùng 1 context/page DUY NHẤT xuyên suốt vừa khớp đúng
   // ngữ nghĩa đó, vừa loại bỏ hoàn toàn cuộc đua này.
+  //
+  // T051.08 (resume, round 2) — cùng một cơ chế rotation-on-every-use còn gây ra 1 biến thể race
+  // KHÁC, giữa các LẦN CHẠY chứ không phải giữa các context trong CÙNG 1 lần: `beforeAll` trước
+  // đây phục hồi phiên từ 1 file `storageState.json` TĨNH (ghi ra đúng 1 lần bởi `global-setup.ts`
+  // khi bắt đầu toàn bộ run) — nếu `test.describe.serial` phải retry (vd test 4 fail, Playwright
+  // chạy lại TOÀN BỘ khối kể cả `beforeAll`), lần retry lại phục hồi từ CHÍNH file đó — nhưng
+  // refresh_token trong file đã bị dùng/thu hồi bởi phiên của LẦN CHẠY TRƯỚC (test 2-7 đã điều
+  // hướng qua nhiều trang được bảo vệ, kích hoạt `useSessionRestore()` gọi `/auth/refresh` xoay
+  // vòng token) → retry phục hồi thất bại âm thầm → trang trắng, treo chờ phần tử không bao giờ
+  // xuất hiện — xác nhận qua CI thật: retry của test 2 timeout ở `selectCombobox` với lỗi "Target
+  // page, context or browser has been closed". Fix: `beforeAll` KHÔNG còn phục hồi từ file tĩnh —
+  // tự đăng nhập lại qua API (KHÔNG qua form UI — việc chứng minh form UI đã là trách nhiệm riêng
+  // của test 1) mỗi lần chạy (kể cả retry), lấy đúng 1 refresh_token MỚI CHƯA TỪNG DÙNG cho riêng
+  // lần chạy đó, rồi cấy vào `sharedContext` — đúng pattern Playwright khuyến nghị cho "API sign-in,
+  // reuse in browser context" (không có static snapshot nào để retry vô tình dùng lại).
   let sharedContext: BrowserContext;
   let sharedPage: Page;
 
@@ -77,15 +92,42 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
       fixtures.productId,
     );
 
+    // T051.08 (resume, round 2) — đăng nhập qua API cho ĐÚNG lần chạy này (kể cả khi đây là 1 lần
+    // retry) — xem ghi chú dài ở khai báo `sharedContext` phía trên. `APIRequestContext` tự giữ
+    // cookie jar riêng; `storageState()` của nó trả về đúng cookie `refresh_token` thật (đủ thuộc
+    // tính httpOnly/secure/sameSite/path) mà backend vừa set qua response `/auth/login` — cấy
+    // thẳng vào `sharedContext` bằng `addCookies()`, không tự dựng lại cookie object thủ công.
+    const loginApi = await playwrightRequest.newContext({ baseURL: backendBaseUrl() });
+    const loginRes = await loginApi.post('/auth/login', {
+      data: {
+        organizationSlug: fixtures.organizationSlug,
+        email: fixtures.adminEmail,
+        password: fixtures.adminPassword,
+      },
+    });
+    if (!loginRes.ok()) {
+      throw new Error(
+        `[T051.08] Đăng nhập API cho sharedContext thất bại (${loginRes.status()}): ${await loginRes.text()}`,
+      );
+    }
+    const loginState = await loginApi.storageState();
+    await loginApi.dispose();
+
     // MỘT context/page dùng chung cho toàn bộ test 2-7 — xem ghi chú ở khai báo `sharedPage` phía
     // trên. `baseURL` KHÔNG được `browser.newContext()` tự kế thừa từ config (phải truyền tường
-    // minh); `storageState` truyền tường minh cho rõ ràng dù về mặt kỹ thuật đây CHÍNH LÀ giá trị
-    // default của config (khác test 1 — nơi phải CHẶN kế thừa ngầm, ở đây ta CHỦ Ý muốn kế thừa).
+    // minh). `storageState: undefined` chặn kế thừa ngầm từ `playwright.release.config.ts` (không
+    // còn file storageState tĩnh nào để kế thừa nữa) — cookie phiên được cấy tường minh ngay sau.
     sharedContext = await browser.newContext({
       baseURL: frontendBaseUrl(),
-      storageState: STORAGE_STATE_PATH,
+      storageState: undefined,
     });
+    await sharedContext.addCookies(loginState.cookies);
     sharedPage = await sharedContext.newPage();
+    // Điều hướng 1 lần tới route được bảo vệ để kích hoạt `useSessionRestore()` (dashboard-shell.tsx)
+    // xác lập access token trong bộ nhớ TRƯỚC KHI test 2 bắt đầu — không phụ thuộc test 2 tự vô
+    // tình kích hoạt đúng lúc; khẳng định tường minh phiên đã sẵn sàng bằng chính heading Dashboard.
+    await sharedPage.goto('/dashboard');
+    await expect(sharedPage.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
   });
 
   test.afterAll(async () => {
@@ -283,7 +325,15 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
     await page.goto(`/invoices/${invoiceId}`);
     await expect(page.getByText(invoiceCode)).toBeVisible();
     await expect(page.getByText(fixtures.productName)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Trả hàng' })).toBeVisible();
+    // Trạng thái thanh toán THẬT SỰ đạt được (không chỉ trang tải được) — Checkout ở test 3 thanh
+    // toán đủ 100% bằng tiền mặt, nên hoá đơn phải hiển thị đúng PAID, không phải trạng thái khác.
+    await expect(page.getByText('PAID', { exact: true })).toBeVisible();
+    // T051.08 (resume, round 3) — DOM thật render "Trả hàng" như `<Link>` (Base-UI PermissionButton
+    // với `render={<Link .../>}`, xem invoice-detail.tsx) — role accessibility THẬT là `link`, không
+    // phải `button`; đây là điều hướng sang trang khác, đúng ngữ nghĩa `<a href>`, không phải hành
+    // động tại chỗ — xác nhận qua ARIA snapshot CI thật (T051.08D real-browser proof), KHÔNG phải
+    // lỗi UI cần sửa.
+    await expect(page.getByRole('link', { name: 'Trả hàng' })).toBeVisible();
   });
 
   // ============================================================
@@ -297,7 +347,7 @@ test.describe.serial('T051.08 — Critical Path (real stack)', () => {
     );
 
     await page.goto(`/invoices/${invoiceId}`);
-    await page.getByRole('button', { name: 'Trả hàng' }).click();
+    await page.getByRole('link', { name: 'Trả hàng' }).click();
     await page.waitForURL(/\/sales-returns\/new\?invoiceId=/);
 
     await selectCombobox(page, 'Dòng hàng', new RegExp(fixtures.productName));

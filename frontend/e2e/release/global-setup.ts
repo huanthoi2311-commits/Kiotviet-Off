@@ -1,28 +1,29 @@
 import fs from 'fs';
 import path from 'path';
-import { chromium, request as playwrightRequest } from '@playwright/test';
-import { backendBaseUrl, frontendBaseUrl, runId } from './support';
+import { request as playwrightRequest } from '@playwright/test';
+import { backendBaseUrl, runId } from './support';
 
 /**
  * T051.08 — Global Setup cho Release E2E.
  *
- * Hai việc, theo đúng T051.08 §4 (Fixture Strategy — "Prefer API/bootstrap fixture creation for
- * setup; UI for the user journey under test"):
+ * BOOTSTRAP dữ liệu tiền đề (Category/Unit/Supplier/Warehouse/Product) qua API THẬT bằng token
+ * của First Admin đã có sẵn từ `docker compose`'s `bring-up` service (T051.04) — không lái trình
+ * duyệt để tạo dữ liệu chủ không phải trọng tâm của suite này, không tạo giá trị release. Kết quả
+ * ghi ra `.auth/fixtures.json` để `critical-path.spec.ts` đọc lại.
  *
- * 1. BOOTSTRAP dữ liệu tiền đề (Category/Unit/Supplier/Warehouse/Product) qua API THẬT bằng
- *    token của First Admin đã có sẵn từ `docker compose`'s `bring-up` service (T051.04) — không
- *    lái trình duyệt để tạo dữ liệu chủ không phải trọng tâm của suite này, không tạo giá trị
- *    release. Kết quả ghi ra `.auth/fixtures.json` để `critical-path.spec.ts` đọc lại.
- *
- * 2. Đăng nhập qua UI THẬT (form đăng nhập thật, không mock) một lần, lưu `storageState` (cookie
- *    refresh-token) để các test còn lại khởi động đã đăng nhập sẵn — bản thân hành vi "đăng nhập
- *    thật" vẫn được kiểm chứng tường minh trong `critical-path.spec.ts`'s test đầu tiên (dùng
- *    session riêng, không tái dùng storageState này), file này chỉ tái dùng session CHO CÁC BƯỚC
- *    SAU để không phải đăng nhập lại nhiều lần.
+ * T051.08 (resume, round 2) — KHÔNG còn đăng nhập UI + lưu `storageState` ở đây (như thiết kế ban
+ * đầu). Dưới cơ chế refresh-token rotation-on-every-use, một file `storageState` tĩnh chỉ dùng
+ * được ĐÚNG 1 LẦN: nếu `test.describe.serial` trong `critical-path.spec.ts` phải retry (toàn bộ
+ * khối beforeAll/test chạy lại), lần phục hồi phiên thứ 2 từ CÙNG file sẽ nhận đúng refresh_token
+ * đã bị dùng/thu hồi bởi lần chạy trước → phiên khôi phục thất bại âm thầm → trang trắng, treo chờ
+ * phần tử không bao giờ xuất hiện — xác nhận qua CI thật ("Target page, context or browser has
+ * been closed" khi retry test 2). `critical-path.spec.ts`'s `beforeAll` nay tự đăng nhập lại qua
+ * API cho ĐÚNG lần chạy hiện tại (kể cả khi retry) thay vì phục hồi từ file — xem ghi chú ở đó.
+ * Test 1 của `critical-path.spec.ts` vẫn là bằng chứng ĐĂNG NHẬP QUA UI THẬT duy nhất/độc lập của
+ * suite (§5 "no mocked auth") — không đổi.
  */
 
 const FIXTURES_PATH = path.join(__dirname, '.auth', 'fixtures.json');
-const STORAGE_STATE_PATH = path.join(__dirname, '.auth', 'storage-state.json');
 
 interface ReleaseFixtures {
   runId: string;
@@ -185,70 +186,7 @@ export default async function globalSetup(): Promise<void> {
   };
   fs.mkdirSync(path.dirname(FIXTURES_PATH), { recursive: true });
   fs.writeFileSync(FIXTURES_PATH, JSON.stringify(fixtures, null, 2));
-
-  // Đăng nhập qua UI THẬT một lần — lưu storageState (cookie refresh-token thật) để các test còn
-  // lại (ngoại trừ test đăng nhập tường minh trong critical-path.spec.ts, tự đăng nhập độc lập
-  // bằng session riêng) khởi động đã có phiên hợp lệ, không phải lặp lại form đăng nhập cho mỗi
-  // test riêng lẻ.
-  const browser = await chromium.launch();
-  const page = await browser.newPage({ baseURL: frontendBaseUrl() });
-
-  // T051.08 chẩn đoán tạm (round 2) — thất bại trước chỉ cho thấy alert fallback chung chung
-  // ("Đã xảy ra lỗi không xác định"), không đủ để biết request POST /auth/login THẬT SỰ đã gửi đi
-  // chưa, và nếu có thì backend trả về gì (hay bị CORS/network chặn trước khi tới backend). Ghi
-  // lại toàn bộ network liên quan tới "auth" + console lỗi để có bằng chứng trực tiếp trong log CI.
-  const networkLog: string[] = [];
-  page.on('request', (req) => {
-    if (req.url().includes('/auth/')) {
-      networkLog.push(`>> ${req.method()} ${req.url()}`);
-    }
-  });
-  page.on('response', (res) => {
-    if (res.url().includes('/auth/')) {
-      networkLog.push(`<< ${res.status()} ${res.url()}`);
-    }
-  });
-  page.on('requestfailed', (req) => {
-    if (req.url().includes('/auth/')) {
-      networkLog.push(`XX FAILED ${req.method()} ${req.url()} — ${req.failure()?.errorText}`);
-    }
-  });
-  page.on('console', (msg) => {
-    if (msg.type() === 'error') {
-      networkLog.push(`CONSOLE ERROR: ${msg.text()}`);
-    }
-  });
-  page.on('pageerror', (err) => {
-    networkLog.push(`PAGE ERROR: ${err.message}`);
-  });
-
-  await page.goto('/login');
-  await page.getByLabel('Mã tổ chức').fill(organizationSlug);
-  await page.getByLabel('Email').fill(adminEmail);
-  await page.getByLabel('Mật khẩu').fill(adminPassword);
-  await page.getByRole('button', { name: 'Đăng nhập' }).click();
-  try {
-    await page.waitForURL('**/dashboard', { timeout: 30_000 });
-  } catch (err) {
-    // global-setup tự quản lý browser/page, KHÔNG có trace/screenshot tự động của Playwright test
-    // runner (chỉ áp dụng cho context của test thật) — chụp thủ công vào đúng thư mục đã được
-    // upload làm artifact khi CI fail (`frontend/test-results/`, xem
-    // `.github/workflows/release-e2e.yml`), và gộp alert lỗi (nếu có) + URL cuối cùng + toàn bộ
-    // network log thẳng vào message ném ra để thấy ngay trong log CI, không cần tải artifact riêng.
-    const debugDir = path.join(__dirname, '..', '..', 'test-results');
-    fs.mkdirSync(debugDir, { recursive: true });
-    await page.screenshot({ path: path.join(debugDir, 'global-setup-login-timeout.png') });
-    const alertText = await page
-      .getByRole('alert')
-      .allTextContents()
-      .catch(() => []);
-    throw new Error(
-      `[T051.08 global-setup] Đăng nhập UI không tới /dashboard trong 30s. URL cuối: ${page.url()}. Alert trên trang: ${JSON.stringify(alertText)}. Network log (auth): ${JSON.stringify(networkLog)}. Lỗi gốc: ${(err as Error).message}`,
-    );
-  }
-  await page.context().storageState({ path: STORAGE_STATE_PATH });
-  await browser.close();
 }
 
-export { FIXTURES_PATH, STORAGE_STATE_PATH };
+export { FIXTURES_PATH };
 export type { ReleaseFixtures };
