@@ -11886,7 +11886,17 @@
     "/api/v1/supplier-payment": {
       "post": {
         "operationId": "SupplierPaymentController_create",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Do client tự sinh — cùng key + cùng payload sẽ trả lại đúng payment cũ, không tạo giao dịch mới. Sau khi trim: không rỗng, tối đa 255 ký tự. Không yêu cầu định dạng UUID (T052.05B D2).",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -11974,7 +11984,7 @@
             "bearer": []
           }
         ],
-        "summary": "Ghi nhận thanh toán cho nhà cung cấp — giảm công nợ (chặn nếu vượt quá công nợ hiện tại)",
+        "summary": "Ghi nhận thanh toán cho nhà cung cấp — giảm công nợ (chặn nếu vượt quá công nợ hiện tại). Bắt buộc header Idempotency-Key (T052.05B).",
         "tags": [
           "SupplierPayment"
         ]

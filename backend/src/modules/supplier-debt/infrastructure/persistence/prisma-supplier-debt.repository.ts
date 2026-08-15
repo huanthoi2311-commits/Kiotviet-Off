@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
@@ -12,10 +12,19 @@ import {
   SupplierDebtSearchResult,
   SupplierPaymentExceedsBalanceError,
 } from '../../domain/repositories/supplier-debt.repository.interface';
+import { SUPPLIER_PAYMENT_OPERATION_REPOSITORY } from '../../domain/repositories/supplier-payment-operation.repository.interface';
+import type { ISupplierPaymentOperationRepository } from '../../domain/repositories/supplier-payment-operation.repository.interface';
 
 @Injectable()
 export class PrismaSupplierDebtRepository implements ISupplierDebtRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // T052.05B — injected chỉ để gọi markCompleted() TRONG CÙNG transaction với
+    // tx.payment.create() bên dưới (T052.05A.1 §3 atomicity proof) — cùng module
+    // (supplier-debt), không cross-module, không tạo cycle.
+    @Inject(SUPPLIER_PAYMENT_OPERATION_REPOSITORY)
+    private readonly supplierPaymentOperationRepository: ISupplierPaymentOperationRepository,
+  ) {}
 
   async search(
     params: SupplierDebtSearchParams,
@@ -131,8 +140,30 @@ export class PrismaSupplierDebtRepository implements ISupplierDebtRepository {
         },
       });
 
+      // T052.05B — bước cuối BÊN TRONG transaction chính, cùng `tx` với tx.payment.create() ở
+      // trên (T052.05A.1 §3 atomicity proof — Postgres transaction atomicity đảm bảo: hoặc cả
+      // Payment lẫn operation COMPLETED cùng commit, hoặc cả 2 cùng rollback; không có trạng
+      // thái Payment tồn tại mà operation không COMPLETED qua đường thực thi bình thường).
+      await this.supplierPaymentOperationRepository.markCompleted(
+        input.idempotencyOperationId,
+        payment.id,
+        tx,
+      );
+
       return this.toPaymentEntity(payment);
     });
+  }
+
+  /** T052.05B — REPLAY (idempotency): đọc lại Payment đã tạo trước đó, luôn scoped theo
+   * organizationId (T052.05A.1 §7 — không đọc chéo tổ chức). */
+  async findPaymentById(
+    organizationId: string,
+    id: string,
+  ): Promise<SupplierPaymentEntity | null> {
+    const payment = await this.prisma.payment.findFirst({
+      where: { id, organizationId },
+    });
+    return payment ? this.toPaymentEntity(payment) : null;
   }
 
   /** Dùng chung cho getBalance() (đọc ngoài transaction) và createPayment() (đọc trong transaction). */

@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SupplierPaymentExceedsBalanceError } from '../../domain/repositories/supplier-debt.repository.interface';
+import type { ISupplierPaymentOperationRepository } from '../../domain/repositories/supplier-payment-operation.repository.interface';
 import { PrismaSupplierDebtRepository } from './prisma-supplier-debt.repository';
 
 const rawSupplier = {
@@ -33,19 +34,32 @@ describe('PrismaSupplierDebtRepository', () => {
       aggregate: jest.Mock;
       groupBy: jest.Mock;
       create: jest.Mock;
+      findFirst: jest.Mock;
     };
     $transaction: jest.Mock;
   };
+  let supplierPaymentOperationRepository: jest.Mocked<
+    Pick<ISupplierPaymentOperationRepository, 'markCompleted'>
+  >;
 
   beforeEach(() => {
     prisma = {
       supplier: { findMany: jest.fn(), count: jest.fn() },
       debt: { aggregate: jest.fn(), groupBy: jest.fn() },
-      payment: { aggregate: jest.fn(), groupBy: jest.fn(), create: jest.fn() },
+      payment: {
+        aggregate: jest.fn(),
+        groupBy: jest.fn(),
+        create: jest.fn(),
+        findFirst: jest.fn(),
+      },
       $transaction: jest.fn(),
+    };
+    supplierPaymentOperationRepository = {
+      markCompleted: jest.fn().mockResolvedValue(undefined),
     };
     repository = new PrismaSupplierDebtRepository(
       prisma as unknown as PrismaService,
+      supplierPaymentOperationRepository as unknown as ISupplierPaymentOperationRepository,
     );
   });
 
@@ -135,6 +149,7 @@ describe('PrismaSupplierDebtRepository', () => {
       amount: 500000,
       paidAt: new Date('2026-01-01'),
       createdBy: 'user-1',
+      idempotencyOperationId: 'operation-1',
     };
 
     function makeTx(overrides: {
@@ -174,6 +189,24 @@ describe('PrismaSupplierDebtRepository', () => {
           amount: 500000,
         }),
       });
+    });
+
+    // T052.05B (T052.05A.1 §3 atomicity proof) — markCompleted() PHẢI được gọi với ĐÚNG `tx`
+    // (không phải `this.prisma`) của transaction vừa tạo Payment — cùng transaction, không mở
+    // transaction thứ hai.
+    it('gọi markCompleted(idempotencyOperationId, payment.id, tx) NGAY SAU tx.payment.create(), cùng tx', async () => {
+      const tx = makeTx({ debtSum: new Prisma.Decimal(1000000) });
+
+      await repository.createPayment(input);
+
+      expect(
+        supplierPaymentOperationRepository.markCompleted,
+      ).toHaveBeenCalledWith('operation-1', 'payment-1', tx);
+      const createOrder = tx.payment.create.mock.invocationCallOrder[0];
+      const markCompletedOrder = (
+        supplierPaymentOperationRepository.markCompleted as jest.Mock
+      ).mock.invocationCallOrder[0];
+      expect(createOrder).toBeLessThan(markCompletedOrder);
     });
 
     it('ném SupplierPaymentExceedsBalanceError khi amount > balance hiện tại', async () => {
@@ -222,6 +255,36 @@ describe('PrismaSupplierDebtRepository', () => {
         ...unknown[],
       ];
       expect(boundParams).toEqual([input.organizationId, input.supplierId]);
+    });
+  });
+
+  describe('findPaymentById', () => {
+    it('trả về Payment khi tồn tại trong đúng organizationId', async () => {
+      prisma.payment.findFirst.mockResolvedValue(rawPayment);
+
+      const result = await repository.findPaymentById('org-1', 'payment-1');
+
+      expect(result?.id).toBe('payment-1');
+      expect(prisma.payment.findFirst).toHaveBeenCalledWith({
+        where: { id: 'payment-1', organizationId: 'org-1' },
+      });
+    });
+
+    // T052.05B (T052.05A.1 §7 replay security) — 1 paymentId hợp lệ nhưng thuộc tổ chức khác
+    // phải đọc như không tồn tại (null) — WHERE organizationId luôn có mặt, không đọc chéo tổ
+    // chức, không rò rỉ sự tồn tại cross-tenant.
+    it('trả về null khi payment thuộc tổ chức khác (không đọc chéo tổ chức)', async () => {
+      prisma.payment.findFirst.mockResolvedValue(null);
+
+      const result = await repository.findPaymentById(
+        'org-2',
+        'payment-belongs-to-org-1',
+      );
+
+      expect(result).toBeNull();
+      expect(prisma.payment.findFirst).toHaveBeenCalledWith({
+        where: { id: 'payment-belongs-to-org-1', organizationId: 'org-2' },
+      });
     });
   });
 });

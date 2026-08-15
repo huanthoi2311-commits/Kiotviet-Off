@@ -4,8 +4,11 @@ import { PurchaseOrderModule } from '../purchase-order/purchase-order.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { SupplierModule } from '../supplier/supplier.module';
 import { SupplierDebtService } from './application/supplier-debt.service';
+import { SupplierPaymentOperationService } from './application/supplier-payment-operation.service';
 import { SUPPLIER_DEBT_REPOSITORY } from './domain/repositories/supplier-debt.repository.interface';
+import { SUPPLIER_PAYMENT_OPERATION_REPOSITORY } from './domain/repositories/supplier-payment-operation.repository.interface';
 import { PrismaSupplierDebtRepository } from './infrastructure/persistence/prisma-supplier-debt.repository';
+import { PrismaSupplierPaymentOperationRepository } from './infrastructure/persistence/prisma-supplier-payment-operation.repository';
 import { SupplierDebtController } from './presentation/supplier-debt.controller';
 import { SupplierPaymentController } from './presentation/supplier-payment.controller';
 
@@ -25,6 +28,15 @@ import { SupplierPaymentController } from './presentation/supplier-payment.contr
     {
       provide: SUPPLIER_DEBT_REPOSITORY,
       useClass: PrismaSupplierDebtRepository,
+    },
+    // T052.05B — module-local, mirror Checkout's own operation-repository DI token pattern
+    // (T013): KHÔNG export, chỉ dùng nội bộ (SupplierPaymentOperationService +
+    // PrismaSupplierDebtRepository, để gọi markCompleted() trong cùng transaction với
+    // Payment.create()).
+    SupplierPaymentOperationService,
+    {
+      provide: SUPPLIER_PAYMENT_OPERATION_REPOSITORY,
+      useClass: PrismaSupplierPaymentOperationRepository,
     },
   ],
   exports: [SUPPLIER_DEBT_REPOSITORY],

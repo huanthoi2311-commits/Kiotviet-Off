@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -275,15 +276,24 @@ describe('SupplierPayment Concurrency (e2e, integration — Postgres thật)', (
     await receivePurchaseOrder(fixture, shortfall, 1);
   }
 
+  // T052.05B — Idempotency-Key nay BẮT BUỘC (D2). Mỗi lời gọi payRequest() ở file này đại diện
+  // cho 1 Ý ĐỊNH thanh toán ĐỘC LẬP (kể cả trong các test bắn đồng thời nhiều request — CASE 1/2/4
+  // — vốn cố ý mô phỏng nhiều thanh toán THẬT SỰ khác nhau, không phải retry trùng lặp của CÙNG 1
+  // request) — mỗi lần gọi PHẢI tự sinh 1 key MỚI theo mặc định, nếu không toàn bộ các race test
+  // của T052.01 sẽ bị chặn sớm bởi lớp Idempotency (409) thay vì chạm tới advisory lock/balance
+  // như thiết kế gốc. Cho phép truyền `idempotencyKey` tường minh cho trường hợp cố ý test replay
+  // (không dùng ở file này — xem `supplier-payment-idempotency.e2e-spec.ts`, T052.05B).
   function payRequest(
     fixture: OrgFixture,
     amount: number,
     branchId?: string,
     purchaseOrderId?: string,
+    idempotencyKey?: string,
   ) {
     return request(app.getHttpServer())
       .post('/api/v1/supplier-payment')
       .set('Authorization', `Bearer ${fixture.accessToken}`)
+      .set('Idempotency-Key', idempotencyKey ?? randomUUID())
       .send({
         branchId: branchId ?? fixture.branchId,
         supplierId: fixture.supplierId,

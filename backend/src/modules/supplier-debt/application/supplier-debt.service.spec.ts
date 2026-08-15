@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import {
   SupplierPaymentExceedsBalanceError,
 } from '../domain/repositories/supplier-debt.repository.interface';
 import { ActorContext, SupplierDebtService } from './supplier-debt.service';
+import { SupplierPaymentOperationService } from './supplier-payment-operation.service';
 
 describe('SupplierDebtService', () => {
   let service: SupplierDebtService;
@@ -27,8 +29,12 @@ describe('SupplierDebtService', () => {
     Pick<IPurchaseOrderRepository, 'findById'>
   >;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
+  let supplierPaymentOperationService: jest.Mocked<
+    Pick<SupplierPaymentOperationService, 'reserve' | 'markFailed'>
+  >;
 
   const actor: ActorContext = { userId: 'user-1', organizationId: 'org-1' };
+  const idempotencyKey = 'idem-key-1';
 
   const makeSupplier = (
     overrides: Partial<SupplierEntity> = {},
@@ -61,6 +67,7 @@ describe('SupplierDebtService', () => {
       search: jest.fn(),
       getBalance: jest.fn(),
       createPayment: jest.fn(),
+      findPaymentById: jest.fn(),
     };
     supplierDomainService = { findById: jest.fn() };
     branchService = { getById: jest.fn().mockResolvedValue(undefined) };
@@ -68,6 +75,12 @@ describe('SupplierDebtService', () => {
       findById: jest.fn().mockResolvedValue({ id: 'po-1' }),
     };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+    supplierPaymentOperationService = {
+      reserve: jest
+        .fn()
+        .mockResolvedValue({ kind: 'NEW', operationId: 'operation-1' }),
+      markFailed: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new SupplierDebtService(
       supplierDebtRepository,
@@ -75,6 +88,7 @@ describe('SupplierDebtService', () => {
       supplierDomainService as unknown as SupplierDomainService,
       branchService as unknown as BranchService,
       auditLogService as unknown as AuditLogService,
+      supplierPaymentOperationService as unknown as SupplierPaymentOperationService,
     );
   });
 
@@ -111,6 +125,132 @@ describe('SupplierDebtService', () => {
   });
 
   describe('createPayment', () => {
+    it('gọi reserve() với organizationId/idempotencyKey/payload TRƯỚC mọi validate khác', async () => {
+      supplierDomainService.findById.mockResolvedValue(makeSupplier());
+      supplierDebtRepository.createPayment.mockResolvedValue(makePayment());
+
+      await service.createPayment(
+        {
+          branchId: 'branch-1',
+          supplierId: 'supplier-1',
+          method: 'CASH',
+          amount: 500000,
+          paidAt: '2026-01-01T00:00:00.000Z',
+        },
+        actor,
+        idempotencyKey,
+      );
+
+      expect(supplierPaymentOperationService.reserve).toHaveBeenCalledWith({
+        organizationId: 'org-1',
+        idempotencyKey,
+        payload: expect.objectContaining({
+          branchId: 'branch-1',
+          supplierId: 'supplier-1',
+          method: 'CASH',
+          amount: 500000,
+        }),
+      });
+    });
+
+    it('REPLAY: trả về Payment gốc, KHÔNG revalidate tenant/business, KHÔNG gọi createPayment()', async () => {
+      supplierPaymentOperationService.reserve.mockResolvedValue({
+        kind: 'REPLAY',
+        paymentId: 'payment-1',
+      });
+      supplierDebtRepository.findPaymentById.mockResolvedValue(makePayment());
+
+      const result = await service.createPayment(
+        {
+          branchId: 'branch-1',
+          supplierId: 'supplier-1',
+          method: 'CASH',
+          amount: 500000,
+          paidAt: '2026-01-01T00:00:00.000Z',
+        },
+        actor,
+        idempotencyKey,
+      );
+
+      expect(result.id).toBe('payment-1');
+      expect(supplierDebtRepository.findPaymentById).toHaveBeenCalledWith(
+        'org-1',
+        'payment-1',
+      );
+      expect(supplierDomainService.findById).not.toHaveBeenCalled();
+      expect(branchService.getById).not.toHaveBeenCalled();
+      expect(supplierDebtRepository.createPayment).not.toHaveBeenCalled();
+    });
+
+    it('REPLAY nhưng Payment không tồn tại (vi phạm bất biến hạ tầng) → ném lỗi hệ thống chung, không tự bịa mã lỗi nghiệp vụ', async () => {
+      supplierPaymentOperationService.reserve.mockResolvedValue({
+        kind: 'REPLAY',
+        paymentId: 'payment-missing',
+      });
+      supplierDebtRepository.findPaymentById.mockResolvedValue(null);
+
+      await expect(
+        service.createPayment(
+          {
+            branchId: 'branch-1',
+            supplierId: 'supplier-1',
+            method: 'CASH',
+            amount: 500000,
+            paidAt: '2026-01-01T00:00:00.000Z',
+          },
+          actor,
+          idempotencyKey,
+        ),
+      ).rejects.toThrow(/invariant violation/);
+    });
+
+    it('NEW: lỗi nghiệp vụ sau reserve() → markFailed(operationId) được gọi trước khi lỗi tiếp tục nổi lên', async () => {
+      supplierPaymentOperationService.reserve.mockResolvedValue({
+        kind: 'NEW',
+        operationId: 'operation-1',
+      });
+      supplierDomainService.findById.mockResolvedValue(null);
+
+      await expect(
+        service.createPayment(
+          {
+            branchId: 'branch-1',
+            supplierId: 'supplier-1',
+            method: 'CASH',
+            amount: 100000,
+            paidAt: '2026-01-01T00:00:00.000Z',
+          },
+          actor,
+          idempotencyKey,
+        ),
+      ).rejects.toThrow(NotFoundException);
+      expect(supplierPaymentOperationService.markFailed).toHaveBeenCalledWith(
+        'operation-1',
+      );
+    });
+
+    it('reserve() ném ConflictException (409) → propagate thẳng ra, KHÔNG gọi markFailed (request này không sở hữu NEW)', async () => {
+      supplierPaymentOperationService.reserve.mockRejectedValue(
+        new ConflictException('active conflict'),
+      );
+
+      await expect(
+        service.createPayment(
+          {
+            branchId: 'branch-1',
+            supplierId: 'supplier-1',
+            method: 'CASH',
+            amount: 100000,
+            paidAt: '2026-01-01T00:00:00.000Z',
+          },
+          actor,
+          idempotencyKey,
+        ),
+      ).rejects.toThrow(ConflictException);
+      expect(supplierPaymentOperationService.markFailed).not.toHaveBeenCalled();
+      expect(supplierDomainService.findById).not.toHaveBeenCalled();
+    });
+
     it('ném NotFoundException khi supplier không tồn tại', async () => {
       supplierDomainService.findById.mockResolvedValue(null);
       await expect(
@@ -123,11 +263,12 @@ describe('SupplierDebtService', () => {
             paidAt: '2026-01-01T00:00:00.000Z',
           },
           actor,
+          idempotencyKey,
         ),
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('tạo payment thành công và ghi audit log', async () => {
+    it('tạo payment thành công, truyền idempotencyOperationId, và ghi audit log', async () => {
       supplierDomainService.findById.mockResolvedValue(makeSupplier());
       supplierDebtRepository.createPayment.mockResolvedValue(makePayment());
 
@@ -140,6 +281,7 @@ describe('SupplierDebtService', () => {
           paidAt: '2026-01-01T00:00:00.000Z',
         },
         actor,
+        idempotencyKey,
       );
 
       expect(result.id).toBe('payment-1');
@@ -153,6 +295,7 @@ describe('SupplierDebtService', () => {
           supplierId: 'supplier-1',
           method: 'CASH',
           amount: 500000,
+          idempotencyOperationId: 'operation-1',
         }),
       );
       expect(auditLogService.log).toHaveBeenCalledWith(
@@ -183,6 +326,7 @@ describe('SupplierDebtService', () => {
             paidAt: '2026-01-01T00:00:00.000Z',
           },
           actor,
+          idempotencyKey,
         ),
       ).rejects.toThrow(NotFoundException);
       expect(supplierDebtRepository.createPayment).not.toHaveBeenCalled();
@@ -206,6 +350,7 @@ describe('SupplierDebtService', () => {
             paidAt: '2026-01-01T00:00:00.000Z',
           },
           actor,
+          idempotencyKey,
         ),
       ).rejects.toThrow(NotFoundException);
       expect(supplierDebtRepository.createPayment).not.toHaveBeenCalled();
@@ -231,6 +376,7 @@ describe('SupplierDebtService', () => {
             paidAt: '2026-01-01T00:00:00.000Z',
           },
           actor,
+          idempotencyKey,
         ),
       ).rejects.toThrow(NotFoundException);
       expect(purchaseOrderRepository.findById).toHaveBeenCalledWith(
@@ -255,6 +401,7 @@ describe('SupplierDebtService', () => {
             paidAt: '2026-01-01T00:00:00.000Z',
           },
           actor,
+          idempotencyKey,
         ),
       ).rejects.toThrow(NotFoundException);
       expect(supplierDebtRepository.createPayment).not.toHaveBeenCalled();
@@ -279,6 +426,7 @@ describe('SupplierDebtService', () => {
           paidAt: '2026-01-01T00:00:00.000Z',
         },
         actor,
+        idempotencyKey,
       );
 
       expect(result.id).toBe('payment-1');
@@ -304,6 +452,7 @@ describe('SupplierDebtService', () => {
           paidAt: '2026-01-01T00:00:00.000Z',
         },
         actor,
+        idempotencyKey,
       );
 
       expect(result.id).toBe('payment-1');
@@ -313,7 +462,7 @@ describe('SupplierDebtService', () => {
       );
     });
 
-    it('dịch SupplierPaymentExceedsBalanceError sang UnprocessableEntityException', async () => {
+    it('dịch SupplierPaymentExceedsBalanceError sang UnprocessableEntityException, và markFailed(operationId) được gọi', async () => {
       supplierDomainService.findById.mockResolvedValue(makeSupplier());
       supplierDebtRepository.createPayment.mockRejectedValue(
         new SupplierPaymentExceedsBalanceError('supplier-1', '100000'),
@@ -329,8 +478,12 @@ describe('SupplierDebtService', () => {
             paidAt: '2026-01-01T00:00:00.000Z',
           },
           actor,
+          idempotencyKey,
         ),
       ).rejects.toThrow(UnprocessableEntityException);
+      expect(supplierPaymentOperationService.markFailed).toHaveBeenCalledWith(
+        'operation-1',
+      );
     });
   });
 });

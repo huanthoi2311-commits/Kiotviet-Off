@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -246,6 +247,7 @@ describe('SupplierDebt Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .post('/api/v1/supplier-payment')
       .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', randomUUID())
       .send({
         branchId,
         supplierId,
@@ -265,6 +267,7 @@ describe('SupplierDebt Module (e2e, integration)', () => {
     await request(app.getHttpServer())
       .post('/api/v1/supplier-payment')
       .set('Authorization', `Bearer ${accessToken}`)
+      .set('Idempotency-Key', randomUUID())
       .send({
         branchId,
         supplierId,

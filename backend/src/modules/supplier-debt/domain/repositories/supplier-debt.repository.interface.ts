@@ -28,6 +28,11 @@ export interface CreateSupplierPaymentInput {
   amount: number;
   paidAt: Date;
   createdBy: string;
+  /** T052.05B — id của `SupplierPaymentOperation` đã `reserve()` thành công TRƯỚC lời gọi này.
+   * `createPayment()` PHẢI gọi `markCompleted(idempotencyOperationId, payment.id, tx)` bằng
+   * đúng `tx` của transaction đang tạo Payment (T052.05A.1 §3 atomicity proof) — không mở
+   * transaction thứ hai. */
+  idempotencyOperationId: string;
 }
 
 /** Ném bởi createPayment() khi số tiền thanh toán vượt quá công nợ hiện tại (đọc lại trong transaction). */
@@ -72,6 +77,14 @@ export interface ISupplierDebtRepository {
   createPayment(
     input: CreateSupplierPaymentInput,
   ): Promise<SupplierPaymentEntity>;
+
+  /** T052.05B — đọc lại 1 Payment đã tạo trước đó cho REPLAY (idempotency). LUÔN scoped theo
+   * `organizationId` — một `paymentId` thuộc tổ chức khác phải đọc như không tồn tại (không rò
+   * rỉ cross-tenant, T052.05A.1 §7). */
+  findPaymentById(
+    organizationId: string,
+    id: string,
+  ): Promise<SupplierPaymentEntity | null>;
 }
 
 export const SUPPLIER_DEBT_REPOSITORY = Symbol('SUPPLIER_DEBT_REPOSITORY');
