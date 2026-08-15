@@ -652,8 +652,20 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
         .set('Authorization', `Bearer ${orgAToken}`)
         .send({ warehouseId: warehouseBId, productIds: [productBId] })
         .expect(404);
-      // Response không được chứa bất kỳ dấu vết nào của systemQty=50 (giá trị thật của Org B).
-      expect(JSON.stringify(res.body)).not.toContain('50');
+      // T052.04B — response không được chứa bất kỳ dấu vết nào của systemQty=50 (giá trị thật của
+      // Org B). Chỉ kiểm tra `code`/`message`/`errors` — 2 field còn lại của envelope
+      // (`traceId`: UUID sinh ngẫu nhiên qua `crypto.randomUUID()`, `request-id.middleware.ts`;
+      // `timestamp`: giờ hiện tại) không bao giờ có thể mang giá trị nghiệp vụ bị rò rỉ (không phụ
+      // thuộc DB/quantity), nhưng 1 UUID 32 ký tự hex có ~11% xác suất ngẫu nhiên chứa chuỗi con
+      // "50" — xác nhận qua chính log CI thật đã từng ghi nhận (traceId "...cf1b50fc...") khiến
+      // test flake ĐÚNG NGAY tại dòng này trong khi `code` vẫn luôn là WAREHOUSE_001 chính xác (an
+      // toàn thật, chỉ assertion sai — không có PROD defect). Whitelist 3 field này thay vì
+      // stringify cả `res.body` không làm YẾU khả năng phát hiện rò rỉ thật: bất kỳ field nghiệp vụ
+      // nào lỡ xuất hiện trong `message`/`errors` (hoặc `code`) vẫn được kiểm tra đầy đủ — envelope
+      // lỗi hiện tại (`HttpExceptionFilter`) không có field nào khác ngoài `success`/`traceId`/
+      // `timestamp` có thể mang dữ liệu.
+      const { code, message, errors } = res.body;
+      expect(JSON.stringify({ code, message, errors })).not.toContain('50');
       expect(res.body.code).toBe('WAREHOUSE_001');
 
       const leakedStockCounts = await prisma.stockCount.findMany({
