@@ -351,6 +351,29 @@ describe('Entitlement Module (e2e, integration) — T053.03 CASE 1-10', () => {
     expect(res.body.code).toBe('ENTITLEMENT_001');
   });
 
+  // T053.03 Architect Decision (Conflict Resolution §8) — bổ sung tường minh 2 case SUPPLIER để
+  // legacy fixture (nay đã chuyển ENTERPRISE trong supplier.e2e-spec.ts) không vô tình che giấu
+  // một entitlement enforcement bị hỏng: FREE+SUPPLIER PHẢI bị từ chối, BASIC+SUPPLIER PHẢI được
+  // phép — độc lập với bất kỳ fixture ENTERPRISE nào khác trong repo.
+  it('CASE 11: FREE tenant attempts SUPPLIER → entitlement rejection', async () => {
+    const { ownerToken } = await createOrgWithPlan('FREE', 'case11-free');
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/suppliers')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ companyName: 'Case 11 Free Blocked' })
+      .expect(403);
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+  });
+
+  it('CASE 12: BASIC tenant uses SUPPLIER → allowed subject to normal authorization/business rules', async () => {
+    const { ownerToken } = await createOrgWithPlan('BASIC', 'case12-basic');
+    await request(app.getHttpServer())
+      .post('/api/v1/suppliers')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ companyName: 'Case 12 Basic Allowed' })
+      .expect(201);
+  });
+
   it('GET /organizations/current trả về effectiveFeatures đúng theo Plan (tiện ích UI, không phải nguồn xác thực)', async () => {
     const { ownerToken } = await createOrgWithPlan('PRO', 'case-current-org');
     const res = await request(app.getHttpServer())
