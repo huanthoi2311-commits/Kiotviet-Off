@@ -340,7 +340,7 @@ describe('RbacService', () => {
       roleRepository.findOrganizationOwnerUserId.mockResolvedValue('owner-1');
     });
 
-    it('gỡ role hợp lệ khi role và user cùng thuộc tổ chức của actor', async () => {
+    it('gỡ role hợp lệ khi role và user cùng thuộc tổ chức của actor, ghi đúng 1 audit log', async () => {
       roleRepository.findById.mockResolvedValue(role);
       roleRepository.findOrganizationIdForUser.mockResolvedValue('org-1');
 
@@ -350,18 +350,32 @@ describe('RbacService', () => {
         'user-1',
         'role-1',
       );
+      // T052.04A — action/entity/metadata mirror assignRoleToUser's shape, adapted to removal
+      // (oldValue thay vì newValue — cùng quy ước "remove" đã có ở supplier.product.remove).
+      expect(auditLogService.log).toHaveBeenCalledTimes(1);
+      expect(auditLogService.log).toHaveBeenCalledWith({
+        organizationId: 'org-1',
+        userId: 'admin-1',
+        action: 'user.role.remove',
+        entityType: 'User',
+        entityId: 'user-1',
+        oldValue: { roleId: 'role-1' },
+        ip: undefined,
+        userAgent: undefined,
+      });
     });
 
-    it('T051.00: ném NotFoundException khi role thuộc tổ chức khác', async () => {
+    it('T051.00: ném NotFoundException khi role thuộc tổ chức khác, không ghi audit log', async () => {
       roleRepository.findById.mockResolvedValue(null);
 
       await expect(
         service.removeRoleFromUser('user-1', 'role-of-org-2', actor),
       ).rejects.toThrow(NotFoundException);
       expect(roleRepository.removeRoleFromUser).not.toHaveBeenCalled();
+      expect(auditLogService.log).not.toHaveBeenCalled();
     });
 
-    it('T051.00: ném NotFoundException khi user thuộc tổ chức khác', async () => {
+    it('T051.00: ném NotFoundException khi user thuộc tổ chức khác, không ghi audit log', async () => {
       roleRepository.findById.mockResolvedValue(role);
       roleRepository.findOrganizationIdForUser.mockResolvedValue('org-2');
 
@@ -369,6 +383,7 @@ describe('RbacService', () => {
         service.removeRoleFromUser('user-of-org-2', 'role-1', actor),
       ).rejects.toThrow(NotFoundException);
       expect(roleRepository.removeRoleFromUser).not.toHaveBeenCalled();
+      expect(auditLogService.log).not.toHaveBeenCalled();
     });
 
     describe('T052.03B — owner-lockout protection', () => {
@@ -377,11 +392,14 @@ describe('RbacService', () => {
         roleRepository.findOrganizationIdForUser.mockResolvedValue('org-1');
       });
 
-      it('target != owner -> gate bỏ qua, mutation tiến hành bình thường', async () => {
+      it('target != owner -> gate bỏ qua, mutation tiến hành bình thường, vẫn ghi audit log', async () => {
         await service.removeRoleFromUser('user-1', 'role-1', actor);
         expect(roleRepository.removeRoleFromUser).toHaveBeenCalledWith(
           'user-1',
           'role-1',
+        );
+        expect(auditLogService.log).toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'user.role.remove' }),
         );
       });
 
@@ -412,9 +430,16 @@ describe('RbacService', () => {
           'owner-1',
           'role-1',
         );
+        expect(auditLogService.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'user.role.remove',
+            entityId: 'owner-1',
+            oldValue: { roleId: 'role-1' },
+          }),
+        );
       });
 
-      it('target == owner, role bị gỡ là nguồn role:update DUY NHẤT -> từ chối, ConflictException/RBAC_006', async () => {
+      it('target == owner, role bị gỡ là nguồn role:update DUY NHẤT -> từ chối, ConflictException/RBAC_006, không ghi audit log', async () => {
         roleRepository.getRoleCodesForUser.mockResolvedValue(['sales_staff']);
         roleRepository.findByCode.mockResolvedValue(role);
 
@@ -422,6 +447,7 @@ describe('RbacService', () => {
           service.removeRoleFromUser('owner-1', 'role-1', actor),
         ).rejects.toThrow(ConflictException);
         expect(roleRepository.removeRoleFromUser).not.toHaveBeenCalled();
+        expect(auditLogService.log).not.toHaveBeenCalled();
       });
     });
   });
