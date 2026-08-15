@@ -1,40 +1,67 @@
 import fs from 'fs';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import { request as playwrightRequest } from '@playwright/test';
 import { backendBaseUrl, runId } from './support';
+
+const REPO_ROOT = path.resolve(__dirname, '../../..');
 
 /**
  * T051.08 — Global Setup cho Release E2E.
  *
- * BOOTSTRAP dữ liệu tiền đề (Category/Unit/Supplier/Warehouse/Product) qua API THẬT bằng token
- * của First Admin đã có sẵn từ `docker compose`'s `bring-up` service (T051.04) — không lái trình
- * duyệt để tạo dữ liệu chủ không phải trọng tâm của suite này, không tạo giá trị release. Kết quả
- * ghi ra `.auth/fixtures.json` để `critical-path.spec.ts` đọc lại.
+ * T053.03 (post-T053.02A) — Architect Decision "Release Fixture-Org Rework". Entitlement
+ * enforcement là THẬT từ T053.03: Organization bootstrap (do `docker compose`'s `bring-up` tạo,
+ * T051.04) mãi mãi ở plan FREE — KHÔNG được nâng cấp chỉ để test chạy qua (§1/§9 Architect
+ * Decision). Nhưng USER_MANAGEMENT/RBAC_MANAGEMENT/SUPPLIER/PURCHASE đều KHÔNG nằm trong FREE, nên
+ * cả 4 spec Release E2E có từ trước (critical-path/user-management/rbac-management/
+ * supplier-payment) đều cần một Organization ĐÃ ĐƯỢC CẤP QUYỀN thương mại, không thể tiếp tục dùng
+ * trực tiếp Organization bootstrap để tạo Supplier/Warehouse/Product/User/Role nữa.
  *
- * T051.08 (resume, round 2) — KHÔNG còn đăng nhập UI + lưu `storageState` ở đây (như thiết kế ban
- * đầu). Dưới cơ chế refresh-token rotation-on-every-use, một file `storageState` tĩnh chỉ dùng
- * được ĐÚNG 1 LẦN: nếu `test.describe.serial` trong `critical-path.spec.ts` phải retry (toàn bộ
- * khối beforeAll/test chạy lại), lần phục hồi phiên thứ 2 từ CÙNG file sẽ nhận đúng refresh_token
- * đã bị dùng/thu hồi bởi lần chạy trước → phiên khôi phục thất bại âm thầm → trang trắng, treo chờ
- * phần tử không bao giờ xuất hiện — xác nhận qua CI thật ("Target page, context or browser has
- * been closed" khi retry test 2). `critical-path.spec.ts`'s `beforeAll` nay tự đăng nhập lại qua
- * API cho ĐÚNG lần chạy hiện tại (kể cả khi retry) thay vì phục hồi từ file — xem ghi chú ở đó.
- * Test 1 của `critical-path.spec.ts` vẫn là bằng chứng ĐĂNG NHẬP QUA UI THẬT duy nhất/độc lập của
- * suite (§5 "no mocked auth") — không đổi.
+ * 2 Organization TÁCH BIỆT, không bao giờ trộn lẫn (Architect Decision §1/§7):
+ *
+ *   BOOTSTRAP ORGANIZATION — Organization đầu tiên do bring-up tạo. LUÔN giữ FREE. Vai trò DUY
+ *   NHẤT trong file này: làm bệ phóng để lấy danh tính Platform Admin đầu tiên qua CLI production
+ *   thật (T053.02A). Không dùng để tạo bất kỳ Supplier/Warehouse/Product/User/Role nào nữa — trước
+ *   khi rời khỏi Organization này, có 1 bước CHỨNG MINH TƯỜNG MINH nó vẫn bị entitlement chặn thật
+ *   (§9 Architect Decision — "FREE MUST REMAIN PROVABLY LOCKED"), không chỉ ngầm định.
+ *
+ *   RELEASE FIXTURE ORGANIZATION — Organization MỚI, tạo qua `POST /organizations` thật (route
+ *   Platform Admin thật) với `subscription.plan = ENTERPRISE`. Đây là ENTERPRISE cho MỤC ĐÍCH HẠ
+ *   TẦNG TEST (chia sẻ Supplier/Warehouse/Product cho nhiều spec khác nhau, không nên phụ thuộc ma
+ *   trận entitlement đang được kiểm chứng ở CASE A-D riêng) — KHÔNG phải chính sách production, và
+ *   KHÔNG che giấu/thay thế các Organization TRIAL/BASIC/PRO/ENTERPRISE mà `entitlement.spec.ts` tự
+ *   tạo riêng để chứng minh ma trận entitlement thật.
+ *
+ * PLATFORM ACTOR (Platform Admin vừa promote) CHỈ dùng cho đúng 1 việc: `POST /organizations` tạo
+ * Release Fixture Organization. Toàn bộ Branch/Warehouse/Supplier/Category/Unit/Product bên dưới
+ * được tạo bởi TENANT ACTOR — Owner CỦA CHÍNH Release Fixture Organization vừa tạo — không phải
+ * Platform Admin (Architect Decision §4 "Platform Admin must not become universal actor").
+ *
+ * `organizationSlug`/`adminEmail`/`adminPassword`/`adminAccessToken`/`branchId`/... (đặt tên GIỮ
+ * NGUYÊN như trước — 4 spec Release E2E có từ trước chỉ đọc các tên trường này, không quan tâm
+ * Organization cụ thể nào đứng sau) nay mô tả RELEASE FIXTURE ORGANIZATION, KHÔNG còn phải Organization
+ * bootstrap thật nữa — danh tính bootstrap THẬT vẫn được giữ riêng, đặt tên tường minh
+ * `bootstrapOrganizationSlug`/`bootstrapAdminEmail`/`bootstrapAdminPassword` (Architect Decision §6
+ * — "không giấu ranh giới tenant sau tên biến chung chung").
+ *
+ * T051.08 (resume, round 2) — KHÔNG lưu `storageState` (xem lịch sử — refresh-token
+ * rotation-on-every-use khiến file tĩnh chỉ dùng được đúng 1 lần). `critical-path.spec.ts` tự đăng
+ * nhập lại qua API cho ĐÚNG lần chạy hiện tại — test 1 của nó vẫn là bằng chứng ĐĂNG NHẬP QUA UI
+ * THẬT duy nhất/độc lập của suite, nay đăng nhập vào Release Fixture Organization thay vì bootstrap.
  */
 
 const FIXTURES_PATH = path.join(__dirname, '.auth', 'fixtures.json');
 
 interface ReleaseFixtures {
   runId: string;
+  /** Danh tính Organization bootstrap THẬT (bring-up, T051.04) — LUÔN FREE, không dùng để tạo fixture nghiệp vụ. */
+  bootstrapOrganizationSlug: string;
+  bootstrapAdminEmail: string;
+  bootstrapAdminPassword: string;
+  /** Release Fixture Organization (ENTERPRISE, chỉ phục vụ hạ tầng test — xem doc-comment ở trên). */
   organizationSlug: string;
   adminEmail: string;
   adminPassword: string;
-  // T051.08 (resume) — token bootstrap CÓ SẴN, chia sẻ lại cho critical-path.spec.ts's beforeAll
-  // thay vì tự đăng nhập THÊM một lần nữa — endpoint /auth/login bị Throttle giới hạn 5 lần/60s
-  // (auth.controller.ts); khi test.describe.serial retry (toàn bộ khối chạy lại từ đầu), một lần
-  // đăng nhập THỪA ở đây từng cộng dồn đủ để chạm ThrottlerException thật (xác nhận qua CI thật,
-  // T051.08 resume) — token này còn hạn đủ lâu (JWT_ACCESS_EXPIRES_IN=15m) cho toàn bộ suite.
   adminAccessToken: string;
   branchId: string;
   branchName: string;
@@ -63,7 +90,7 @@ async function apiLogin(
   });
   if (!res.ok()) {
     throw new Error(
-      `[T051.08 global-setup] Đăng nhập bootstrap thất bại (${res.status()}): ${await res.text()}`,
+      `[T051.08 global-setup] Đăng nhập thất bại (${res.status()}): ${await res.text()}`,
     );
   }
   const body = await res.json();
@@ -72,10 +99,11 @@ async function apiLogin(
 }
 
 export default async function globalSetup(): Promise<void> {
-  const organizationSlug = process.env.RELEASE_E2E_ORG_SLUG ?? 'pos-erp-release-e2e';
-  const adminEmail = process.env.RELEASE_E2E_ADMIN_EMAIL ?? 'admin@pos-erp-release-e2e.local';
-  const adminPassword = process.env.RELEASE_E2E_ADMIN_PASSWORD;
-  if (!adminPassword) {
+  const bootstrapOrganizationSlug = process.env.RELEASE_E2E_ORG_SLUG ?? 'pos-erp-release-e2e';
+  const bootstrapAdminEmail =
+    process.env.RELEASE_E2E_ADMIN_EMAIL ?? 'admin@pos-erp-release-e2e.local';
+  const bootstrapAdminPassword = process.env.RELEASE_E2E_ADMIN_PASSWORD;
+  if (!bootstrapAdminPassword) {
     throw new Error(
       '[T051.08 global-setup] RELEASE_E2E_ADMIN_PASSWORD chưa được set — bắt buộc, không dùng giá trị mặc định cho mật khẩu.',
     );
@@ -84,34 +112,111 @@ export default async function globalSetup(): Promise<void> {
   const id = runId();
   process.env.RELEASE_E2E_RUN_ID = id;
 
+  const apiUrl = (p: string) => `${backendBaseUrl()}${p}`;
+
+  const bootstrapAccessToken = await apiLogin(
+    bootstrapOrganizationSlug,
+    bootstrapAdminEmail,
+    bootstrapAdminPassword,
+  );
+
+  // Architect Decision §9 — "FREE MUST REMAIN PROVABLY LOCKED". Trước khi rời khỏi Organization
+  // bootstrap, chứng minh TƯỜNG MINH nó vẫn bị entitlement chặn thật trên 1 route đại diện
+  // (SUPPLIER) — không chỉ là giả định ngầm. Bootstrap admin có Role "owner" = TOÀN QUYỀN RBAC
+  // (first-admin-initializer.ts), nên 403 ở đây CHỈ có thể do Entitlement, không phải RBAC.
+  {
+    const proofApi = await playwrightRequest.newContext({
+      extraHTTPHeaders: { Authorization: `Bearer ${bootstrapAccessToken}` },
+    });
+    const proofRes = await proofApi.post(apiUrl('/suppliers'), {
+      data: { code: `RE2E-FREE-LOCK-PROOF-${id}`, companyName: 'FREE Lock Proof' },
+    });
+    if (proofRes.status() !== 403) {
+      throw new Error(
+        `[T051.08 global-setup] FREE-lock proof thất bại — kỳ vọng 403 ENTITLEMENT_001 cho Organization bootstrap (FREE), nhận được ${proofRes.status()}: ${await proofRes.text()}`,
+      );
+    }
+    const proofBody = await proofRes.json();
+    if (proofBody.code !== 'ENTITLEMENT_001') {
+      throw new Error(
+        `[T051.08 global-setup] FREE-lock proof thất bại — kỳ vọng code ENTITLEMENT_001, nhận được ${proofBody.code}`,
+      );
+    }
+    await proofApi.dispose();
+  }
+
+  // PLATFORM ACTOR step 1 — cơ chế production THẬT (T053.02A), không phải bypass test-only.
+  // Idempotent — an toàn nếu bootstrap admin đã được promote từ 1 lần chạy trước.
+  execFileSync(
+    'docker',
+    [
+      'compose',
+      '-f',
+      'docker-compose.yml',
+      '-f',
+      'docker-compose.override.yml',
+      'run',
+      '--rm',
+      'bring-up',
+      'npm',
+      'run',
+      'platform-admin:promote',
+      '--',
+      `--organization-slug=${bootstrapOrganizationSlug}`,
+      `--email=${bootstrapAdminEmail}`,
+    ],
+    { cwd: REPO_ROOT, stdio: 'inherit' },
+  );
+
+  // PLATFORM ACTOR step 2 — promotion thu hồi TOÀN BỘ session cũ (T053.02A) — `bootstrapAccessToken`
+  // ở trên đã hỏng, PHẢI đăng nhập lại để nhận JWT isPlatformAdmin=true.
+  const platformActorToken = await apiLogin(
+    bootstrapOrganizationSlug,
+    bootstrapAdminEmail,
+    bootstrapAdminPassword,
+  );
+
+  // PLATFORM ACTOR step 3 — tạo Release Fixture Organization (ENTERPRISE, chỉ phục vụ hạ tầng
+  // test — xem doc-comment đầu file) qua route Platform Admin thật.
+  const organizationSlug = `pos-erp-release-e2e-fixture-${id}`;
+  const adminEmail = `fixture-owner-${id}@pos-erp-release-e2e.local`;
+  const adminPassword = `FixtureOwner@${id}`;
+  const createOrgRes = await (
+    await playwrightRequest.newContext({
+      extraHTTPHeaders: { Authorization: `Bearer ${platformActorToken}` },
+    })
+  ).post(apiUrl('/organizations'), {
+    data: {
+      organization: { displayName: `Release E2E Fixture ${id}`, slug: organizationSlug },
+      owner: { fullName: 'Release Fixture Owner', email: adminEmail, password: adminPassword },
+      subscription: { plan: 'ENTERPRISE' },
+    },
+  });
+  if (!createOrgRes.ok()) {
+    throw new Error(
+      `[T051.08 global-setup] Tạo Release Fixture Organization thất bại: ${await createOrgRes.text()}`,
+    );
+  }
+
+  // TENANT ACTOR — Owner CỦA CHÍNH Release Fixture Organization, KHÔNG phải Platform Admin, dùng
+  // cho toàn bộ fixture nghiệp vụ bên dưới (Architect Decision §4/§7 — tenant boundary nhất quán:
+  // actor.organizationId/Supplier.organizationId/Warehouse.organizationId/Product.organizationId
+  // đều phải cùng trỏ về Release Fixture Organization).
   const accessToken = await apiLogin(organizationSlug, adminEmail, adminPassword);
-  // KHÔNG dùng `baseURL` của context (xem ghi chú trong `apiLogin` ở trên) — mọi lời gọi dưới đây
-  // đều ghép URL tuyệt đối qua `backendBaseUrl()`.
   const api = await playwrightRequest.newContext({
     extraHTTPHeaders: { Authorization: `Bearer ${accessToken}` },
   });
-  const apiUrl = (p: string) => `${backendBaseUrl()}${p}`;
 
-  // Branch: dùng branch mặc định do bootstrap First Admin (T051.04) tạo sẵn (code cố định "MAIN"
-  // theo `FIRST_ADMIN_BRANCH_CODE` mặc định) — không tạo branch mới, tránh trùng lặp không cần
-  // thiết với hạ tầng đã có.
-  const branchesRes = await api.get(apiUrl('/branches'), { params: { limit: 1 } });
-  if (!branchesRes.ok()) {
-    throw new Error(
-      `[T051.08 global-setup] Không đọc được danh sách Branch: ${await branchesRes.text()}`,
-    );
+  // `createWithOwner()` (POST /organizations) KHÔNG tự tạo Branch (khác `initializeFirstAdmin()`
+  // của bootstrap) — phải tạo tường minh.
+  const branchName = `Chi nhánh Release E2E Fixture ${id}`;
+  const branchRes = await api.post(apiUrl('/branches'), {
+    data: { name: branchName },
+  });
+  if (!branchRes.ok()) {
+    throw new Error(`[T051.08 global-setup] Tạo Branch thất bại: ${await branchRes.text()}`);
   }
-  const branches = (await branchesRes.json()).data.items as {
-    id: string;
-    name: string;
-  }[];
-  if (branches.length === 0) {
-    throw new Error(
-      '[T051.08 global-setup] Không tìm thấy Branch nào — bring-up (First Admin bootstrap) phải tạo sẵn 1 branch mặc định.',
-    );
-  }
-  const branchId = branches[0].id;
-  const branchName = branches[0].name;
+  const branchId = (await branchRes.json()).data.id as string;
 
   const warehouseName = `Kho Release E2E ${id}`;
   const warehouseRes = await api.post(apiUrl('/warehouses'), {
@@ -168,6 +273,9 @@ export default async function globalSetup(): Promise<void> {
 
   const fixtures: ReleaseFixtures = {
     runId: id,
+    bootstrapOrganizationSlug,
+    bootstrapAdminEmail,
+    bootstrapAdminPassword,
     organizationSlug,
     adminEmail,
     adminPassword,

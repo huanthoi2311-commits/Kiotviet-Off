@@ -1,6 +1,4 @@
 import fs from 'fs';
-import path from 'path';
-import { execFileSync } from 'child_process';
 import {
   test,
   expect,
@@ -10,8 +8,6 @@ import {
 } from '@playwright/test';
 import { FIXTURES_PATH, ReleaseFixtures } from './global-setup';
 import { backendBaseUrl, frontendBaseUrl } from './support';
-
-const REPO_ROOT = path.resolve(__dirname, '../../..');
 
 /**
  * T053.03 §21 / T053.02A integration — real-browser proof cho Feature Entitlements (CASE A-D),
@@ -44,58 +40,25 @@ test.describe
   test.beforeAll(async () => {
     fixtures = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf-8')) as ReleaseFixtures;
 
-    // PLATFORM ACTOR step 1 — cơ chế production THẬT (T053.02A), không phải bypass test-only.
-    // Idempotent — an toàn nếu bootstrap admin đã được promote từ 1 lần chạy trước.
-    execFileSync(
-      'docker',
-      [
-        'compose',
-        '-f',
-        'docker-compose.yml',
-        '-f',
-        'docker-compose.override.yml',
-        'run',
-        '--rm',
-        'bring-up',
-        'npm',
-        'run',
-        'platform-admin:promote',
-        '--',
-        `--organization-slug=${fixtures.organizationSlug}`,
-        `--email=${fixtures.adminEmail}`,
-      ],
-      { cwd: REPO_ROOT, stdio: 'inherit' },
-    );
-
-    // PLATFORM ACTOR step 2 — promotion thu hồi TOÀN BỘ session cũ (T053.02A) — token bootstrap
-    // (`fixtures.adminAccessToken`) đã hỏng, PHẢI đăng nhập lại để nhận JWT isPlatformAdmin=true.
+    // `global-setup.ts` đã promote Organization bootstrap's admin qua đúng CLI production
+    // (T053.02A) TRƯỚC khi bất kỳ spec file nào chạy (cần thiết cho chính nó để tạo Release
+    // Fixture Organization) — ở đây chỉ cần đăng nhập LẠI để lấy JWT isPlatformAdmin=true, không
+    // promote thêm lần nào nữa (dù promote lại vẫn an toàn/idempotent, tránh gọi trùng
+    // `docker compose run` không cần thiết).
     const api = await playwrightRequest.newContext();
     const loginRes = await api.post(`${backendBaseUrl()}/auth/login`, {
       data: {
-        organizationSlug: fixtures.organizationSlug,
-        email: fixtures.adminEmail,
-        password: fixtures.adminPassword,
+        organizationSlug: fixtures.bootstrapOrganizationSlug,
+        email: fixtures.bootstrapAdminEmail,
+        password: fixtures.bootstrapAdminPassword,
       },
     });
     expect(
       loginRes.ok(),
-      `Platform Admin đăng nhập lại sau promote thất bại: ${await loginRes.text()}`,
+      `Platform Admin đăng nhập thất bại: ${await loginRes.text()}`,
     ).toBeTruthy();
     platformActorToken = (await loginRes.json()).data.accessToken as string;
     await api.dispose();
-
-    // Promotion đã thu hồi TOÀN BỘ session cũ của bootstrap admin, làm hỏng
-    // `fixtures.adminAccessToken` đã cache trong file dùng chung — các spec khác (vd
-    // user-management.spec.ts test 3) tự đọc LẠI file này trong `beforeAll` riêng của họ (không
-    // giữ tham chiếu module-level dùng chung), nên cập nhật lại token mới ở đây là đủ để mọi file
-    // chạy SAU file này (`workers: 1`, tuần tự, không chạy song song — thứ tự chạy trước/sau không
-    // quan trọng, chỉ cần file ghi lại TRƯỚC khi file khác đọc) tiếp tục nhận được token còn hiệu
-    // lực, không phá vỡ 4 spec Release E2E khác đã tồn tại từ trước T053.03.
-    const updatedFixtures: ReleaseFixtures = {
-      ...fixtures,
-      adminAccessToken: platformActorToken,
-    };
-    fs.writeFileSync(FIXTURES_PATH, JSON.stringify(updatedFixtures, null, 2));
   });
 
   /** PLATFORM ACTOR — chỉ dùng cho POST /organizations, không bao giờ cho route nghiệp vụ tenant. */
