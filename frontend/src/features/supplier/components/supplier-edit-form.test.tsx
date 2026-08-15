@@ -359,6 +359,110 @@ describe('SupplierEditForm (T049 Phase T/U/W)', () => {
     expect(screen.queryByText('Tổng phát sinh')).not.toBeInTheDocument();
   });
 
+  // T052.05C §4 — real backend permission `payment:create`, never a frontend-invented code.
+  it('shows "Ghi nhận thanh toán" only for a user with payment:create', async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/suppliers/${SUPPLIER_ID}`, () =>
+        HttpResponse.json(envelope(buildSupplier())),
+      ),
+    );
+    renderForm();
+
+    await screen.findByDisplayValue('Công ty Đức An');
+    expect(screen.queryByRole('button', { name: 'Ghi nhận thanh toán' })).not.toBeInTheDocument();
+  });
+
+  it('records a payment through the real UI flow and refreshes the Debt summary exactly once', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['payment:create', 'debt:view'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+    server.use(
+      http.get(`${API_BASE_URL}/suppliers/${SUPPLIER_ID}`, () =>
+        HttpResponse.json(envelope(buildSupplier())),
+      ),
+    );
+    let debtCallCount = 0;
+    server.use(
+      http.get(`${API_BASE_URL}/supplier-debt`, () => {
+        debtCallCount += 1;
+        return HttpResponse.json(
+          envelope({
+            items: [buildDebt({ balance: debtCallCount === 1 ? '3000000' : '2900000' })],
+            total: 1,
+            page: 1,
+            limit: 1,
+          }),
+        );
+      }),
+      http.get(`${API_BASE_URL}/branches`, () =>
+        HttpResponse.json(
+          envelope({
+            items: [{ id: 'branch-1', name: 'Chi nhánh chính', status: 'ACTIVE' }],
+            total: 1,
+            page: 1,
+            limit: 100,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE_URL}/purchase-orders`, () =>
+        HttpResponse.json(envelope({ items: [], total: 0, page: 1, limit: 100 })),
+      ),
+    );
+    let capturedBody: Record<string, unknown> | undefined;
+    let capturedIdempotencyKey: string | null = null;
+    server.use(
+      http.post(`${API_BASE_URL}/supplier-payment`, async ({ request }) => {
+        capturedIdempotencyKey = request.headers.get('idempotency-key');
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          envelope({
+            id: 'payment-1',
+            branchId: 'branch-1',
+            supplierId: SUPPLIER_ID,
+            purchaseOrderId: null,
+            method: 'CASH',
+            amount: '100000',
+            paidAt: '2026-08-15',
+            createdAt: '2026-08-15T00:00:00.000Z',
+          }),
+          { status: 201 },
+        );
+      }),
+    );
+    renderForm();
+
+    await screen.findByDisplayValue('Công ty Đức An');
+    expect(await screen.findByText('3000000')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Ghi nhận thanh toán' }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Chi nhánh' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Chi nhánh chính' }));
+    await userEvent.type(within(dialog).getByLabelText('Số tiền'), '100000');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Ghi nhận thanh toán' }));
+
+    await waitFor(() =>
+      expect(capturedBody).toMatchObject({
+        branchId: 'branch-1',
+        supplierId: SUPPLIER_ID,
+        method: 'CASH',
+        amount: 100000,
+      }),
+    );
+    expect(capturedIdempotencyKey).toEqual(expect.any(String));
+    expect(capturedIdempotencyKey).not.toBe('');
+
+    const { toast } = await import('sonner');
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Đã ghi nhận thanh toán'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    // Debt query invalidated exactly once by the mutation's onSuccess — refetch shows the new
+    // balance without a manual page reload.
+    expect(await screen.findByText('2900000')).toBeInTheDocument();
+  });
+
   it('lists Supplier-Product mappings, resolving product names via the Product search', async () => {
     server.use(
       http.get(`${API_BASE_URL}/suppliers/${SUPPLIER_ID}`, () =>

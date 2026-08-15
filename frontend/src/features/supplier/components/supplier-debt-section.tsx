@@ -10,7 +10,9 @@ import { isNormalizedError } from '@/services/api-client';
  * T049 §9 (Architect Decision AD-2) — READ-ONLY summary only. `totalDebt`/`totalPaid`/`balance`
  * are displayed exactly as returned by `GET /supplier-debt?supplierId=`, never recomputed
  * client-side. Gated independently by `debt:view` (not `supplier:view`) — hidden, not an error,
- * when absent. No payment recording, no payment history (no such endpoint exists).
+ * when absent. No payment history UI here. Payment recording (T052.05C) lives in the sibling
+ * `SupplierPaymentDialog`, triggered from `supplier-edit-form.tsx`'s Công nợ section — this
+ * component itself stays read-only and unchanged.
  */
 export function SupplierDebtSection({ supplierId }: { supplierId: string }) {
   const canViewDebt = usePermission('debt:view');
