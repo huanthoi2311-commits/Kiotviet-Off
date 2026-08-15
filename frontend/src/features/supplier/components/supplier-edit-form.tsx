@@ -28,6 +28,7 @@ import type { NormalizedError } from '@/services/api-client';
 import { editSupplierSchema, type EditSupplierFormValues } from '../edit-schema';
 import { SupplierActionDialog, type SupplierActionDialogMode } from './supplier-action-dialog';
 import { SupplierDebtSection } from './supplier-debt-section';
+import { SupplierPaymentDialog } from './supplier-payment-dialog';
 import { SupplierProductSection } from './supplier-product-section';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -88,6 +89,7 @@ export function SupplierEditForm({ id }: { id: string }) {
   const [conflictMessage, setConflictMessage] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [actionMode, setActionMode] = useState<SupplierActionDialogMode | null>(null);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
 
   const formValues = useMemo(() => (supplier ? toFormValues(supplier) : undefined), [supplier]);
 
@@ -420,7 +422,19 @@ export function SupplierEditForm({ id }: { id: string }) {
       )}
 
       <div className="flex flex-col gap-2 border-t pt-4">
-        <h2 className="text-sm font-semibold">Công nợ</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">Công nợ</h2>
+          {/* T052.05C — gated by the real backend permission (`payment:create`), never a
+           * frontend-invented code; renders nothing (not disabled) when absent. */}
+          <PermissionButton
+            permission="payment:create"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowPaymentDialog(true)}
+          >
+            Ghi nhận thanh toán
+          </PermissionButton>
+        </div>
         <SupplierDebtSection supplierId={supplier.id} />
       </div>
 
@@ -453,6 +467,12 @@ export function SupplierEditForm({ id }: { id: string }) {
           onVersionConflict={handleVersionConflict}
         />
       )}
+
+      <SupplierPaymentDialog
+        open={showPaymentDialog}
+        onOpenChange={setShowPaymentDialog}
+        supplierId={supplier.id}
+      />
     </div>
   );
 }
