@@ -15,54 +15,12 @@ function envelope<T>(data: T) {
   return { success: true, data, meta: null, traceId: 't-1', timestamp: new Date().toISOString() };
 }
 
-function buildCurrentOrganization(effectiveFeatures: string[]) {
-  return {
-    id: 'org-1',
-    code: 'ORG000001',
-    displayName: 'Acme',
-    legalName: null,
-    slug: 'acme',
-    taxCode: null,
-    email: null,
-    phone: null,
-    website: null,
-    logoUrl: null,
-    address: null,
-    province: null,
-    district: null,
-    ward: null,
-    countryCode: 'VN',
-    timezone: 'Asia/Ho_Chi_Minh',
-    currencyCode: 'VND',
-    languageCode: 'vi',
-    status: 'ACTIVE',
-    ownerUserId: 'user-1',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:00:00.000Z',
-    settings: {
-      allowNegativeInventory: false,
-      allowBackDate: false,
-      decimalQuantity: 0,
-      decimalPrice: 0,
-      defaultWarehouseId: null,
-      defaultBranchId: null,
-      defaultLanguage: 'vi',
-      defaultCurrency: 'VND',
-    },
-    subscription: {
-      plan: 'BASIC',
-      status: 'ACTIVE',
-      startedAt: '2026-01-01T00:00:00.000Z',
-      expiredAt: null,
-      maxBranch: null,
-      maxUser: null,
-      maxWarehouse: null,
-      maxProduct: null,
-      maxCustomer: null,
-      storageLimitGB: null,
-      effectiveFeatures,
-    },
-  };
+function mockEntitlements(effectiveFeatures: string[]) {
+  server.use(
+    http.get(`${API_BASE_URL}/entitlements/current`, () =>
+      HttpResponse.json(envelope({ effectiveFeatures })),
+    ),
+  );
 }
 
 function renderWithClient(ui: React.ReactElement) {
@@ -72,27 +30,19 @@ function renderWithClient(ui: React.ReactElement) {
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
-function loginWithOrgView() {
-  const token = buildAccessToken({
-    sub: 'user-1',
-    organizationId: 'org-1',
-    permissions: ['organization:view', 'user:view'],
-  });
+function login(permissions: string[] = []) {
+  const token = buildAccessToken({ sub: 'user-1', organizationId: 'org-1', permissions });
   useAuthStore.getState().setAccessToken(token);
 }
 
-describe('EntitlementGate (T053.03 §14/§15/§20)', () => {
+describe('EntitlementGate (T053.03 §14/§15/§20 + Current Entitlement Context Defect fix)', () => {
   beforeEach(() => {
     useAuthStore.getState().clear();
   });
 
   it('renders children when the Plan includes the feature', async () => {
-    loginWithOrgView();
-    server.use(
-      http.get(`${API_BASE_URL}/organizations/current`, () =>
-        HttpResponse.json(envelope(buildCurrentOrganization(['USER_MANAGEMENT']))),
-      ),
-    );
+    login(['user:view']);
+    mockEntitlements(['USER_MANAGEMENT']);
 
     renderWithClient(
       <EntitlementGate feature="USER_MANAGEMENT">
@@ -104,12 +54,8 @@ describe('EntitlementGate (T053.03 §14/§15/§20)', () => {
   });
 
   it('renders "Không có trong gói hiện tại" (not the RBAC message) when the Plan excludes the feature', async () => {
-    loginWithOrgView();
-    server.use(
-      http.get(`${API_BASE_URL}/organizations/current`, () =>
-        HttpResponse.json(envelope(buildCurrentOrganization([]))),
-      ),
-    );
+    login(['user:view']);
+    mockEntitlements([]);
 
     renderWithClient(
       <EntitlementGate feature="USER_MANAGEMENT">
@@ -122,18 +68,48 @@ describe('EntitlementGate (T053.03 §14/§15/§20)', () => {
     expect(screen.queryByText('Bạn không có quyền truy cập')).not.toBeInTheDocument();
   });
 
-  it('composes with PermissionGate — entitled but RBAC-denied still shows the RBAC message, not the plan message', async () => {
-    const token = buildAccessToken({
-      sub: 'user-1',
-      organizationId: 'org-1',
-      permissions: ['organization:view'],
-    });
-    useAuthStore.getState().setAccessToken(token);
-    server.use(
-      http.get(`${API_BASE_URL}/organizations/current`, () =>
-        HttpResponse.json(envelope(buildCurrentOrganization(['USER_MANAGEMENT']))),
-      ),
+  // Critical regression (Architect Decision) — a user with SOME RBAC permission but WITHOUT
+  // organization:view must still resolve entitlement correctly. Previously this user was
+  // incorrectly shown "Không có trong gói hiện tại" regardless of their plan.
+  it('resolves entitlement correctly for a user WITHOUT organization:view — ENTERPRISE tenant + user:view → USER_MANAGEMENT passes, PermissionGate then decides', async () => {
+    login(['user:view']);
+    mockEntitlements(['USER_MANAGEMENT']);
+
+    renderWithClient(
+      <EntitlementGate feature="USER_MANAGEMENT">
+        <PermissionGate code="user:view">
+          <div>Protected content</div>
+        </PermissionGate>
+      </EntitlementGate>,
     );
+
+    await screen.findByText('Protected content');
+    expect(screen.queryByText('Không có trong gói hiện tại')).not.toBeInTheDocument();
+  });
+
+  // Companion negative case — same user (no organization:view), but WITHOUT user:view either:
+  // denial must remain RBAC-related, never mislabeled as a plan restriction.
+  it('user WITHOUT organization:view and WITHOUT user:view — denial stays RBAC, not mislabeled as plan restriction', async () => {
+    login([]);
+    mockEntitlements(['USER_MANAGEMENT']);
+
+    renderWithClient(
+      <EntitlementGate feature="USER_MANAGEMENT">
+        <PermissionGate code="user:view">
+          <div>Protected content</div>
+        </PermissionGate>
+      </EntitlementGate>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Bạn không có quyền truy cập')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Không có trong gói hiện tại')).not.toBeInTheDocument();
+  });
+
+  it('composes with PermissionGate — entitled but RBAC-denied still shows the RBAC message, not the plan message', async () => {
+    login([]);
+    mockEntitlements(['USER_MANAGEMENT']);
 
     renderWithClient(
       <EntitlementGate feature="USER_MANAGEMENT">
@@ -151,17 +127,8 @@ describe('EntitlementGate (T053.03 §14/§15/§20)', () => {
   });
 
   it('composes with PermissionGate — not entitled AND RBAC-denied shows the plan message (entitlement checked first)', async () => {
-    const token = buildAccessToken({
-      sub: 'user-1',
-      organizationId: 'org-1',
-      permissions: ['organization:view'],
-    });
-    useAuthStore.getState().setAccessToken(token);
-    server.use(
-      http.get(`${API_BASE_URL}/organizations/current`, () =>
-        HttpResponse.json(envelope(buildCurrentOrganization([]))),
-      ),
-    );
+    login([]);
+    mockEntitlements([]);
 
     renderWithClient(
       <EntitlementGate feature="USER_MANAGEMENT">
@@ -176,12 +143,8 @@ describe('EntitlementGate (T053.03 §14/§15/§20)', () => {
   });
 
   it('has no accessibility violations in the not-in-plan state', async () => {
-    loginWithOrgView();
-    server.use(
-      http.get(`${API_BASE_URL}/organizations/current`, () =>
-        HttpResponse.json(envelope(buildCurrentOrganization([]))),
-      ),
-    );
+    login(['user:view']);
+    mockEntitlements([]);
 
     const { container } = renderWithClient(
       <EntitlementGate feature="USER_MANAGEMENT">

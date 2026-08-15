@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { request as playwrightRequest } from '@playwright/test';
-import { backendBaseUrl, runId } from './support';
+import { apiLoginWithRetry, backendBaseUrl, runId } from './support';
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 
@@ -76,28 +76,6 @@ interface ReleaseFixtures {
   productSku: string;
 }
 
-async function apiLogin(
-  organizationSlug: string,
-  email: string,
-  password: string,
-): Promise<string> {
-  const api = await playwrightRequest.newContext();
-  // KHÔNG dùng `baseURL` của context + path bắt đầu bằng "/" — theo ngữ nghĩa WHATWG URL,
-  // `new URL('/auth/login', 'http://host/api/v1')` cho ra `http://host/auth/login` (path bắt đầu
-  // bằng "/" LUÔN thay thế toàn bộ path của base, xoá mất "/api/v1") — luôn ghép URL tuyệt đối.
-  const res = await api.post(`${backendBaseUrl()}/auth/login`, {
-    data: { organizationSlug, email, password },
-  });
-  if (!res.ok()) {
-    throw new Error(
-      `[T051.08 global-setup] Đăng nhập thất bại (${res.status()}): ${await res.text()}`,
-    );
-  }
-  const body = await res.json();
-  await api.dispose();
-  return body.data.accessToken as string;
-}
-
 export default async function globalSetup(): Promise<void> {
   const bootstrapOrganizationSlug = process.env.RELEASE_E2E_ORG_SLUG ?? 'pos-erp-release-e2e';
   const bootstrapAdminEmail =
@@ -114,11 +92,9 @@ export default async function globalSetup(): Promise<void> {
 
   const apiUrl = (p: string) => `${backendBaseUrl()}${p}`;
 
-  const bootstrapAccessToken = await apiLogin(
-    bootstrapOrganizationSlug,
-    bootstrapAdminEmail,
-    bootstrapAdminPassword,
-  );
+  const bootstrapAccessToken = (
+    await apiLoginWithRetry(bootstrapOrganizationSlug, bootstrapAdminEmail, bootstrapAdminPassword)
+  ).accessToken;
 
   // Architect Decision §9 — "FREE MUST REMAIN PROVABLY LOCKED". Trước khi rời khỏi Organization
   // bootstrap, chứng minh TƯỜNG MINH nó vẫn bị entitlement chặn thật trên 1 route đại diện
@@ -170,11 +146,9 @@ export default async function globalSetup(): Promise<void> {
 
   // PLATFORM ACTOR step 2 — promotion thu hồi TOÀN BỘ session cũ (T053.02A) — `bootstrapAccessToken`
   // ở trên đã hỏng, PHẢI đăng nhập lại để nhận JWT isPlatformAdmin=true.
-  const platformActorToken = await apiLogin(
-    bootstrapOrganizationSlug,
-    bootstrapAdminEmail,
-    bootstrapAdminPassword,
-  );
+  const platformActorToken = (
+    await apiLoginWithRetry(bootstrapOrganizationSlug, bootstrapAdminEmail, bootstrapAdminPassword)
+  ).accessToken;
 
   // PLATFORM ACTOR step 3 — tạo Release Fixture Organization (ENTERPRISE, chỉ phục vụ hạ tầng
   // test — xem doc-comment đầu file) qua route Platform Admin thật.
@@ -202,7 +176,8 @@ export default async function globalSetup(): Promise<void> {
   // cho toàn bộ fixture nghiệp vụ bên dưới (Architect Decision §4/§7 — tenant boundary nhất quán:
   // actor.organizationId/Supplier.organizationId/Warehouse.organizationId/Product.organizationId
   // đều phải cùng trỏ về Release Fixture Organization).
-  const accessToken = await apiLogin(organizationSlug, adminEmail, adminPassword);
+  const accessToken = (await apiLoginWithRetry(organizationSlug, adminEmail, adminPassword))
+    .accessToken;
   const api = await playwrightRequest.newContext({
     extraHTTPHeaders: { Authorization: `Bearer ${accessToken}` },
   });

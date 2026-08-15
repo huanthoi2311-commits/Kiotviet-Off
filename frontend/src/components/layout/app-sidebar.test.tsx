@@ -13,54 +13,12 @@ function envelope<T>(data: T) {
   return { success: true, data, meta: null, traceId: 't-1', timestamp: new Date().toISOString() };
 }
 
-function buildCurrentOrganization(effectiveFeatures: string[]) {
-  return {
-    id: 'org-1',
-    code: 'ORG000001',
-    displayName: 'Acme',
-    legalName: null,
-    slug: 'acme',
-    taxCode: null,
-    email: null,
-    phone: null,
-    website: null,
-    logoUrl: null,
-    address: null,
-    province: null,
-    district: null,
-    ward: null,
-    countryCode: 'VN',
-    timezone: 'Asia/Ho_Chi_Minh',
-    currencyCode: 'VND',
-    languageCode: 'vi',
-    status: 'ACTIVE',
-    ownerUserId: 'user-1',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:00:00.000Z',
-    settings: {
-      allowNegativeInventory: false,
-      allowBackDate: false,
-      decimalQuantity: 0,
-      decimalPrice: 0,
-      defaultWarehouseId: null,
-      defaultBranchId: null,
-      defaultLanguage: 'vi',
-      defaultCurrency: 'VND',
-    },
-    subscription: {
-      plan: 'BASIC',
-      status: 'ACTIVE',
-      startedAt: '2026-01-01T00:00:00.000Z',
-      expiredAt: null,
-      maxBranch: null,
-      maxUser: null,
-      maxWarehouse: null,
-      maxProduct: null,
-      maxCustomer: null,
-      storageLimitGB: null,
-      effectiveFeatures,
-    },
-  };
+function mockEntitlements(effectiveFeatures: string[]) {
+  server.use(
+    http.get(`${API_BASE_URL}/entitlements/current`, () =>
+      HttpResponse.json(envelope({ effectiveFeatures })),
+    ),
+  );
 }
 
 function renderSidebar() {
@@ -81,18 +39,14 @@ function loginWithPermissions(permissions: string[]) {
   useAuthStore.getState().setAccessToken(token);
 }
 
-describe('AppSidebar nav gating (T053.03 §14/§20 — entitlement composes with permission)', () => {
+describe('AppSidebar nav gating (T053.03 §14/§20 + Current Entitlement Context Defect fix)', () => {
   beforeEach(() => {
     useAuthStore.getState().clear();
   });
 
   it('hides "Nhân viên" nav item when the Plan does not include USER_MANAGEMENT, even with user:view permission', async () => {
-    loginWithPermissions(['organization:view', 'user:view']);
-    server.use(
-      http.get(`${API_BASE_URL}/organizations/current`, () =>
-        HttpResponse.json(envelope(buildCurrentOrganization(['DASHBOARD']))),
-      ),
-    );
+    loginWithPermissions(['user:view']);
+    mockEntitlements(['DASHBOARD']);
 
     renderSidebar();
 
@@ -102,12 +56,8 @@ describe('AppSidebar nav gating (T053.03 §14/§20 — entitlement composes with
   });
 
   it('shows "Nhân viên" nav item when both entitlement and permission are present', async () => {
-    loginWithPermissions(['organization:view', 'user:view']);
-    server.use(
-      http.get(`${API_BASE_URL}/organizations/current`, () =>
-        HttpResponse.json(envelope(buildCurrentOrganization(['USER_MANAGEMENT']))),
-      ),
-    );
+    loginWithPermissions(['user:view']);
+    mockEntitlements(['USER_MANAGEMENT']);
 
     renderSidebar();
 
@@ -117,17 +67,27 @@ describe('AppSidebar nav gating (T053.03 §14/§20 — entitlement composes with
   });
 
   it('still hides "Vai trò" nav item without role:view even when RBAC_MANAGEMENT is entitled (permission still required)', async () => {
-    loginWithPermissions(['organization:view']);
-    server.use(
-      http.get(`${API_BASE_URL}/organizations/current`, () =>
-        HttpResponse.json(envelope(buildCurrentOrganization(['RBAC_MANAGEMENT']))),
-      ),
-    );
+    loginWithPermissions([]);
+    mockEntitlements(['RBAC_MANAGEMENT']);
 
     renderSidebar();
 
     await waitFor(() => {
       expect(screen.queryByRole('link', { name: /Vai trò/i })).not.toBeInTheDocument();
+    });
+  });
+
+  // Critical regression (Architect Decision) — a user without organization:view (here, without
+  // ANY permissions beyond user:view) must still see nav items their plan genuinely entitles them
+  // to, once RBAC also permits it. Previously this user's entitlement query never even fired.
+  it('shows "Nhân viên" nav item for a user WITHOUT organization:view once entitlement + RBAC both permit it', async () => {
+    loginWithPermissions(['user:view']);
+    mockEntitlements(['USER_MANAGEMENT']);
+
+    renderSidebar();
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: /Nhân viên/i })).toBeInTheDocument();
     });
   });
 });

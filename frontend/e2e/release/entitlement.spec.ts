@@ -7,7 +7,7 @@ import {
   type Response,
 } from '@playwright/test';
 import { FIXTURES_PATH, ReleaseFixtures } from './global-setup';
-import { backendBaseUrl, frontendBaseUrl } from './support';
+import { apiLoginWithRetry, backendBaseUrl, frontendBaseUrl } from './support';
 
 /**
  * T053.03 §21 / T053.02A integration — real-browser proof cho Feature Entitlements (CASE A-D),
@@ -44,21 +44,16 @@ test.describe
     // (T053.02A) TRƯỚC khi bất kỳ spec file nào chạy (cần thiết cho chính nó để tạo Release
     // Fixture Organization) — ở đây chỉ cần đăng nhập LẠI để lấy JWT isPlatformAdmin=true, không
     // promote thêm lần nào nữa (dù promote lại vẫn an toàn/idempotent, tránh gọi trùng
-    // `docker compose run` không cần thiết).
-    const api = await playwrightRequest.newContext();
-    const loginRes = await api.post(`${backendBaseUrl()}/auth/login`, {
-      data: {
-        organizationSlug: fixtures.bootstrapOrganizationSlug,
-        email: fixtures.bootstrapAdminEmail,
-        password: fixtures.bootstrapAdminPassword,
-      },
-    });
-    expect(
-      loginRes.ok(),
-      `Platform Admin đăng nhập thất bại: ${await loginRes.text()}`,
-    ).toBeTruthy();
-    platformActorToken = (await loginRes.json()).data.accessToken as string;
-    await api.dispose();
+    // `docker compose run` không cần thiết). Dùng `apiLoginWithRetry` (T053.03 Login Throttle
+    // Stabilization) — cùng budget throttle 5 lần/60s/IP với mọi lần đăng nhập khác trong suite,
+    // retry-với-backoff CHỈ cho 429, không che giấu lỗi xác thực thật.
+    platformActorToken = (
+      await apiLoginWithRetry(
+        fixtures.bootstrapOrganizationSlug,
+        fixtures.bootstrapAdminEmail,
+        fixtures.bootstrapAdminPassword,
+      )
+    ).accessToken;
   });
 
   /** PLATFORM ACTOR — chỉ dùng cho POST /organizations, không bao giờ cho route nghiệp vụ tenant. */

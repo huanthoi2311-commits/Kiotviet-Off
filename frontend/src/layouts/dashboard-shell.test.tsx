@@ -1,17 +1,21 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
+import { server } from '@/mocks/server';
 import { useAuthStore } from '@/stores/auth-store';
 import { useUiStore } from '@/stores/ui-store';
 import { buildAccessToken } from '@/test/build-access-token';
 import { DashboardShell } from './dashboard-shell';
 
+const API_BASE_URL = 'http://localhost:3000/api/v1';
+
 /**
  * T053.03 — `AppSidebarProvider` now also resolves entitlements per nav item
- * (`useEntitlements` → `useOrganizationControllerGetCurrent`), which requires a
- * `QueryClientProvider` ancestor — matching production (`src/providers/index.tsx` always mounts
- * `QueryProvider` above `DashboardShell`), previously not exercised by this suite.
+ * (`useEntitlements` → `GET /entitlements/current`), which requires a `QueryClientProvider`
+ * ancestor — matching production (`src/providers/index.tsx` always mounts `QueryProvider` above
+ * `DashboardShell`), previously not exercised by this suite.
  */
 function renderShell(children: React.ReactNode) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -61,6 +65,20 @@ describe('DashboardShell', () => {
     replace.mockClear();
     useSessionRestore.mockReset();
     authEventHandler = undefined;
+    // T053.03 (Current Entitlement Context Defect fix) — useEntitlements() now fires for every
+    // authenticated user (no longer gated on organization:view), so AppSidebar's nav rendering
+    // needs a response here; content is irrelevant to what this suite actually asserts.
+    server.use(
+      http.get(`${API_BASE_URL}/entitlements/current`, () =>
+        HttpResponse.json({
+          success: true,
+          data: { effectiveFeatures: [] },
+          meta: null,
+          traceId: 't-1',
+          timestamp: new Date().toISOString(),
+        }),
+      ),
+    );
   });
 
   it('redirects to /login when the session restore reports unauthenticated', () => {

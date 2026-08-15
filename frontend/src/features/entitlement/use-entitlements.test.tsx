@@ -14,56 +14,6 @@ function envelope<T>(data: T) {
   return { success: true, data, meta: null, traceId: 't-1', timestamp: new Date().toISOString() };
 }
 
-function buildCurrentOrganization(effectiveFeatures: string[]) {
-  return {
-    id: 'org-1',
-    code: 'ORG000001',
-    displayName: 'Acme',
-    legalName: null,
-    slug: 'acme',
-    taxCode: null,
-    email: null,
-    phone: null,
-    website: null,
-    logoUrl: null,
-    address: null,
-    province: null,
-    district: null,
-    ward: null,
-    countryCode: 'VN',
-    timezone: 'Asia/Ho_Chi_Minh',
-    currencyCode: 'VND',
-    languageCode: 'vi',
-    status: 'ACTIVE',
-    ownerUserId: 'user-1',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:00:00.000Z',
-    settings: {
-      allowNegativeInventory: false,
-      allowBackDate: false,
-      decimalQuantity: 0,
-      decimalPrice: 0,
-      defaultWarehouseId: null,
-      defaultBranchId: null,
-      defaultLanguage: 'vi',
-      defaultCurrency: 'VND',
-    },
-    subscription: {
-      plan: 'PRO',
-      status: 'ACTIVE',
-      startedAt: '2026-01-01T00:00:00.000Z',
-      expiredAt: null,
-      maxBranch: null,
-      maxUser: null,
-      maxWarehouse: null,
-      maxProduct: null,
-      maxCustomer: null,
-      storageLimitGB: null,
-      effectiveFeatures,
-    },
-  };
-}
-
 function renderUseEntitlements() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -74,23 +24,23 @@ function renderUseEntitlements() {
   return renderHook(() => useEntitlements(), { wrapper });
 }
 
-describe('useEntitlements (T053.03 §13/§20)', () => {
+describe('useEntitlements (T053.03 — Current Entitlement Context Defect fix)', () => {
   beforeEach(() => {
     useAuthStore.getState().clear();
   });
 
-  it('resolves effectiveFeatures from GET /organizations/current for a user with organization:view', async () => {
+  it('resolves effectiveFeatures from GET /entitlements/current for an authenticated user', async () => {
     const token = buildAccessToken({
       sub: 'user-1',
       organizationId: 'org-1',
-      permissions: ['organization:view'],
+      permissions: [],
     });
     useAuthStore.getState().setAccessToken(token);
 
     server.use(
-      http.get(`${API_BASE_URL}/organizations/current`, () =>
+      http.get(`${API_BASE_URL}/entitlements/current`, () =>
         HttpResponse.json(
-          envelope(buildCurrentOrganization(['DASHBOARD', 'USER_MANAGEMENT', 'RBAC_MANAGEMENT'])),
+          envelope({ effectiveFeatures: ['DASHBOARD', 'USER_MANAGEMENT', 'RBAC_MANAGEMENT'] }),
         ),
       ),
     );
@@ -105,12 +55,39 @@ describe('useEntitlements (T053.03 §13/§20)', () => {
     );
   });
 
-  it('never calls the API for a user without organization:view — fails closed to no features', async () => {
+  // Critical regression (Architect Decision) — a user WITHOUT organization:view (indeed, with no
+  // permissions at all) must still resolve their Organization's real effective features. The old
+  // design gated the query on organization:view and silently failed closed for everyone else,
+  // regardless of what their plan actually included — that coupling is now removed entirely.
+  it('resolves real effective features for a user WITHOUT organization:view (no permission gate anymore)', async () => {
+    const token = buildAccessToken({
+      sub: 'user-2',
+      organizationId: 'org-1',
+      permissions: ['user:view'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+
     let called = false;
     server.use(
-      http.get(`${API_BASE_URL}/organizations/current`, () => {
+      http.get(`${API_BASE_URL}/entitlements/current`, () => {
         called = true;
-        return HttpResponse.json(envelope(buildCurrentOrganization(['DASHBOARD'])));
+        return HttpResponse.json(envelope({ effectiveFeatures: ['DASHBOARD', 'USER_MANAGEMENT'] }));
+      }),
+    );
+
+    const { result } = renderUseEntitlements();
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(called).toBe(true);
+    expect(result.current.hasFeature('USER_MANAGEMENT')).toBe(true);
+  });
+
+  it('does not call the API when unauthenticated — fails closed to no features', async () => {
+    let called = false;
+    server.use(
+      http.get(`${API_BASE_URL}/entitlements/current`, () => {
+        called = true;
+        return HttpResponse.json(envelope({ effectiveFeatures: ['DASHBOARD'] }));
       }),
     );
 

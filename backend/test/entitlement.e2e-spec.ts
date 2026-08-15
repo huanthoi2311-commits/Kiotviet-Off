@@ -374,6 +374,230 @@ describe('Entitlement Module (e2e, integration) — T053.03 CASE 1-10', () => {
       .expect(201);
   });
 
+  // ============================================================
+  // Architect Decision (Current Entitlement Context Defect) — GET /entitlements/current: hợp đồng
+  // đọc HẸP, KHÔNG yêu cầu organization:view hay bất kỳ permission nào — chỉ cần đăng nhập.
+  // ============================================================
+
+  it('CASE E1: user KHÔNG có organization:view vẫn gọi được GET /entitlements/current = 200', async () => {
+    const { orgId, unique } = await createOrgWithPlan('ENTERPRISE', 'case-e1');
+    // `createNoPermissionUser` gán Role KHÔNG permission nào — chắc chắn không có organization:view.
+    const noPermToken = await createNoPermissionUser(orgId, unique);
+    await request(app.getHttpServer())
+      .get('/api/v1/entitlements/current')
+      .set('Authorization', `Bearer ${noPermToken}`)
+      .expect(200);
+  });
+
+  it('CASE E2/E4: FREE user nhận đúng tập effectiveFeatures của FREE (thuộc đúng organizationId của actor)', async () => {
+    const { orgId, unique } = await createOrgWithPlan('FREE', 'case-e2-free');
+    const noPermToken = await createNoPermissionUser(orgId, unique);
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/entitlements/current')
+      .set('Authorization', `Bearer ${noPermToken}`)
+      .expect(200);
+    const features: string[] = res.body.data.effectiveFeatures;
+    expect(features).toEqual(
+      expect.arrayContaining([
+        'DASHBOARD',
+        'PRODUCT_BASIC',
+        'CUSTOMER_BASIC',
+        'POS_SALES',
+      ]),
+    );
+    expect(features).not.toEqual(
+      expect.arrayContaining(['USER_MANAGEMENT', 'SUPPLIER']),
+    );
+  });
+
+  it('CASE E3: client KHÔNG thể cung cấp organizationId khác để dò thông tin tổ chức khác — route không có tham số nào, luôn dùng actor.organizationId', async () => {
+    const orgA = await createOrgWithPlan('FREE', 'case-e3-a');
+    const orgB = await createOrgWithPlan('ENTERPRISE', 'case-e3-b');
+    const noPermTokenA = await createNoPermissionUser(orgA.orgId, orgA.unique);
+
+    // Thử "tiêm" organizationId của Org B (ENTERPRISE) qua query string — route không đọc tham số
+    // này ở đâu cả, kết quả PHẢI vẫn là entitlement của Org A (FREE), không lộ/áp dụng Org B.
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/entitlements/current?organizationId=${orgB.orgId}`)
+      .set('Authorization', `Bearer ${noPermTokenA}`)
+      .expect(200);
+    const features: string[] = res.body.data.effectiveFeatures;
+    expect(features).not.toEqual(
+      expect.arrayContaining(['USER_MANAGEMENT', 'SUPPLIER']),
+    );
+  });
+
+  it('CASE E5: ENTERPRISE user nhận đủ toàn bộ 15 feature hiện tại', async () => {
+    const { orgId, unique } = await createOrgWithPlan(
+      'ENTERPRISE',
+      'case-e5-enterprise',
+    );
+    const noPermToken = await createNoPermissionUser(orgId, unique);
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/entitlements/current')
+      .set('Authorization', `Bearer ${noPermToken}`)
+      .expect(200);
+    expect((res.body.data.effectiveFeatures as string[]).length).toBe(15);
+  });
+
+  it('CASE E6: override vẫn được áp dụng đúng qua endpoint mới', async () => {
+    const { orgId, unique } = await createOrgWithPlan(
+      'BASIC',
+      'case-e6-override',
+    );
+    await prisma.organizationSubscription.update({
+      where: { organizationId: orgId },
+      data: { entitlementOverrides: { RBAC_MANAGEMENT: true } },
+    });
+    const noPermToken = await createNoPermissionUser(orgId, unique);
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/entitlements/current')
+      .set('Authorization', `Bearer ${noPermToken}`)
+      .expect(200);
+    expect(res.body.data.effectiveFeatures).toEqual(
+      expect.arrayContaining(['RBAC_MANAGEMENT']),
+    );
+  });
+
+  it('CASE E7: subscription thiếu/hỏng → effectiveFeatures rỗng, KHÔNG BAO GIỜ mặc định thành đủ mọi feature', async () => {
+    const { orgId, unique, ownerToken } = await createOrgWithPlan(
+      'ENTERPRISE',
+      'case-e7-missing-sub',
+    );
+    // Xác nhận baseline trước khi xoá: ENTERPRISE thật sự cho đủ 15 feature.
+    const before = await request(app.getHttpServer())
+      .get('/api/v1/entitlements/current')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+    expect((before.body.data.effectiveFeatures as string[]).length).toBe(15);
+
+    await prisma.organizationSubscription.delete({
+      where: { organizationId: orgId },
+    });
+
+    const noPermToken = await createNoPermissionUser(orgId, unique);
+    const after = await request(app.getHttpServer())
+      .get('/api/v1/entitlements/current')
+      .set('Authorization', `Bearer ${noPermToken}`)
+      .expect(200);
+    expect(after.body.data.effectiveFeatures).toEqual([]);
+  });
+
+  // ============================================================
+  // Ma trận RBAC × Entitlement độc lập — chứng minh 4 tổ hợp, cùng CASE 11 (BASIC+SUPPLIER→cả 2
+  // đồng ý) đã có sẵn ở trên. Trọng tâm defect vừa sửa: user KHÔNG có organization:view nhưng CÓ
+  // user:view, trên tổ chức ENTERPRISE, PHẢI thấy USER_MANAGEMENT=true (EntitlementGate qua),
+  // quyết định cuối do PermissionGate/user:view quyết định — không bị entitlement "che" sai.
+  // ============================================================
+
+  it('Ma trận: RBAC yes + Entitlement yes → cho phép (ENTERPRISE + user:view)', async () => {
+    const { orgId, unique } = await createOrgWithPlan(
+      'ENTERPRISE',
+      'matrix-yes-yes',
+    );
+    const role = await prisma.role.create({
+      data: {
+        organizationId: orgId,
+        code: `matrix_yy_${unique.replace(/[^a-z0-9]/gi, '').slice(0, 15)}`,
+        name: 'user:view only',
+      },
+    });
+    const userViewPermission = await prisma.permission.findFirstOrThrow({
+      where: { code: 'user:view' },
+    });
+    await prisma.rolePermission.create({
+      data: { roleId: role.id, permissionId: userViewPermission.id },
+    });
+    const passwordHash = await argon2.hash('Password123', {
+      type: argon2.argon2id,
+    });
+    const user = await prisma.user.create({
+      data: {
+        organizationId: orgId,
+        username: `matrixyy-${unique.replace(/[^a-z0-9]/gi, '').slice(0, 15)}`,
+        email: `matrixyy-${unique}@e2e.local`,
+        passwordHash,
+      },
+    });
+    await prisma.userRole.create({
+      data: { userId: user.id, roleId: role.id },
+    });
+    const token = jwtService.sign({
+      sub: user.id,
+      organizationId: orgId,
+      branchId: null,
+      email: user.email,
+      permissions: ['user:view'],
+      permissionVersion: user.permissionVersion,
+      isPlatformAdmin: false,
+    });
+
+    // Entitlement (ENTERPRISE) allows USER_MANAGEMENT — confirmed via the same read the frontend
+    // hook uses, no longer gated behind organization:view.
+    const entitlementRes = await request(app.getHttpServer())
+      .get('/api/v1/entitlements/current')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(entitlementRes.body.data.effectiveFeatures).toEqual(
+      expect.arrayContaining(['USER_MANAGEMENT']),
+    );
+    // RBAC (user:view) allows read access — GET /users succeeds.
+    await request(app.getHttpServer())
+      .get('/api/v1/users')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+  });
+
+  it('Ma trận: RBAC yes + Entitlement no → từ chối bởi entitlement (BASIC + user:view, thiếu USER_MANAGEMENT)', async () => {
+    const { orgId, unique } = await createOrgWithPlan('BASIC', 'matrix-yes-no');
+    const noPermToken = await createNoPermissionUser(orgId, unique);
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${noPermToken}`)
+      .send({
+        username: `matrixyn-${Date.now()}`,
+        email: `matrixyn-${Date.now()}@e2e.local`,
+        password: 'Password123',
+      })
+      .expect(403);
+    // No RBAC permission at all here, but the point of this case is entitlement — BASIC genuinely
+    // excludes USER_MANAGEMENT, so entitlement (checked first) is what rejects it regardless.
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+  });
+
+  it('Ma trận: RBAC no + Entitlement yes → từ chối bởi RBAC (ENTERPRISE, actor không có user:create)', async () => {
+    const { orgId, unique } = await createOrgWithPlan(
+      'ENTERPRISE',
+      'matrix-no-yes',
+    );
+    const noPermToken = await createNoPermissionUser(orgId, unique);
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${noPermToken}`)
+      .send({
+        username: `matrixny-${Date.now()}`,
+        email: `matrixny-${Date.now()}@e2e.local`,
+        password: 'Password123',
+      })
+      .expect(403);
+    expect(res.body.code).toBe('RBAC_004');
+  });
+
+  it('Ma trận: RBAC no + Entitlement no → từ chối (FREE, không permission)', async () => {
+    const { orgId, unique } = await createOrgWithPlan('FREE', 'matrix-no-no');
+    const noPermToken = await createNoPermissionUser(orgId, unique);
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${noPermToken}`)
+      .send({
+        username: `matrixnn-${Date.now()}`,
+        email: `matrixnn-${Date.now()}@e2e.local`,
+        password: 'Password123',
+      })
+      .expect(403);
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+  });
+
   it('GET /organizations/current trả về effectiveFeatures đúng theo Plan (tiện ích UI, không phải nguồn xác thực)', async () => {
     const { ownerToken } = await createOrgWithPlan('PRO', 'case-current-org');
     const res = await request(app.getHttpServer())
