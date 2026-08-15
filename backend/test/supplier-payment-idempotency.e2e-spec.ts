@@ -256,10 +256,18 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
     await receivePurchaseOrder(fixture, shortfall, 1);
   }
 
+  // T052.05A.1 §7/§8 — requestFingerprint băm TOÀN BỘ DTO, bao gồm `paidAt` (field nghiệp vụ do
+  // client cung cấp, không phải timestamp hệ thống). Vì vậy 1 "replay" thật sự PHẢI gửi lại
+  // NGUYÊN VĂN cùng `paidAt` — không được để mỗi lời gọi tự sinh `new Date().toISOString()` mới
+  // (sẽ vô tình tạo ra payload KHÁC nhau → đúng-nhưng-không-mong-muốn 409 key-reused). Caller nào
+  // cần 2 lời gọi được coi là "cùng 1 request" (CASE 2/3/5/6/10) PHẢI tự chốt 1 `paidAt` và
+  // truyền lại y hệt; các CASE cố ý gửi payload khác (4/8/9) vẫn nên giữ `paidAt` cố định để
+  // khác biệt DUY NHẤT nằm ở field đang được kiểm chứng (amount), không lẫn với `paidAt` trôi.
   function payRequest(
     fixture: OrgFixture,
     amount: number,
     idempotencyKey: string | undefined,
+    paidAt: string = new Date().toISOString(),
   ) {
     const req = request(app.getHttpServer())
       .post('/api/v1/supplier-payment')
@@ -272,7 +280,7 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
       supplierId: fixture.supplierId,
       method: 'CASH',
       amount,
-      paidAt: new Date().toISOString(),
+      paidAt,
     });
   }
 
@@ -337,13 +345,14 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
   it('CASE 2 — replay chính xác sau thành công: cùng Payment.id, đúng 1 Payment row, không audit/log lần 2', async () => {
     await topUpBalance(orgA, 100_000);
     const key = randomUUID();
+    const paidAt = new Date().toISOString(); // cố định — replay PHẢI gửi lại nguyên văn payload
 
-    const first = await payRequest(orgA, 5_000, key);
+    const first = await payRequest(orgA, 5_000, key, paidAt);
     expect(first.status).toBe(201);
     const firstPaymentId = first.body.data.id as string;
 
     const before = await countPayments(orgA);
-    const replay = await payRequest(orgA, 5_000, key);
+    const replay = await payRequest(orgA, 5_000, key, paidAt);
 
     expect(replay.status).toBe(201);
     expect(replay.body.data.id).toBe(firstPaymentId);
@@ -354,10 +363,11 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
   it('CASE 3 — concurrent duplicate thật sự (cùng key, cùng payload): không bao giờ 2 Payment row', async () => {
     await topUpBalance(orgA, 100_000);
     const key = randomUUID();
+    const paidAt = new Date().toISOString(); // cố định — 2 request PHẢI thật sự cùng payload
 
     const [resA, resB] = await Promise.all([
-      payRequest(orgA, 7_000, key),
-      payRequest(orgA, 7_000, key),
+      payRequest(orgA, 7_000, key, paidAt),
+      payRequest(orgA, 7_000, key, paidAt),
     ]);
 
     const statuses = [resA.status, resB.status].sort((a, b) => a - b);
@@ -380,13 +390,14 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
   it('CASE 4 — cùng key + payload khác: 409 key-reused, operation/Payment gốc không đổi', async () => {
     await topUpBalance(orgA, 100_000);
     const key = randomUUID();
+    const paidAt = new Date().toISOString(); // cố định — khác biệt DUY NHẤT là amount
 
-    const first = await payRequest(orgA, 3_000, key);
+    const first = await payRequest(orgA, 3_000, key, paidAt);
     expect(first.status).toBe(201);
     const operationBefore = await getOperation(orgA, key);
     const paymentCountBefore = await countPayments(orgA);
 
-    const conflicting = await payRequest(orgA, 3_001, key); // payload khác — chỉ đổi amount
+    const conflicting = await payRequest(orgA, 3_001, key, paidAt); // payload khác — chỉ đổi amount
 
     expect(conflicting.status).toBe(409);
     expect(conflicting.body.code).toBe('SUPPLIER_DEBT_004');
@@ -403,8 +414,9 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
     const balance = await getBalance(orgA);
     const amount = balance + 50_000; // chắc chắn vượt quá balance hiện tại
     const key = randomUUID();
+    const paidAt = new Date().toISOString(); // cố định — D5 cấm đổi payload dưới cùng 1 key
 
-    const failed = await payRequest(orgA, amount, key);
+    const failed = await payRequest(orgA, amount, key, paidAt);
     expect(failed.status).toBe(422);
 
     const operationAfterFail = await getOperation(orgA, key);
@@ -415,7 +427,7 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
     // yêu cầu D5 ("Do NOT change amount/payload under the same key for CASE 5").
     await topUpBalance(orgA, amount + 10_000);
 
-    const retry = await payRequest(orgA, amount, key); // ĐÚNG key, ĐÚNG payload
+    const retry = await payRequest(orgA, amount, key, paidAt); // ĐÚNG key, ĐÚNG payload
     expect(retry.status).toBe(201);
 
     const operationAfterRetry = await getOperation(orgA, key);
@@ -430,8 +442,9 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
   it('CASE 6 — stale PROCESSING + cùng fingerprint: reclaim thành công, chạy lại business logic', async () => {
     await topUpBalance(orgA, 100_000);
     const key = randomUUID();
+    const paidAt = new Date().toISOString(); // cố định — reclaim yêu cầu ĐÚNG fingerprint
 
-    const first = await payRequest(orgA, 4_000, key);
+    const first = await payRequest(orgA, 4_000, key, paidAt);
     expect(first.status).toBe(201);
     const firstPaymentId = first.body.data.id as string;
 
@@ -449,7 +462,7 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
       },
     });
 
-    const reclaimed = await payRequest(orgA, 4_000, key); // cùng key, cùng payload
+    const reclaimed = await payRequest(orgA, 4_000, key, paidAt); // cùng key, cùng payload
 
     expect(reclaimed.status).toBe(201);
     const reclaimedPaymentId = reclaimed.body.data.id as string;
@@ -464,10 +477,11 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
     await topUpBalance(orgA, 100_000);
     const keyOne = randomUUID();
     const keyTwo = randomUUID();
+    const paidAt = new Date().toISOString(); // cố định — "payload giống hệt nhau" đúng nghĩa
 
     const [resOne, resTwo] = await Promise.all([
-      payRequest(orgA, 2_500, keyOne),
-      payRequest(orgA, 2_500, keyTwo),
+      payRequest(orgA, 2_500, keyOne, paidAt),
+      payRequest(orgA, 2_500, keyTwo, paidAt),
     ]);
 
     expect(resOne.status).toBe(201);
@@ -479,13 +493,14 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
     const balance = await getBalance(orgA);
     const amount = balance + 60_000;
     const key = randomUUID();
+    const paidAt = new Date().toISOString(); // cố định — khác biệt DUY NHẤT là amount
 
-    const failed = await payRequest(orgA, amount, key);
+    const failed = await payRequest(orgA, amount, key, paidAt);
     expect(failed.status).toBe(422);
     const operationBefore = await getOperation(orgA, key);
     expect(operationBefore?.status).toBe('FAILED');
 
-    const differentPayload = await payRequest(orgA, amount + 1, key);
+    const differentPayload = await payRequest(orgA, amount + 1, key, paidAt);
     expect(differentPayload.status).toBe(409);
     expect(differentPayload.body.code).toBe('SUPPLIER_DEBT_004');
 
@@ -499,8 +514,9 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
   it('CASE 9 — stale PROCESSING + payload khác: 409 key-reused, fingerprint KHÔNG bị ghi đè', async () => {
     await topUpBalance(orgA, 100_000);
     const key = randomUUID();
+    const paidAt = new Date().toISOString(); // cố định — khác biệt DUY NHẤT là amount
 
-    const first = await payRequest(orgA, 1_500, key);
+    const first = await payRequest(orgA, 1_500, key, paidAt);
     expect(first.status).toBe(201);
 
     await prisma.supplierPaymentOperation.updateMany({
@@ -514,7 +530,7 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
     });
     const operationBefore = await getOperation(orgA, key);
 
-    const differentPayload = await payRequest(orgA, 1_501, key); // stale, nhưng payload khác
+    const differentPayload = await payRequest(orgA, 1_501, key, paidAt); // stale, nhưng payload khác
     expect(differentPayload.status).toBe(409);
     expect(differentPayload.body.code).toBe('SUPPLIER_DEBT_004');
 
@@ -532,9 +548,10 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
     await topUpBalance(orgA, 100_000);
     await topUpBalance(orgB, 100_000);
     const sharedKeyLiteral = randomUUID(); // CHỦ Ý dùng CÙNG 1 chuỗi key cho cả 2 org
+    const paidAtB = new Date().toISOString(); // cố định — replayB PHẢI gửi lại nguyên văn payload
 
     const resA = await payRequest(orgA, 6_000, sharedKeyLiteral);
-    const resB = await payRequest(orgB, 9_000, sharedKeyLiteral);
+    const resB = await payRequest(orgB, 9_000, sharedKeyLiteral, paidAtB);
 
     expect(resA.status).toBe(201);
     expect(resB.status).toBe(201);
@@ -547,7 +564,7 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
     expect(opA?.requestFingerprint).not.toBe(opB?.requestFingerprint); // payload khác nhau
 
     // Replay ở orgB bằng key này KHÔNG được trả về payment của orgA.
-    const replayB = await payRequest(orgB, 9_000, sharedKeyLiteral);
+    const replayB = await payRequest(orgB, 9_000, sharedKeyLiteral, paidAtB);
     expect(replayB.status).toBe(201);
     expect(replayB.body.data.id).toBe(resB.body.data.id);
     expect(replayB.body.data.id).not.toBe(resA.body.data.id);
