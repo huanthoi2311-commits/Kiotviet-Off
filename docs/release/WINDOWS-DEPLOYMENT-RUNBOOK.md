@@ -139,6 +139,53 @@ Kiểm tra frontend: mở trình duyệt tới **http://localhost:3001**.
 - Tổ chức (slug): giá trị `FIRST_ADMIN_ORG_SLUG` đã cấu hình (mặc định `cua-hang-cua-toi`)
 - Email/Mật khẩu: giá trị `FIRST_ADMIN_EMAIL`/`FIRST_ADMIN_PASSWORD` đã cấu hình ở bước 3.
 
+## 6A. Cấp quyền Platform Admin (T053.02A — tùy chọn, chỉ khi cần)
+
+Người quản trị đầu tiên (`FIRST_ADMIN_*`, mục 6) là **chủ sở hữu tổ chức** (Owner) — KHÔNG phải
+Platform Admin. Hai vai trò này tách biệt: Owner quản lý dữ liệu nghiệp vụ của tổ chức mình;
+Platform Admin là thao tác cấp vận hành (tạo tổ chức mới qua `POST /organizations`, các thao tác
+xuyên tổ chức). Mặc định sau `docker compose up`, KHÔNG có Platform Admin nào tồn tại — đây là chủ
+ý (tách biệt quyền vận hành khỏi quyền chủ sở hữu tổ chức khách hàng), không phải thiếu sót.
+
+Chỉ thực hiện bước này nếu vận hành thật sự cần một tài khoản Platform Admin (ví dụ: triển khai
+SaaS cần tạo nhiều tổ chức khách hàng). Bỏ qua nếu triển khai của bạn chỉ phục vụ đúng 1 tổ chức.
+
+**Cấp quyền cho một User đã tồn tại** (không tạo tài khoản mới, không đổi mật khẩu — User tiếp tục
+đăng nhập bằng mật khẩu hiện có của chính họ):
+
+Container `backend` (runtime) KHÔNG có script CLI này — cùng lý do `bring-up` không chạy trên
+`backend`: stage runtime bị strip devDependencies (không có `ts-node`). Dùng lại ĐÚNG image/stage
+"build" mà `bring-up` đã dùng, qua `docker compose run` (ghi đè command, không cần thêm service
+mới):
+
+```powershell
+docker compose -f docker-compose.yml run --rm bring-up `
+  npm run platform-admin:promote -- --organization-slug=<slug tổ chức> --email=<email của User cần cấp quyền>
+```
+
+(Nếu chạy trực tiếp trên máy có mã nguồn thay vì qua container: `npm run platform-admin:promote --
+--organization-slug=<slug> --email=<email>`.)
+
+Kỳ vọng: thông báo xác nhận đã cấp quyền, và lời nhắc "toàn bộ session hiện có đã bị thu hồi, phải
+đăng nhập lại". Đây là hành vi ĐÚNG — JWT cũ vẫn còn hạn nhưng đã mang `isPlatformAdmin=false`
+(chụp nhanh lúc đăng nhập), không tự động cập nhật; User phải đăng nhập lại (`POST /auth/login`) để
+nhận access token mới.
+
+**Xác minh**: đăng nhập lại bằng tài khoản vừa cấp quyền, gọi thử `GET /api/v1/organizations` (chỉ
+Platform Admin gọi được) — trả về 200 nghĩa là đã đúng.
+
+**An toàn khi chạy lại nhiều lần (idempotent)**: chạy lại đúng lệnh trên với cùng tổ chức/email khi
+User đã là Platform Admin sẽ chỉ in ra "đã là Platform Admin từ trước", KHÔNG thu hồi thêm session
+nào, KHÔNG tạo thêm bản ghi audit nào.
+
+**Khôi phục**: nếu tài khoản Platform Admin duy nhất bị mất quyền do thao tác nhầm hoặc lỗi vận
+hành (KHÔNG PHẢI mất mật khẩu — mất mật khẩu vẫn đi qua luồng phục hồi mật khẩu bình thường của hệ
+thống), chạy lại đúng lệnh trên (cần quyền truy cập máy chủ/database) để cấp quyền lại — không có
+cơ chế "backdoor" đặt lại mật khẩu nào đi kèm bước này.
+
+**KHÔNG** có API công khai nào để tự thăng cấp — thao tác này chỉ thực hiện được qua dòng lệnh, đòi
+hỏi quyền truy cập máy chủ/container, đúng nguyên tắc "không cho phép Owner tổ chức tự thăng cấp".
+
 ## 7. Xác nhận dữ liệu bền vững (Persistence Sanity Check)
 
 Tạo thử 1 bản ghi bất kỳ (vd 1 Đơn vị tính ở màn hình Đơn vị tính), sau đó:
