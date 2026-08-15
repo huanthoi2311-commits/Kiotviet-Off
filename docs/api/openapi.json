@@ -16338,6 +16338,23 @@
           "password"
         ]
       },
+      "CreateOrganizationSubscriptionDto": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string",
+            "enum": [
+              "FREE",
+              "TRIAL",
+              "BASIC",
+              "PRO",
+              "ENTERPRISE"
+            ],
+            "default": "FREE",
+            "description": "Bỏ trống → FREE (giữ nguyên hành vi mặc định hiện có)."
+          }
+        }
+      },
       "CreateOrganizationDto": {
         "type": "object",
         "properties": {
@@ -16346,6 +16363,9 @@
           },
           "owner": {
             "$ref": "#/components/schemas/CreateOrganizationOwnerDto"
+          },
+          "subscription": {
+            "$ref": "#/components/schemas/CreateOrganizationSubscriptionDto"
           }
         },
         "required": [

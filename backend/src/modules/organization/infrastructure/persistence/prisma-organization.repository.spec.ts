@@ -188,6 +188,120 @@ describe('PrismaOrganizationRepository', () => {
       expect(result.subscription.plan).toBe('FREE');
     });
 
+    // T053.02 CASE 4 — backward compatibility: bỏ trống `plan` giữ NGUYÊN hành vi cũ.
+    it('plan bỏ trống → tạo subscription với plan=FREE và mọi giới hạn null (giống hệt hành vi trước T053.02)', async () => {
+      const client = makeClient();
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(client),
+      );
+
+      await repository.createWithOwner(input, 'admin-1', {});
+
+      expect(client.organizationSubscription.create).toHaveBeenCalledWith({
+        data: {
+          organizationId: 'org-1',
+          plan: 'FREE',
+          expiredAt: null,
+          maxBranch: null,
+          maxUser: null,
+          maxWarehouse: null,
+          maxProduct: null,
+          maxCustomer: null,
+          storageLimitGB: null,
+        },
+      });
+    });
+
+    // T053.02 CASE 2/3 — TRIAL: plan + đúng giới hạn D3 + expiredAt tính từ `expiredAt` đã có sẵn
+    // (không phải cột mới).
+    it('plan=TRIAL → tạo subscription với đúng giới hạn D3 và expiredAt ~14 ngày sau', async () => {
+      const client = makeClient();
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(client),
+      );
+
+      const before = Date.now();
+      await repository.createWithOwner(
+        { ...input, plan: 'TRIAL' },
+        'admin-1',
+        {},
+      );
+      const after = Date.now();
+
+      expect(client.organizationSubscription.create).toHaveBeenCalledTimes(1);
+      const callArgs = client.organizationSubscription.create.mock.calls[0][0];
+      expect(callArgs.data).toMatchObject({
+        organizationId: 'org-1',
+        plan: 'TRIAL',
+        maxBranch: 1,
+        maxUser: 3,
+        maxWarehouse: 1,
+        maxProduct: 50,
+        maxCustomer: 50,
+        storageLimitGB: 1,
+      });
+      const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+      const expiredAt = (callArgs.data.expiredAt as Date).getTime();
+      expect(expiredAt).toBeGreaterThanOrEqual(before + fourteenDaysMs);
+      expect(expiredAt).toBeLessThanOrEqual(after + fourteenDaysMs);
+    });
+
+    // T053.02 CASE 5 — BASIC/PRO/ENTERPRISE không hồi quy khi chọn tường minh.
+    it.each([
+      [
+        'BASIC',
+        {
+          maxBranch: 2,
+          maxUser: 5,
+          maxWarehouse: 2,
+          maxProduct: 500,
+          maxCustomer: null,
+          storageLimitGB: 5,
+        },
+      ],
+      [
+        'PRO',
+        {
+          maxBranch: 10,
+          maxUser: 20,
+          maxWarehouse: 10,
+          maxProduct: null,
+          maxCustomer: null,
+          storageLimitGB: 25,
+        },
+      ],
+      [
+        'ENTERPRISE',
+        {
+          maxBranch: null,
+          maxUser: null,
+          maxWarehouse: null,
+          maxProduct: null,
+          maxCustomer: null,
+          storageLimitGB: null,
+        },
+      ],
+    ] as const)(
+      'plan=%s → tạo subscription với đúng giới hạn D3, expiredAt null',
+      async (plan, expectedLimits) => {
+        const client = makeClient();
+        prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+          fn(client),
+        );
+
+        await repository.createWithOwner({ ...input, plan }, 'admin-1', {});
+
+        expect(client.organizationSubscription.create).toHaveBeenCalledWith({
+          data: {
+            organizationId: 'org-1',
+            plan,
+            expiredAt: null,
+            ...expectedLimits,
+          },
+        });
+      },
+    );
+
     it('không tạo RolePermission nếu chưa có Permission nào được seed', async () => {
       const client = makeClient();
       client.permission.findMany.mockResolvedValue([]);

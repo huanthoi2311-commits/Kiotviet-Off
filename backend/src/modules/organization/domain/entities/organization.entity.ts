@@ -1,5 +1,6 @@
 export type OrganizationStatus = 'ACTIVE' | 'SUSPENDED' | 'ARCHIVED';
-export type OrganizationPlan = 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE';
+export type OrganizationPlan =
+  'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE' | 'TRIAL';
 export type OrganizationSubscriptionStatus = 'ACTIVE' | 'EXPIRED' | 'CANCELLED';
 
 export interface OrganizationEntity {

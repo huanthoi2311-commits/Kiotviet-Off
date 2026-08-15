@@ -1,6 +1,7 @@
 import {
   OrganizationAggregate,
   OrganizationEntity,
+  OrganizationPlan,
   OrganizationStatus,
 } from '../entities/organization.entity';
 
@@ -16,6 +17,10 @@ export interface CreateOrganizationWithOwnerInput {
     email: string;
     passwordHash: string;
   };
+  /** T053.02 — Plan thương mại được chọn khi tạo Organization. Bỏ trống → giữ NGUYÊN hành vi cũ
+   * (FREE, do repository áp dụng mặc định — không phải do schema `@default` một mình quyết định
+   * nữa, vì giới hạn tài nguyên theo Plan giờ do `computeSubscriptionDefaults()` tính tường minh). */
+  plan?: OrganizationPlan;
 }
 
 export interface UpdateOrganizationInput {

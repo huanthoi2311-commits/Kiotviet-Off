@@ -158,6 +158,44 @@ describe('OrganizationService', () => {
       expect(result.settings.defaultCurrency).toBe('VND');
     });
 
+    // T053.02 CASE 4 — backward compatibility: dto không có `subscription` → `plan: undefined`
+    // được chuyển thẳng xuống repository (repository mới là nơi áp dụng mặc định FREE — service
+    // không tự quyết định giá trị mặc định, tránh 2 nguồn sự thật).
+    it('dto không có subscription.plan → truyền plan: undefined xuống repository (repository tự áp dụng FREE)', async () => {
+      organizationRepository.existsBySlug.mockResolvedValue(false);
+      codeGenerator.generate.mockResolvedValue('ORG000001');
+      passwordHasher.hash.mockResolvedValue('hashed-password');
+      organizationRepository.createWithOwner.mockResolvedValue(aggregate);
+
+      await service.create(dto, platformAdminActor);
+
+      expect(organizationRepository.createWithOwner).toHaveBeenCalledWith(
+        expect.objectContaining({ plan: undefined }),
+        'admin-1',
+        expect.any(Object),
+      );
+    });
+
+    // T053.02 CASE 2 — Platform Admin có thể chọn tường minh Plan thương mại (TRIAL) qua đúng
+    // luồng provisioning đã được ủy quyền (POST /organizations, đã có PlatformAdminGuard).
+    it('dto.subscription.plan=TRIAL → truyền đúng xuống repository.createWithOwner', async () => {
+      organizationRepository.existsBySlug.mockResolvedValue(false);
+      codeGenerator.generate.mockResolvedValue('ORG000001');
+      passwordHasher.hash.mockResolvedValue('hashed-password');
+      organizationRepository.createWithOwner.mockResolvedValue(aggregate);
+
+      await service.create(
+        { ...dto, subscription: { plan: 'TRIAL' } },
+        platformAdminActor,
+      );
+
+      expect(organizationRepository.createWithOwner).toHaveBeenCalledWith(
+        expect.objectContaining({ plan: 'TRIAL' }),
+        'admin-1',
+        expect.any(Object),
+      );
+    });
+
     it('map OrganizationSlugConflictError (race condition) -> ConflictException', async () => {
       organizationRepository.existsBySlug.mockResolvedValue(false);
       codeGenerator.generate.mockResolvedValue('ORG000001');
