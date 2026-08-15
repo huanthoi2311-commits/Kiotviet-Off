@@ -391,14 +391,63 @@ describe('Entitlement Module (e2e, integration) — T053.03 CASE 1-10', () => {
     expect(features).not.toEqual(expect.arrayContaining(['API_ACCESS']));
   });
 
-  it('PLATFORM ADMIN: bypass entitlement check trên chính Organization bootstrap (FREE mặc định)', async () => {
+  // Architect Decision (Platform Admin Entitlement Bypass, sau T053.02A) — isPlatformAdmin KHÔNG
+  // còn bypass entitlement trên route tenant thường (§5D). Organization bootstrap không có
+  // OrganizationSubscription nào (fixture raw `organization.upsert()` phía trên không tạo) —
+  // EntitlementService fail-closed (tập rỗng), nên đúng ra PHẢI bị từ chối dù actor là Platform
+  // Admin — đây chính là bằng chứng "không có ngoại lệ isPlatformAdmin" thay vì chỉ là hệ quả tình
+  // cờ của fixture.
+  it('PLATFORM ADMIN KHÔNG bypass entitlement: Organization bootstrap không có gói hợp lệ (fail-closed) => vẫn 403 ENTITLEMENT_001', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/users')
+      .set('Authorization', `Bearer ${platformAdminToken}`)
+      .send({
+        username: `platform-admin-blocked-${Date.now()}`,
+        email: `platform-admin-blocked-${Date.now()}@e2e.local`,
+        password: 'Password123',
+      })
+      .expect(403);
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+  });
+
+  // Đối chứng: khi CHÍNH Organization của Platform Admin có plan hợp lệ, request thành công — chứng
+  // minh kết quả phụ thuộc đúng entitlement thật của Organization, không phải cờ isPlatformAdmin.
+  it('PLATFORM ADMIN vẫn được phép khi Organization của chính họ CÓ entitlement hợp lệ (đánh giá bình thường, không phải ngoại lệ)', async () => {
+    const bootstrapOrg = await prisma.organization.findUniqueOrThrow({
+      where: { slug: 'org-e2e-entitlement-bootstrap' },
+    });
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId: bootstrapOrg.id },
+      create: { organizationId: bootstrapOrg.id, plan: 'TRIAL' },
+      update: { plan: 'TRIAL' },
+    });
+
     await request(app.getHttpServer())
       .post('/api/v1/users')
       .set('Authorization', `Bearer ${platformAdminToken}`)
       .send({
-        username: `platform-admin-created-${Date.now()}`,
-        email: `platform-admin-created-${Date.now()}@e2e.local`,
+        username: `platform-admin-allowed-${Date.now()}`,
+        email: `platform-admin-allowed-${Date.now()}@e2e.local`,
         password: 'Password123',
+      })
+      .expect(201);
+  });
+
+  // POST /organizations là route Platform Admin THẬT (PlatformAdminGuard) — không gắn
+  // @RequireEntitlement() — phải luôn hoạt động bình thường qua đúng cơ chế PlatformAdminGuard,
+  // không liên quan gì tới entitlement của tổ chức MỚI được tạo.
+  it('POST /organizations (route Platform Admin thật) không bị ảnh hưởng bởi thay đổi entitlement — vẫn hoạt động qua PlatformAdminGuard', async () => {
+    const slug = `platform-route-unaffected-${Date.now()}`;
+    await request(app.getHttpServer())
+      .post('/api/v1/organizations')
+      .set('Authorization', `Bearer ${platformAdminToken}`)
+      .send({
+        organization: { displayName: 'Unaffected', slug },
+        owner: {
+          fullName: 'Owner',
+          email: `owner-${Date.now()}@unaffected.local`,
+          password: 'Password123',
+        },
       })
       .expect(201);
   });
