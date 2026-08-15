@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { PERMISSION_CATALOG } from '../../../rbac/infrastructure/permission-catalog';
+import { computeSubscriptionDefaults } from '../../domain/policies/subscription-plan-defaults';
 import {
   OrganizationAggregate,
   OrganizationEntity,
@@ -123,8 +124,26 @@ export class PrismaOrganizationRepository implements IOrganizationRepository {
         data: { organizationId: organization.id },
       });
 
+      // T053.02 — `input.plan` bỏ trống → 'FREE' (giữ NGUYÊN hành vi cũ, D3: không tự bịa giới
+      // hạn cho FREE — `computeSubscriptionDefaults('FREE')` trả về đúng cấu trúc mọi giới hạn
+      // NULL đã có từ trước). Giới hạn tài nguyên theo Plan là NGUỒN SỰ THẬT DUY NHẤT tại
+      // `SUBSCRIPTION_PLAN_LIMITS` — không lặp lại số ở đây. CHỈ ghi dữ liệu, KHÔNG enforcement
+      // (T053.05).
+      const subscriptionDefaults = computeSubscriptionDefaults(
+        input.plan ?? 'FREE',
+      );
       const subscription = await tx.organizationSubscription.create({
-        data: { organizationId: organization.id },
+        data: {
+          organizationId: organization.id,
+          plan: input.plan ?? 'FREE',
+          expiredAt: subscriptionDefaults.expiredAt,
+          maxBranch: subscriptionDefaults.maxBranch,
+          maxUser: subscriptionDefaults.maxUser,
+          maxWarehouse: subscriptionDefaults.maxWarehouse,
+          maxProduct: subscriptionDefaults.maxProduct,
+          maxCustomer: subscriptionDefaults.maxCustomer,
+          storageLimitGB: subscriptionDefaults.storageLimitGB,
+        },
       });
 
       // Audit Log là bước bắt buộc NẰM TRONG transaction (SPEC-ORG-001 §17) — khác quy ước

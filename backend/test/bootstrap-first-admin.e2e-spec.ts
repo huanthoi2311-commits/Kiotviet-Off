@@ -128,6 +128,11 @@ describe('Bootstrap First-Admin — T051.08D (e2e, integration — Postgres th�
     expect(settings?.organizationId).toBe(result.organizationId);
     expect(subscription).not.toBeNull();
     expect(subscription?.organizationId).toBe(result.organizationId);
+    // T053.02 CASE 9 — thêm OrganizationPlan.TRIAL vào enum KHÔNG được tự ý biến bootstrap thành
+    // TRIAL — `first-admin-initializer.ts` không hề đổi, subscription vẫn phải là FREE (mặc định
+    // schema), mọi giới hạn vẫn null (D3: FREE giữ nguyên hành vi cũ).
+    expect(subscription?.plan).toBe('FREE');
+    expect(subscription?.maxUser).toBeNull();
 
     // Khởi động AppModule THẬT trỏ vào ĐÚNG database vừa bootstrap — PrismaService đọc
     // process.env.DATABASE_URL lúc construct (không nhận override qua constructor), nên phải đổi

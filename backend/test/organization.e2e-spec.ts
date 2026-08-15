@@ -233,6 +233,132 @@ describe('Organization Module (e2e, integration)', () => {
       .expect(409);
   });
 
+  // T053.02 CASE 8 — atomicity: request thất bại (slug trùng) không được để lại User/Owner mồ
+  // côi — bằng chứng TRẠNG THÁI DATABASE THẬT, không chỉ đếm response HTTP.
+  it('ATOMICITY: request tạo Organization thất bại (slug trùng) không để lại User mồ côi', async () => {
+    const conflictOwnerEmail = `atomic-check-owner-${Date.now()}@dup.com`;
+
+    await request(app.getHttpServer())
+      .post('/api/v1/organizations')
+      .set('Authorization', `Bearer ${platformAdminToken}`)
+      .send({
+        organization: { displayName: 'Dup Co 2', slug: 'org-e2e-tenant' },
+        owner: {
+          fullName: 'Atomic Check Owner',
+          email: conflictOwnerEmail,
+          password: 'Password123',
+        },
+      })
+      .expect(409);
+
+    const orphanedUser = await prisma.user.findFirst({
+      where: { email: conflictOwnerEmail },
+    });
+    expect(orphanedUser).toBeNull();
+  });
+
+  // T053.02 CASE 2/3 — Platform Admin có thể chọn tường minh Plan TRIAL qua đúng luồng
+  // provisioning đã được ủy quyền; subscription persist đúng plan + giới hạn D3 + expiredAt
+  // (dùng field `expiredAt` đã có sẵn, không phải cột mới).
+  it('TRIAL: tạo Organization với subscription.plan=TRIAL, subscription persist đúng plan/giới hạn/expiredAt', async () => {
+    const slug = `org-e2e-trial-${Date.now()}`;
+    const before = Date.now();
+    const createRes = await request(app.getHttpServer())
+      .post('/api/v1/organizations')
+      .set('Authorization', `Bearer ${platformAdminToken}`)
+      .send({
+        organization: { displayName: 'Trial Co', slug },
+        owner: {
+          fullName: 'Trial Owner',
+          email: `trial-owner-${Date.now()}@trial.com`,
+          password: 'Password123',
+        },
+        subscription: { plan: 'TRIAL' },
+      })
+      .expect(201);
+    const after = Date.now();
+
+    expect(createRes.body.data.subscription.plan).toBe('TRIAL');
+    expect(createRes.body.data.subscription.maxUser).toBe(3);
+    expect(createRes.body.data.subscription.maxBranch).toBe(1);
+    expect(createRes.body.data.subscription.maxWarehouse).toBe(1);
+    expect(createRes.body.data.subscription.maxProduct).toBe(50);
+    expect(createRes.body.data.subscription.maxCustomer).toBe(50);
+    expect(createRes.body.data.subscription.storageLimitGB).toBe(1);
+    const expiredAt = new Date(
+      createRes.body.data.subscription.expiredAt,
+    ).getTime();
+    const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+    expect(expiredAt).toBeGreaterThanOrEqual(before + fourteenDaysMs);
+    expect(expiredAt).toBeLessThanOrEqual(after + fourteenDaysMs);
+
+    // Bằng chứng TRẠNG THÁI DATABASE THẬT — không chỉ đọc lại qua chính API vừa gọi.
+    const subscription = await prisma.organizationSubscription.findUnique({
+      where: { organizationId: createRes.body.data.id },
+    });
+    expect(subscription?.plan).toBe('TRIAL');
+    expect(subscription?.maxUser).toBe(3);
+  });
+
+  // T053.02 CASE 5 — BASIC/PRO/ENTERPRISE không hồi quy khi chọn tường minh qua HTTP thật.
+  it.each([
+    [
+      'BASIC',
+      {
+        maxUser: 5,
+        maxBranch: 2,
+        maxWarehouse: 2,
+        maxProduct: 500,
+        maxCustomer: null,
+        storageLimitGB: 5,
+      },
+    ],
+    [
+      'PRO',
+      {
+        maxUser: 20,
+        maxBranch: 10,
+        maxWarehouse: 10,
+        maxProduct: null,
+        maxCustomer: null,
+        storageLimitGB: 25,
+      },
+    ],
+    [
+      'ENTERPRISE',
+      {
+        maxUser: null,
+        maxBranch: null,
+        maxWarehouse: null,
+        maxProduct: null,
+        maxCustomer: null,
+        storageLimitGB: null,
+      },
+    ],
+  ] as const)(
+    '%s: tạo Organization với plan tường minh, subscription persist đúng giới hạn D3, expiredAt null',
+    async (plan, expected) => {
+      const slug = `org-e2e-${plan.toLowerCase()}-${Date.now()}`;
+      const createRes = await request(app.getHttpServer())
+        .post('/api/v1/organizations')
+        .set('Authorization', `Bearer ${platformAdminToken}`)
+        .send({
+          organization: { displayName: `${plan} Co`, slug },
+          owner: {
+            fullName: `${plan} Owner`,
+            email: `${plan.toLowerCase()}-owner-${Date.now()}@${plan.toLowerCase()}.com`,
+            password: 'Password123',
+          },
+          subscription: { plan },
+        })
+        .expect(201);
+
+      expect(createRes.body.data.subscription.plan).toBe(plan);
+      expect(createRes.body.data.subscription.expiredAt).toBeNull();
+      expect(createRes.body.data.subscription).toMatchObject(expected);
+    },
+  );
+
   it('NOT-PLATFORM-ADMIN: user thường không tạo được Organization', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/organizations')

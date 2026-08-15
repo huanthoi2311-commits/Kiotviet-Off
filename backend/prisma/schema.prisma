@@ -27,6 +27,10 @@ enum OrganizationPlan {
   BASIC
   PRO
   ENTERPRISE
+  /// T053.02 — thời-hạn đánh giá thử, khác FREE (vĩnh viễn). Giới hạn mặc định + thời hạn hết hạn
+  /// do `SUBSCRIPTION_PLAN_DEFAULTS`/`TRIAL_DURATION_DAYS` (organization/domain/policies) quyết
+  /// định tại thời điểm tạo — bảng này KHÔNG tự động enforce (T053.05).
+  TRIAL
 }
 
 enum OrganizationStatus {

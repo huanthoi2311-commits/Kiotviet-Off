@@ -100,6 +100,7 @@ export class OrganizationService {
             email: dto.owner.email,
             passwordHash,
           },
+          plan: dto.subscription?.plan,
         },
         actor.userId,
         auditContext,
