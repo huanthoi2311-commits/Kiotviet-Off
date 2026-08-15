@@ -151,7 +151,14 @@ export class RbacService {
 
   /** T051.00 — same tenant-ownership requirement as `assignRoleToUser`.
    * T052.03B — now wired to `DELETE /roles/:roleId/users/:userId`; protected by the same
-   * owner-lockout invariant as `assignPermissions`. */
+   * owner-lockout invariant as `assignPermissions`.
+   * T052.04A — audit entry added to close the asymmetry with `assignRoleToUser` (which already
+   * logged). Written only after the repository mutation succeeds — every rejection path above
+   * (cross-tenant role/user, owner-lockout) throws before this point is ever reached, so no
+   * success audit record can be created for a rejected removal. Same ordering, `AuditLogService`
+   * boundary, and `oldValue`-only shape as the established "remove" pattern elsewhere in this
+   * codebase (`supplier-product.service.ts`'s `supplier.product.remove`) — `assignRoleToUser`
+   * uses `newValue` for an addition, this uses `oldValue` for a removal. */
   async removeRoleFromUser(
     userId: string,
     roleId: string,
@@ -172,6 +179,17 @@ export class RbacService {
     }
 
     await this.roleRepository.removeRoleFromUser(userId, roleId);
+
+    await this.auditLogService.log({
+      organizationId: actor.organizationId,
+      userId: actor.userId,
+      action: 'user.role.remove',
+      entityType: 'User',
+      entityId: userId,
+      oldValue: { roleId },
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+    });
   }
 
   private async assertUserInOrganization(
