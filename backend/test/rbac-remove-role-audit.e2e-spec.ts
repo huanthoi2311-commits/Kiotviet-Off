@@ -163,6 +163,14 @@ describe('RBAC removeRoleFromUser audit trail (e2e, T052.04A)', () => {
       'rm-audit-target',
       targetRoleId,
     );
+    // removeRoleFromUser() unconditionally resolves Organization.ownerUserId (owner-lockout
+    // invariant, RbacService.getOwnerUserId() — T052.03B) before comparing it to the removal
+    // target; an org with no resolvable owner throws by design (confirmed the hard way against
+    // real CI: 500 instead of 204). Every RBAC E2E fixture since T052.03B sets this.
+    await prisma.organization.update({
+      where: { id: orgId },
+      data: { ownerUserId: adminUserId },
+    });
     const adminToken = await signToken(adminUserId, orgId);
 
     const before = await prisma.user.findUniqueOrThrow({
