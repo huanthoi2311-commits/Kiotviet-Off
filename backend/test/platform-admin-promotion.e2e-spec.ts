@@ -94,37 +94,64 @@ describe('Platform Admin Provisioning (e2e, integration — Postgres thật)', (
       .expect(200);
   }
 
-  // CASE 3
-  it('CASE 3: unknown organization fails closed', async () => {
+  // CASE 3 — also proves §4: failed target resolution writes no audit row.
+  it('CASE 3: unknown organization fails closed, no audit row written', async () => {
+    const auditCountBefore = await prisma.auditLog.count({
+      where: { action: 'platform_admin.promote' },
+    });
+
     await expect(
       promotePlatformAdmin(prisma, {
         organizationSlug: `no-such-org-${Date.now()}`,
         email: 'nobody@acme.local',
       }),
     ).rejects.toThrow(PlatformAdminTargetNotFoundError);
+
+    const auditCountAfter = await prisma.auditLog.count({
+      where: { action: 'platform_admin.promote' },
+    });
+    expect(auditCountAfter).toBe(auditCountBefore);
   });
 
-  // CASE 4
-  it('CASE 4: unknown user fails closed', async () => {
+  // CASE 4 — also proves §4: failed target resolution writes no audit row.
+  it('CASE 4: unknown user fails closed, no audit row written', async () => {
+    const auditCountBefore = await prisma.auditLog.count({
+      where: { action: 'platform_admin.promote' },
+    });
+
     await expect(
       promotePlatformAdmin(prisma, {
         organizationSlug,
         email: `no-such-user-${Date.now()}@acme.local`,
       }),
     ).rejects.toThrow(PlatformAdminTargetNotFoundError);
+
+    const auditCountAfter = await prisma.auditLog.count({
+      where: { action: 'platform_admin.promote' },
+    });
+    expect(auditCountAfter).toBe(auditCountBefore);
   });
 
-  it('inactive user fails closed', async () => {
+  // Also proves §4: inactive target writes no audit row.
+  it('inactive user fails closed, no audit row written', async () => {
     const email = `inactive-${Date.now()}@acme.local`;
     const user = await createActiveUser(email, 'Password123!');
     await prisma.user.update({
       where: { id: user.id },
       data: { status: 'INACTIVE' },
     });
+    const auditCountBefore = await prisma.auditLog.count({
+      where: { action: 'platform_admin.promote' },
+    });
 
     await expect(
       promotePlatformAdmin(prisma, { organizationSlug, email }),
     ).rejects.toThrow(PlatformAdminTargetNotActiveError);
+
+    const auditCountAfter = await prisma.auditLog.count({
+      where: { action: 'platform_admin.promote' },
+    });
+    expect(auditCountAfter).toBe(auditCountBefore);
   });
 
   // CASE 1, 5, 6, 7, 8, 9, 10, 12 — one continuous real-HTTP flow.
@@ -164,13 +191,16 @@ describe('Platform Admin Provisioning (e2e, integration — Postgres thật)', (
     expect(roleCountAfter).toBe(roleCountBefore);
     expect(userRoleCountAfter).toBe(userRoleCountBefore);
 
-    // Audit — exactly one new record, correctly attributed.
+    // Audit — exactly one new record. Actor (userId) is null — no authenticated actor exists for
+    // a CLI-initiated action; assigning the promoted user's own id would falsely claim
+    // self-promotion (Architect Gap A). Subject is recorded via entityId instead.
     const auditEntries = await prisma.auditLog.findMany({
       where: { action: 'platform_admin.promote', organizationId },
       orderBy: { createdAt: 'desc' },
     });
     expect(auditEntries.length).toBe(auditCountBefore + 1);
-    expect(auditEntries[0].userId).toBe(result.userId);
+    expect(auditEntries[0].userId).toBeNull();
+    expect(auditEntries[0].entityId).toBe(result.userId);
 
     // CASE 7 — every pre-existing session for this user is now revoked.
     const activeSessions = await prisma.session.findMany({

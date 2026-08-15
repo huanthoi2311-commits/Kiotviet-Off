@@ -229,6 +229,68 @@ jobs:
       - name: Verify data after full stack down/up (named volume persistence proof)
         run: /tmp/verify-unit.sh
 
+      # T053.02A — literal production Platform Admin CLI proof. Runs AFTER the persistence drill
+      # above (which is the last consumer of the original ${ACCESS_TOKEN}) and BEFORE backup/restore
+      # (which never uses it) — promotion below revokes ALL of the bootstrap admin's sessions,
+      # invalidating that token, so nothing later in this job may depend on it remaining valid.
+      #
+      # No direct Prisma mutation anywhere in this proof — every step is the exact documented
+      # operator command or a real HTTP call, against the same built image/service arrangement
+      # (`bring-up`, "build" stage) the runbook (§6A) tells operators to use.
+      - name: 'T053.02A: verify bootstrap admin starts WITHOUT Platform Admin (baseline)'
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/api/v1/organizations \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -d '{"organization":{"displayName":"Should Fail Baseline","slug":"t053-02a-should-fail-baseline"},"owner":{"fullName":"X","email":"x-baseline@t053-02a.local","password":"Password123"}}')
+          test "$STATUS" = "403"
+
+      - name: 'T053.02A: run the ACTUAL documented Platform Admin CLI command through bring-up'
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.override.yml run --rm bring-up \
+            npm run platform-admin:promote -- --organization-slug=pos-erp-ci --email=admin@pos-erp-ci.local
+
+      - name: 'T053.02A: fresh login after promotion, use new token against real POST /organizations'
+        run: |
+          set -euo pipefail
+          NEW_TOKEN=$(curl -sf -X POST http://localhost:3000/api/v1/auth/login \
+            -H "Content-Type: application/json" \
+            -d "{\"organizationSlug\":\"pos-erp-ci\",\"email\":\"admin@pos-erp-ci.local\",\"password\":\"${CI_FIRST_ADMIN_PASSWORD}\"}" \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).data.accessToken))")
+          echo "::add-mask::${NEW_TOKEN}"
+          echo "PLATFORM_ADMIN_TOKEN=${NEW_TOKEN}" >> "$GITHUB_ENV"
+
+          curl -sf -X POST http://localhost:3000/api/v1/organizations \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${NEW_TOKEN}" \
+            -d '{"organization":{"displayName":"T053.02A Compose Proof Org","slug":"t053-02a-compose-proof"},"owner":{"fullName":"Proof Owner","email":"proof-owner@t053-02a.local","password":"Password123"}}' \
+            | tee /tmp/created-org.json
+          grep -q '"slug":"t053-02a-compose-proof"' /tmp/created-org.json
+
+      - name: 'T053.02A: rerun the exact CLI command, require idempotent success'
+        run: |
+          set -euo pipefail
+          OUTPUT=$(docker compose -f docker-compose.yml -f docker-compose.override.yml run --rm bring-up \
+            npm run platform-admin:promote -- --organization-slug=pos-erp-ci --email=admin@pos-erp-ci.local)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "đã là Platform Admin từ trước"
+
+      - name: 'T053.02A: verify no duplicate promotion audit / user side effects in real Postgres'
+        run: |
+          set -euo pipefail
+          AUDIT_COUNT=$(docker compose -f docker-compose.yml -f docker-compose.override.yml exec -T postgres \
+            psql -U pos_erp_ci -d pos_erp_ci -tAc "SELECT count(*) FROM audit_logs WHERE action = 'platform_admin.promote'" | tr -d '[:space:]')
+          test "$AUDIT_COUNT" = "1"
+
+          USER_COUNT=$(docker compose -f docker-compose.yml -f docker-compose.override.yml exec -T postgres \
+            psql -U pos_erp_ci -d pos_erp_ci -tAc "SELECT count(*) FROM users WHERE email = 'admin@pos-erp-ci.local'" | tr -d '[:space:]')
+          test "$USER_COUNT" = "1"
+
+          AUDIT_ACTOR=$(docker compose -f docker-compose.yml -f docker-compose.override.yml exec -T postgres \
+            psql -U pos_erp_ci -d pos_erp_ci -tAc "SELECT \"userId\" FROM audit_logs WHERE action = 'platform_admin.promote'" | tr -d '[:space:]')
+          test -z "$AUDIT_ACTOR"
+
       # §17 HARD GATE — đường backup THẬT qua docker-compose (không phải direct-binary đã chứng
       # minh ở T051.03). Chạy `ops:backup`/`ops:restore`/`ops:verify-restore` TỪ RUNNER (đóng vai
       # trò máy vận hành viên Windows), BACKUP_MODE=docker-compose khiến pg_dump/pg_restore chạy

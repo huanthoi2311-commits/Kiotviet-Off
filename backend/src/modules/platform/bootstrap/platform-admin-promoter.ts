@@ -61,9 +61,19 @@ type PlatformAdminPromoterPrismaClient = Pick<
  * Audit ghi TRỰC TIẾP qua Prisma (không qua `AuditLogService` — service đó là best-effort, nuốt
  * lỗi, phù hợp cho log phụ trong luồng nghiệp vụ HTTP, nhưng bản ghi audit của MỘT hành động cấp
  * quyền phải là bắt buộc/atomic với chính hành động đó, không được phép âm thầm biến mất nếu ghi
- * log lỗi). `userId` trên AuditLog là NGƯỜI ĐƯỢC PROMOTE (đối tượng của sự kiện — cùng quy ước
- * `auth.service.ts` đã dùng cho `auth.login.success/failed`), không phải một "actor" giả lập —
- * CLI không có actor đã đăng nhập, không bịa ra userId nào khác.
+ * log lỗi).
+ *
+ * `AuditLog.userId` là ACTOR (người THỰC HIỆN hành động) — xác nhận LẠI TỪ ĐẦU (không suy diễn từ
+ * trí nhớ) qua tiền lệ trực tiếp: `prisma-organization.repository.ts`'s `tx.auditLog.create()` cho
+ * `organization.created` gán `userId: actorUserId` (Platform Admin đã đăng nhập gọi `POST
+ * /organizations`), không phải Owner/User vừa được tạo ra. Áp dụng đúng quy ước đó ở đây: actor của
+ * `platform_admin.promote` là vận hành viên CLI — KHÔNG có actor đã đăng nhập nào để gán, và User
+ * được promote KHÔNG tự thực hiện hành động này lên chính mình (gán `userId: user.id` sẽ SAI —
+ * ngầm khẳng định User tự thăng cấp chính họ). `AuditLog.userId` là `String? @db.Uuid` (nullable,
+ * quan hệ `onDelete: SetNull`) — `null` là trạng thái ĐÃ ĐƯỢC THIẾT KẾ SẴN cho "không có actor đã
+ * xác thực", không phải một giá trị tự bịa ra ngoài schema. Đối tượng (SUBJECT) của sự kiện vẫn ghi
+ * đúng qua `entityType: 'User'` + `entityId: user.id` — tách biệt rõ actor (không có, `userId:
+ * null`) khỏi subject (User được promote, `entityId`).
  */
 export async function promotePlatformAdmin(
   prisma: PlatformAdminPromoterPrismaClient,
@@ -120,7 +130,7 @@ export async function promotePlatformAdmin(
     prisma.auditLog.create({
       data: {
         organizationId: organization.id,
-        userId: user.id,
+        userId: null,
         action: 'platform_admin.promote',
         entityType: 'User',
         entityId: user.id,

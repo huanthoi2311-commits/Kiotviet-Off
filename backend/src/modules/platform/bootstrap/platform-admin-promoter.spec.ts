@@ -149,14 +149,88 @@ describe('promotePlatformAdmin (T053.02A)', () => {
     expect(prisma.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         organizationId: 'org-1',
-        userId: 'user-1',
+        // Actor — no authenticated actor exists for a CLI-initiated action. null is the
+        // schema-designed "no actor" state (AuditLog.userId is nullable, onDelete: SetNull),
+        // matching the established convention (prisma-organization.repository.ts's
+        // `userId: actorUserId` for organization.created) where userId always means ACTOR, never
+        // subject — assigning the promoted user's own id here would falsely claim self-promotion.
+        userId: null,
         action: 'platform_admin.promote',
         entityType: 'User',
+        // Subject — the User being promoted, kept separate from actor via entityId.
         entityId: 'user-1',
         oldValue: { isPlatformAdmin: false },
         newValue: { isPlatformAdmin: true, promotedVia: 'cli' },
       }),
     });
+  });
+
+  it('no audit row is written when target resolution fails (unknown organization)', async () => {
+    prisma.organization.findUnique.mockResolvedValue(null);
+
+    await expect(
+      promotePlatformAdmin(prisma as never, {
+        organizationSlug: 'does-not-exist',
+        email: 'owner@acme.com',
+      }),
+    ).rejects.toThrow(PlatformAdminTargetNotFoundError);
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('no audit row is written when target resolution fails (unknown user)', async () => {
+    prisma.organization.findUnique.mockResolvedValue(organization);
+    prisma.user.findUnique.mockResolvedValue(null);
+
+    await expect(
+      promotePlatformAdmin(prisma as never, {
+        organizationSlug: 'acme',
+        email: 'no-such-user@acme.com',
+      }),
+    ).rejects.toThrow(PlatformAdminTargetNotFoundError);
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('no audit row is written when the target is inactive', async () => {
+    prisma.organization.findUnique.mockResolvedValue(organization);
+    prisma.user.findUnique.mockResolvedValue({
+      ...activeUser,
+      status: 'INACTIVE',
+    });
+
+    await expect(
+      promotePlatformAdmin(prisma as never, {
+        organizationSlug: 'acme',
+        email: 'owner@acme.com',
+      }),
+    ).rejects.toThrow(PlatformAdminTargetNotActiveError);
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('no additional audit row is written on an idempotent (already-promoted) rerun', async () => {
+    prisma.organization.findUnique.mockResolvedValue(organization);
+    prisma.user.findUnique.mockResolvedValue({
+      ...activeUser,
+      isPlatformAdmin: true,
+    });
+
+    await promotePlatformAdmin(prisma as never, {
+      organizationSlug: 'acme',
+      email: 'owner@acme.com',
+    });
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('transaction failure leaves no partial state — a rejected $transaction propagates, no result returned', async () => {
+    prisma.organization.findUnique.mockResolvedValue(organization);
+    prisma.user.findUnique.mockResolvedValue(activeUser);
+    prisma.$transaction.mockRejectedValue(new Error('db unavailable'));
+
+    await expect(
+      promotePlatformAdmin(prisma as never, {
+        organizationSlug: 'acme',
+        email: 'owner@acme.com',
+      }),
+    ).rejects.toThrow('db unavailable');
   });
 
   it('permissionVersion is incremented (not reset) — forces re-login without a new schema field', async () => {
