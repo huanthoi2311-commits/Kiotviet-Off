@@ -5,18 +5,24 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { UsersRound } from 'lucide-react';
+import { UsersRound, X } from 'lucide-react';
 import {
   getUserControllerFindOneQueryKey,
   getUserControllerSearchQueryKey,
   useUserControllerFindOne,
   useUserControllerUpdate,
 } from '@/generated/user/user';
-import type { UserDetailResponseDto } from '@/generated/pOSERPEnterpriseAPI.schemas';
+import { useRolesControllerList } from '@/generated/rbac/rbac';
+import type {
+  RoleResponseDto,
+  UserDetailResponseDto,
+} from '@/generated/pOSERPEnterpriseAPI.schemas';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/common/confirm-dialog';
 import { CrudForm } from '@/components/common/crud-form';
 import { EmptyState } from '@/components/common/empty-state';
+import { AssignRoleDialog } from '@/features/rbac/components/assign-role-dialog';
+import { RemoveRoleDialog } from '@/features/rbac/components/remove-role-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PermissionButton } from '@/components/common/permission-button';
@@ -63,14 +69,31 @@ function toFormValues(user: UserDetailResponseDto): EditUserFormValues {
 /**
  * T052.02C §7/§8 — combined Detail/Edit (master-data precedent: `customer-edit-form.tsx`).
  * Editable whitelist limited to fullName/phone/avatar/branchId (D — UPDATE USER); username/email/
- * status/password are read-only here, each with its own dedicated action. Role codes (§8) are
- * READ-ONLY — no assign/remove UI (T052.03 owns that). No `version`/CAS (D6).
+ * status/password are read-only here, each with its own dedicated action. No `version`/CAS (D6).
+ *
+ * T052.03C §8 — the "Vai trò" section below is the canonical role assign/remove entry point.
+ * Interactive assign/remove UI requires BOTH `user:update` (mutate) AND `role:view` (safely load
+ * role choices to resolve code -> id) — `role:view` alone or `user:update` alone both fall back to
+ * the original read-only badge list, per the Architect's explicit instruction not to fabricate a
+ * role selector from codes already displayed when role choices can't be safely loaded.
  */
 export function UserEditForm({ id }: { id: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const canUpdate = usePermission('user:update');
+  const canViewRoles = usePermission('role:view');
+  const canManageRoles = canUpdate && canViewRoles;
   const { branchOptions } = useBranchOptions();
+
+  const { data: allRoles } = useRolesControllerList<RoleResponseDto[], NormalizedError>({
+    query: { enabled: canManageRoles },
+  });
+
+  const roleByCode = useMemo(() => {
+    const map = new Map<string, RoleResponseDto>();
+    (allRoles ?? []).forEach((role) => map.set(role.code, role));
+    return map;
+  }, [allRoles]);
 
   const branchNameById = useMemo(
     () => new Map(branchOptions.map((option) => [option.value, option.label])),
@@ -88,6 +111,15 @@ export function UserEditForm({ id }: { id: string }) {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [actionMode, setActionMode] = useState<UserActionDialogMode | null>(null);
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const [showAssignRole, setShowAssignRole] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<{ roleId: string; roleCode: string } | null>(
+    null,
+  );
+
+  const availableRoles = useMemo(
+    () => (allRoles ?? []).filter((role) => !(user?.roleCodes ?? []).includes(role.code)),
+    [allRoles, user],
+  );
 
   const formValues = useMemo(() => (user ? toFormValues(user) : undefined), [user]);
 
@@ -325,23 +357,64 @@ export function UserEditForm({ id }: { id: string }) {
       )}
 
       <div className="flex flex-col gap-2 border-t pt-4">
-        <h2 className="text-sm font-semibold">Vai trò</h2>
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-sm font-semibold">Vai trò</h2>
+          {canManageRoles && (
+            <Button variant="outline" size="sm" onClick={() => setShowAssignRole(true)}>
+              Gán vai trò
+            </Button>
+          )}
+        </div>
         {user.roleCodes.length === 0 ? (
           <p className="text-muted-foreground text-sm">Chưa có vai trò nào được gán.</p>
         ) : (
           <ul className="flex flex-wrap gap-2" aria-label="Danh sách vai trò hiện tại">
-            {user.roleCodes.map((code) => (
-              <li
-                key={code}
-                className="bg-muted rounded-md px-2 py-1 text-sm"
-                aria-label={`Vai trò: ${code}`}
-              >
-                {code}
-              </li>
-            ))}
+            {user.roleCodes.map((code) => {
+              const role = roleByCode.get(code);
+              return (
+                <li
+                  key={code}
+                  className="bg-muted flex items-center gap-1.5 rounded-md px-2 py-1 text-sm"
+                  aria-label={`Vai trò: ${code}`}
+                >
+                  {code}
+                  {canManageRoles && role && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label={`Gỡ vai trò ${code}`}
+                      onClick={() => setRemoveTarget({ roleId: role.id, roleCode: code })}
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
+
+      {canManageRoles && (
+        <AssignRoleDialog
+          open={showAssignRole}
+          onOpenChange={setShowAssignRole}
+          userId={user.id}
+          availableRoles={availableRoles}
+        />
+      )}
+
+      {removeTarget && (
+        <RemoveRoleDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setRemoveTarget(null);
+          }}
+          userId={user.id}
+          roleId={removeTarget.roleId}
+          roleCode={removeTarget.roleCode}
+        />
+      )}
 
       <ConfirmDialog
         open={showCancelConfirm}

@@ -10,7 +10,12 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { Request } from 'express';
 import { ApiCommonErrors } from '../../../common/swagger/api-common-errors.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
@@ -20,6 +25,10 @@ import { RbacService } from '../application/rbac.service';
 import { AssignPermissionsDto } from '../application/dto/assign-permissions.dto';
 import { AssignRoleDto } from '../application/dto/assign-role.dto';
 import { CreateRoleDto } from '../application/dto/create-role.dto';
+import {
+  RoleResponseDto,
+  RoleWithPermissionsResponseDto,
+} from '../application/dto/role-response.dto';
 import { PermissionsGuard } from './permissions.guard';
 import { RequirePermissions } from './permissions.decorator';
 
@@ -34,24 +43,30 @@ export class RolesController {
   @Get()
   @RequirePermissions('role:view')
   @ApiOperation({ summary: 'Danh sách vai trò trong tổ chức hiện tại' })
-  list(@CurrentUser() user: JwtAccessPayload) {
+  @ApiResponse({ status: 200, type: [RoleResponseDto] })
+  list(@CurrentUser() user: JwtAccessPayload): Promise<RoleResponseDto[]> {
     return this.rbacService.listRoles(user.organizationId);
   }
 
   @Get(':id')
   @RequirePermissions('role:view')
   @ApiOperation({ summary: 'Chi tiết vai trò kèm danh sách permission' })
+  @ApiResponse({ status: 200, type: RoleWithPermissionsResponseDto })
   detail(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: JwtAccessPayload,
-  ) {
+  ): Promise<RoleWithPermissionsResponseDto> {
     return this.rbacService.getRole(id, user.organizationId);
   }
 
   @Post()
   @RequirePermissions('role:create')
   @ApiOperation({ summary: 'Tạo vai trò mới' })
-  create(@CurrentUser() user: JwtAccessPayload, @Body() dto: CreateRoleDto) {
+  @ApiResponse({ status: 201, type: RoleResponseDto })
+  create(
+    @CurrentUser() user: JwtAccessPayload,
+    @Body() dto: CreateRoleDto,
+  ): Promise<RoleResponseDto> {
     return this.rbacService.createRole(user.organizationId, dto);
   }
 
@@ -60,12 +75,13 @@ export class RolesController {
   @ApiOperation({
     summary: 'Gán (thay thế toàn bộ) danh sách permission cho vai trò',
   })
+  @ApiResponse({ status: 201, type: RoleWithPermissionsResponseDto })
   assignPermissions(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AssignPermissionsDto,
     @CurrentUser() user: JwtAccessPayload,
     @Req() req: Request,
-  ) {
+  ): Promise<RoleWithPermissionsResponseDto> {
     return this.rbacService.assignPermissions(id, dto.permissionCodes, {
       userId: user.sub,
       organizationId: user.organizationId,
