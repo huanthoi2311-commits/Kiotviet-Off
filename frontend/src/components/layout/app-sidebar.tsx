@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEntitlements } from '@/features/entitlement/use-entitlements';
 import { usePermission } from '@/hooks/use-permission';
 import {
   Sidebar,
@@ -30,7 +31,11 @@ import { NAV_SECTIONS, type NavItem } from './nav-items';
 function NavMenuItem({ item }: { item: NavItem }) {
   const pathname = usePathname();
   const hasPermission = usePermission(item.permission ?? '');
+  const { hasFeature } = useEntitlements();
   if (item.permission && !hasPermission) {
+    return null;
+  }
+  if (item.entitlement && !hasFeature(item.entitlement)) {
     return null;
   }
 

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
+import { EntitlementService } from '../../entitlement/application/entitlement.service';
 import { PASSWORD_HASHER } from '../../auth/domain/services/password-hasher.interface';
 import type { IPasswordHasher } from '../../auth/domain/services/password-hasher.interface';
 import {
@@ -50,6 +51,7 @@ export class OrganizationService {
     private readonly codeGenerator: IOrganizationCodeGenerator,
     @Inject(PASSWORD_HASHER)
     private readonly passwordHasher: IPasswordHasher,
+    private readonly entitlementService: EntitlementService,
   ) {}
 
   /** Route đã có PlatformAdminGuard — chỉ Platform Admin mới tới được đây (SPEC-ORG-001 Decision 4). */
@@ -105,7 +107,14 @@ export class OrganizationService {
         actor.userId,
         auditContext,
       );
-      return OrganizationMapper.toDetailResponseDto(aggregate);
+      const effectiveFeatures =
+        await this.entitlementService.getEffectiveFeatures(
+          aggregate.organization.id,
+        );
+      return OrganizationMapper.toDetailResponseDto(
+        aggregate,
+        effectiveFeatures,
+      );
     } catch (error) {
       throw this.mapDomainError(error);
     }
@@ -122,7 +131,9 @@ export class OrganizationService {
         withCode(ErrorCode.ORGANIZATION_NOT_FOUND, 'Không tìm thấy tổ chức'),
       );
     }
-    return OrganizationMapper.toDetailResponseDto(aggregate);
+    const effectiveFeatures =
+      await this.entitlementService.getEffectiveFeatures(id);
+    return OrganizationMapper.toDetailResponseDto(aggregate, effectiveFeatures);
   }
 
   async getCurrent(

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
@@ -5,6 +6,21 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useUiStore } from '@/stores/ui-store';
 import { buildAccessToken } from '@/test/build-access-token';
 import { DashboardShell } from './dashboard-shell';
+
+/**
+ * T053.03 — `AppSidebarProvider` now also resolves entitlements per nav item
+ * (`useEntitlements` → `useOrganizationControllerGetCurrent`), which requires a
+ * `QueryClientProvider` ancestor — matching production (`src/providers/index.tsx` always mounts
+ * `QueryProvider` above `DashboardShell`), previously not exercised by this suite.
+ */
+function renderShell(children: React.ReactNode) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardShell>{children}</DashboardShell>
+    </QueryClientProvider>,
+  );
+}
 
 const replace = vi.fn();
 vi.mock('next/navigation', () => ({
@@ -49,20 +65,20 @@ describe('DashboardShell', () => {
 
   it('redirects to /login when the session restore reports unauthenticated', () => {
     useSessionRestore.mockReturnValue('unauthenticated');
-    render(<DashboardShell>Nội dung</DashboardShell>);
+    renderShell('Nội dung');
     expect(replace).toHaveBeenCalledWith('/login');
   });
 
   it('renders the restoring skeleton without redirecting or rendering children', () => {
     useSessionRestore.mockReturnValue('restoring');
-    render(<DashboardShell>Nội dung</DashboardShell>);
+    renderShell('Nội dung');
     expect(replace).not.toHaveBeenCalled();
     expect(screen.queryByText('Nội dung')).not.toBeInTheDocument();
   });
 
   it('renders SessionRestoreErrorState on restore-error', () => {
     useSessionRestore.mockReturnValue('restore-error');
-    render(<DashboardShell>Nội dung</DashboardShell>);
+    renderShell('Nội dung');
     expect(screen.getByText('Không thể xác minh phiên đăng nhập')).toBeInTheDocument();
   });
 
@@ -71,7 +87,7 @@ describe('DashboardShell', () => {
     const token = buildAccessToken({ sub: 'user-1', organizationId: 'org-1', permissions: [] });
     useAuthStore.getState().setAccessToken(token);
 
-    render(<DashboardShell>Nội dung</DashboardShell>);
+    renderShell('Nội dung');
     expect(screen.getByText('Nội dung')).toBeInTheDocument();
 
     act(() => {
@@ -85,7 +101,7 @@ describe('DashboardShell', () => {
     const token = buildAccessToken({ sub: 'user-1', organizationId: 'org-1', permissions: [] });
     useAuthStore.getState().setAccessToken(token);
 
-    render(<DashboardShell>Nội dung trang</DashboardShell>);
+    renderShell('Nội dung trang');
 
     expect(screen.getByText('Nội dung trang')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
@@ -97,7 +113,7 @@ describe('DashboardShell', () => {
     const token = buildAccessToken({ sub: 'user-1', organizationId: 'org-1', permissions: [] });
     useAuthStore.getState().setAccessToken(token);
 
-    const { container } = render(<DashboardShell>Nội dung trang</DashboardShell>);
+    const { container } = renderShell('Nội dung trang');
     expect(await axe(container)).toHaveNoViolations();
   });
 });

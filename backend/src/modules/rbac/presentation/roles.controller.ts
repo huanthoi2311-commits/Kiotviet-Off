@@ -21,6 +21,8 @@ import { ApiCommonErrors } from '../../../common/swagger/api-common-errors.decor
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import type { JwtAccessPayload } from '../../../common/types/jwt-payload.type';
 import { JwtAuthGuard } from '../../auth/presentation/guards/jwt-auth.guard';
+import { RequireEntitlement } from '../../entitlement/presentation/entitlement.decorator';
+import { EntitlementGuard } from '../../entitlement/presentation/entitlement.guard';
 import { RbacService } from '../application/rbac.service';
 import { AssignPermissionsDto } from '../application/dto/assign-permissions.dto';
 import { AssignRoleDto } from '../application/dto/assign-role.dto';
@@ -35,7 +37,7 @@ import { RequirePermissions } from './permissions.decorator';
 @ApiTags('RBAC')
 @ApiBearerAuth()
 @ApiCommonErrors()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, EntitlementGuard, PermissionsGuard)
 @Controller('roles')
 export class RolesController {
   constructor(private readonly rbacService: RbacService) {}
@@ -60,6 +62,7 @@ export class RolesController {
   }
 
   @Post()
+  @RequireEntitlement('RBAC_MANAGEMENT')
   @RequirePermissions('role:create')
   @ApiOperation({ summary: 'Tạo vai trò mới' })
   @ApiResponse({ status: 201, type: RoleResponseDto })

@@ -16454,6 +16454,12 @@
           "storageLimitGB": {
             "type": "object",
             "nullable": true
+          },
+          "effectiveFeatures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -16466,7 +16472,8 @@
           "maxWarehouse",
           "maxProduct",
           "maxCustomer",
-          "storageLimitGB"
+          "storageLimitGB",
+          "effectiveFeatures"
         ]
       },
       "OrganizationDetailResponseDto": {

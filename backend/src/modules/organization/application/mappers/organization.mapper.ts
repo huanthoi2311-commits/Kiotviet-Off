@@ -37,6 +37,7 @@ export class OrganizationMapper {
 
   static toDetailResponseDto(
     aggregate: OrganizationAggregate,
+    effectiveFeatures: string[],
   ): OrganizationDetailResponseDto {
     return {
       ...OrganizationMapper.toResponseDto(aggregate.organization),
@@ -61,6 +62,7 @@ export class OrganizationMapper {
         maxProduct: aggregate.subscription.maxProduct,
         maxCustomer: aggregate.subscription.maxCustomer,
         storageLimitGB: aggregate.subscription.storageLimitGB,
+        effectiveFeatures,
       },
     };
   }

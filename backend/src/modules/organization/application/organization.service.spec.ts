@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { IPasswordHasher } from '../../auth/domain/services/password-hasher.interface';
+import { EntitlementService } from '../../entitlement/application/entitlement.service';
 import {
   OrganizationEmailConflictError,
   OrganizationNotActiveError,
@@ -19,6 +20,7 @@ describe('OrganizationService', () => {
   let organizationRepository: jest.Mocked<IOrganizationRepository>;
   let codeGenerator: jest.Mocked<IOrganizationCodeGenerator>;
   let passwordHasher: jest.Mocked<IPasswordHasher>;
+  let entitlementService: jest.Mocked<EntitlementService>;
 
   const platformAdminActor: ActorContext = {
     userId: 'admin-1',
@@ -97,10 +99,15 @@ describe('OrganizationService', () => {
     };
     codeGenerator = { generate: jest.fn() };
     passwordHasher = { hash: jest.fn(), verify: jest.fn() };
+    entitlementService = {
+      getEffectiveFeatures: jest.fn().mockResolvedValue([]),
+      hasFeature: jest.fn(),
+    } as unknown as jest.Mocked<EntitlementService>;
     service = new OrganizationService(
       organizationRepository,
       codeGenerator,
       passwordHasher,
+      entitlementService,
     );
   });
 

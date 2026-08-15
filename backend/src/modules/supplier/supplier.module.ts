@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { EntitlementModule } from '../entitlement/entitlement.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { SupplierDomainService } from './application/supplier-domain.service';
 import { SupplierExcelService } from './application/supplier-excel.service';
@@ -21,7 +22,7 @@ import { SupplierController } from './presentation/supplier.controller';
  * `SupplierDomainService` (public application port), không phụ thuộc repository token trực tiếp.
  */
 @Module({
-  imports: [RbacModule],
+  imports: [RbacModule, EntitlementModule],
   controllers: [SupplierController, SupplierProductController],
   providers: [
     SupplierService,

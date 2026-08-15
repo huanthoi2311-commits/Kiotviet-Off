@@ -403,6 +403,10 @@ model OrganizationSubscription {
   maxProduct     Int?
   maxCustomer    Int?
   storageLimitGB Int?
+  /// T053.03 — Ghi đè entitlement theo từng Organization, dạng `Record<CommercialFeature, boolean>`.
+  /// null = dùng nguyên default của Plan (PLAN_ENTITLEMENTS). Không public mutation endpoint nào
+  /// trong T053.03 — chỉ hỗ trợ cấu trúc dữ liệu, resolution logic đọc/validate ở EntitlementService.
+  entitlementOverrides Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
