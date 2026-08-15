@@ -298,7 +298,15 @@ test.describe.serial('T052.03C — RBAC Management (real stack)', () => {
     await page.getByRole('button', { name: 'Lưu quyền' }).click();
 
     // §7/§14 RBAC_006 — surfaced visibly, editor stays open (no navigation away, no dialog close).
-    await expect(page.getByText(/role:update/)).toBeVisible({ timeout: 15_000 });
+    // An unscoped text search also matches the "role:update" checkbox's own label (confirmed via
+    // real CI: "strict mode violation ... resolved to 2 elements" — the backend itself had already
+    // correctly rejected the request with RBAC_006 at that point). `[data-slot="alert"]`, not
+    // `getByRole('alert')`: Next.js's own `#__next-route-announcer__` also carries `role="alert"`
+    // (empty, screen-reader-only) — the exact same ambiguity `user-management.spec.ts` already hit
+    // and fixed the same way.
+    const errorAlert = page.locator('[data-slot="alert"]');
+    await expect(errorAlert).toBeVisible({ timeout: 15_000 });
+    await expect(errorAlert).toContainText('role:update');
     expect(page.url()).toContain('/roles/');
 
     // Reload — proves the backend actually rejected the mutation (not just an unsent client state).
