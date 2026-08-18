@@ -19,26 +19,49 @@ import { backendBaseUrl } from './support';
  */
 const MAILPIT_URL = process.env.RELEASE_E2E_MAILPIT_URL ?? 'http://localhost:8025';
 
+// Dung sai lệch đồng hồ giữa container Playwright runner và container backend/Mailpit — KHÔNG
+// phải cơ chế chờ/correctness bằng sleep, chỉ là ngưỡng so sánh timestamp.
+const CLOCK_SKEW_TOLERANCE_MS = 3_000;
+
 interface MailpitMessageSummary {
   ID: string;
+  To: { Address: string }[];
+  Created: string;
 }
 
 interface MailpitMessage {
   Text: string;
 }
 
-async function fetchOtpFromMailpit(email: string): Promise<string> {
+/**
+ * Bằng chứng CI thật (run 32136052222, CASE E) — query `?query=to:<email>` bị Mailpit BỎ QUA
+ * hoàn toàn (trả nguyên inbox, `total` không đổi dù email không khớp bất kỳ message nào), nên
+ * `messages[0]` từng lấy nhầm OTP của MỘT recipient khác hoàn toàn → verify-otp 400 sai. Vì vậy
+ * KHÔNG dựa vào query param của server — lọc CHÍNH XÁC theo `To[].Address` phía client, và luôn
+ * lấy message MỚI NHẤT (theo `Created`) trong số khớp — không bao giờ `messages[0]` mù.
+ *
+ * `requestedAfter` neo vào đúng thời điểm request-otp được kích (trừ hao dung sai đồng hồ) — bắt
+ * buộc để đúng nghĩa "mã mới vô hiệu mã cũ" (D-resend): nếu inbox đã có 1 message CŨ cho CÙNG
+ * recipient từ 1 lần gọi trước, không được nhặt nhầm nó khi đang chờ message MỚI của lần này.
+ */
+async function fetchOtpFromMailpit(email: string, requestedAfter: Date): Promise<string> {
   const api = await playwrightRequest.newContext();
   try {
+    const earliestAcceptableMs = requestedAfter.getTime() - CLOCK_SKEW_TOLERANCE_MS;
     let messageId: string | undefined;
     for (let attempt = 1; attempt <= 20; attempt += 1) {
-      const listRes = await api.get(
-        `${MAILPIT_URL}/api/v1/messages?query=${encodeURIComponent(`to:${email}`)}`,
-      );
+      const listRes = await api.get(`${MAILPIT_URL}/api/v1/messages`);
       if (listRes.ok()) {
         const body = (await listRes.json()) as { messages: MailpitMessageSummary[] };
-        if (body.messages.length > 0) {
-          messageId = body.messages[0].ID;
+        const matches = body.messages
+          .filter(
+            (m) =>
+              m.To.some((to) => to.Address.toLowerCase() === email.toLowerCase()) &&
+              new Date(m.Created).getTime() >= earliestAcceptableMs,
+          )
+          .sort((a, b) => new Date(b.Created).getTime() - new Date(a.Created).getTime());
+        if (matches.length > 0) {
+          messageId = matches[0].ID;
           break;
         }
       }
@@ -79,9 +102,10 @@ test.describe('T053.04 — Self-Service Trial Signup (real stack, real email)', 
 
     await page.goto('/trial-signup');
     await page.getByLabel('Email').fill(email);
+    const otpRequestedAt = new Date();
     await page.getByRole('button', { name: 'Gửi mã OTP' }).click();
 
-    const otp = await fetchOtpFromMailpit(email);
+    const otp = await fetchOtpFromMailpit(email, otpRequestedAt);
 
     await page.getByLabel('Mã OTP').fill(otp);
     await page.getByRole('button', { name: 'Xác thực OTP' }).click();
@@ -106,9 +130,14 @@ test.describe('T053.04 — Self-Service Trial Signup (real stack, real email)', 
     // CASE A — đăng nhập ngay, không cần bước /auth/login riêng.
     await page.waitForURL('**/dashboard', { timeout: 30_000 });
 
-    // CASE B — TRIAL bao gồm SUPPLIER → nav "Nhà cung cấp" hiển thị VÀ trang dùng được thật.
-    await expect(page.getByRole('link', { name: 'Nhà cung cấp' })).toBeVisible();
-    await page.getByRole('link', { name: 'Nhà cung cấp' }).click();
+    // CASE B — TRIAL bao gồm SUPPLIER → nav hiển thị VÀ trang dùng được thật. Tên truy cập
+    // (accessible name) hiện tại của mục nav này là "Suppliers" (tiếng Anh) — LỆCH với tiêu đề
+    // trang "Nhà cung cấp" (tiếng Việt, `frontend/src/app/(dashboard)/suppliers/page.tsx`). Đây
+    // là nợ localization CÓ TRƯỚC T053.04 (nav-items.ts commit 36d9bc68, 2026-08-10) — Architect
+    // quyết định KHÔNG sửa production nav trong PR này (T053.04 không được âm thầm gánh 1 dọn dẹp
+    // sản phẩm không liên quan); test dùng ĐÚNG tên truy cập hiện tại, không suy diễn.
+    await expect(page.getByRole('link', { name: 'Suppliers', exact: true })).toBeVisible();
+    await page.getByRole('link', { name: 'Suppliers', exact: true }).click();
     await page.waitForURL('**/suppliers');
     await expect(page.getByRole('heading', { name: 'Nhà cung cấp' })).toBeVisible();
 
@@ -141,8 +170,15 @@ test.describe('T053.04 — Self-Service Trial Signup (real stack, real email)', 
 
     // Zero-orphan — Organization thật sự không được tạo (kiểm chứng qua chính UI login, KHÔNG
     // trực tiếp query DB — đúng phạm vi T051.08 §4 "UI trước, API/DB chỉ cho invariant cuối").
+    // Mật khẩu PHẢI hợp lệ hình thức (LoginDto yêu cầu @MinLength(8)) để request thực sự đi tới
+    // AuthService thay vì bị chặn ở tầng validation (400) trước khi chạm business logic — nếu
+    // không, assertion 401 không còn kiểm chứng đúng bất biến zero-orphan nữa.
     const loginCheck = await request.post(`${backendBaseUrl()}/auth/login`, {
-      data: { organizationSlug: 'trial-e2e-tampered-slug', email: 'nope@x.com', password: 'x' },
+      data: {
+        organizationSlug: 'trial-e2e-tampered-slug',
+        email: 'nope@x.com',
+        password: 'WrongPass123!',
+      },
     });
     expect(loginCheck.status()).toBe(401);
   });
@@ -157,10 +193,11 @@ test.describe('T053.04 — Self-Service Trial Signup (real stack, real email)', 
     // trễ DOM không xác định, không phù hợp để chứng minh 1 race-condition kỹ thuật chính xác;
     // bất biến "double-submit an toàn" đã có real-browser proof gián tiếp qua CASE A (luồng UI đầy
     // đủ chạy được trên đúng gói triển khai thật) — ở đây tập trung riêng vào tính xác định của race.
+    const otpRequestedAt = new Date();
     await request.post(`${backendBaseUrl()}/trial-signup/request-otp`, {
       data: { email },
     });
-    const otp = await fetchOtpFromMailpit(email);
+    const otp = await fetchOtpFromMailpit(email, otpRequestedAt);
     const verifyRes = await request.post(`${backendBaseUrl()}/trial-signup/verify-otp`, {
       data: { email, otp },
     });
