@@ -1,4 +1,4 @@
-import { createHmac } from 'crypto';
+import { createHmac, randomBytes } from 'crypto';
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -6,10 +6,12 @@ import { TokenExpiredError } from 'jsonwebtoken';
 
 const PROOF_PURPOSE = 'trial_signup_proof';
 const PROOF_EXPIRES_IN = '10m';
+const PROOF_JTI_BYTES = 16;
 
 export interface SignupProofPayload {
   purpose: typeof PROOF_PURPOSE;
   email: string;
+  jti: string;
 }
 
 export type VerifySignupProofResult =
@@ -25,9 +27,12 @@ export type VerifySignupProofResult =
  * confusion"). Dùng `JwtService` toàn cục (đã đăng ký ở `JwtConfigModule`) NHƯNG luôn truyền
  * `secret` RIÊNG (`signup.secret`) qua từng lời gọi — không đăng ký thêm `JwtModule` instance mới.
  *
- * Proof token là JWT tự chứa `{purpose, email, exp}`, ký HS256 — verify KHÔNG cần round-trip Redis
- * (khác OTP `verified` flag cũ của forgot-password), và không thể bị chấp nhận nhầm làm access
- * token vì secret khác hoàn toàn + `purpose` claim được kiểm tra tường minh.
+ * Proof token là JWT tự chứa `{purpose, email, jti, iat, exp}`, ký HS256 — verify KHÔNG cần
+ * round-trip Redis (khác OTP `verified` flag cũ của forgot-password), và không thể bị chấp nhận
+ * nhầm làm access token vì secret khác hoàn toàn + `purpose` claim được kiểm tra tường minh.
+ * `jti` là CSPRNG 128-bit sinh MỖI LẦN ký (KHÔNG suy ra từ email/thời gian) — bắt buộc để 2 lần
+ * xác thực OTP thành công riêng biệt cho CÙNG 1 email (D4: không giới hạn 1-trial-per-email)
+ * không bao giờ tạo ra proof token trùng nhau, kể cả khi ký trong cùng giây `iat`.
  */
 @Injectable()
 export class SignupProofService {
@@ -57,6 +62,11 @@ export class SignupProofService {
     const payload: SignupProofPayload = {
       purpose: PROOF_PURPOSE,
       email: normalizedEmail,
+      // CSPRNG, độc lập với email/thời gian — bắt buộc để 2 proof hợp lệ (2 lần xác thực OTP
+      // thành công riêng biệt cho CÙNG email) không bao giờ trùng token dù ký trong cùng giây
+      // `iat` (payload/JWT xác định hoàn toàn bởi input → 2 lần ký cùng giây, cùng email, KHÔNG
+      // có jti sẽ ra JWT giống hệt nhau — đã xác nhận là nguyên nhân CASE 29 409 giả ở CI).
+      jti: randomBytes(PROOF_JTI_BYTES).toString('hex'),
     };
     return this.jwtService.sign(payload, {
       secret: this.secret(),
@@ -69,7 +79,12 @@ export class SignupProofService {
       const decoded = this.jwtService.verify<SignupProofPayload>(token, {
         secret: this.secret(),
       });
-      if (decoded.purpose !== PROOF_PURPOSE || !decoded.email) {
+      if (
+        decoded.purpose !== PROOF_PURPOSE ||
+        !decoded.email ||
+        typeof decoded.jti !== 'string' ||
+        decoded.jti.length === 0
+      ) {
         return { outcome: 'INVALID' };
       }
       return { outcome: 'OK', email: decoded.email };

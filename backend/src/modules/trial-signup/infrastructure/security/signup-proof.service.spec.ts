@@ -119,4 +119,100 @@ describe('SignupProofService (T053.04 D2)', () => {
       InternalServerErrorException,
     );
   });
+
+  describe('jti — chống trùng proof token khi ký cùng giây iat (Architect Decision, CASE 29 fix)', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('2 lần signProof() CÙNG email, CÙNG đóng băng đúng 1 giây iat → token KHÁC nhau, jti KHÁC nhau, iat GIỐNG nhau, hash KHÁC nhau', () => {
+      jest.useFakeTimers({ advanceTimers: false });
+      jest.setSystemTime(new Date('2026-08-18T12:00:00.000Z'));
+
+      const service = new SignupProofService(
+        jwtService,
+        makeConfig('a-real-signup-secret-32-chars-min'),
+      );
+      const token1 = service.signProof('owner@acme.com');
+      const token2 = service.signProof('owner@acme.com');
+
+      expect(token1).not.toEqual(token2);
+
+      const payload1: { email: string; iat: number; jti: string } =
+        jwtService.decode(token1);
+      const payload2: { email: string; iat: number; jti: string } =
+        jwtService.decode(token2);
+
+      expect(payload1.email).toEqual(payload2.email);
+      expect(payload1.iat).toEqual(payload2.iat);
+      expect(payload1.jti).not.toEqual(payload2.jti);
+
+      expect(service.hashProofToken(token1)).not.toEqual(
+        service.hashProofToken(token2),
+      );
+    });
+  });
+
+  describe('jti — validate ở verifyProof() (Architect Decision)', () => {
+    it('proof hợp lệ luôn có jti là chuỗi không rỗng', () => {
+      const service = new SignupProofService(
+        jwtService,
+        makeConfig('a-real-signup-secret-32-chars-min'),
+      );
+      const token = service.signProof('owner@acme.com');
+      const payload: { jti: string } = jwtService.decode(token);
+
+      expect(typeof payload.jti).toBe('string');
+      expect(payload.jti.length).toBeGreaterThan(0);
+    });
+
+    it('JWT hợp lệ nhưng THIẾU jti (proof cũ trước fix, hoặc giả mạo thủ công) → INVALID', () => {
+      const service = new SignupProofService(
+        jwtService,
+        makeConfig('a-real-signup-secret-32-chars-min'),
+      );
+      const noJtiToken = jwtService.sign(
+        { purpose: 'trial_signup_proof', email: 'owner@acme.com' },
+        { secret: 'a-real-signup-secret-32-chars-min', expiresIn: '10m' },
+      );
+
+      expect(service.verifyProof(noJtiToken)).toEqual({ outcome: 'INVALID' });
+    });
+
+    it('JWT hợp lệ nhưng jti RỖNG → INVALID', () => {
+      const service = new SignupProofService(
+        jwtService,
+        makeConfig('a-real-signup-secret-32-chars-min'),
+      );
+      const emptyJtiToken = jwtService.sign(
+        { purpose: 'trial_signup_proof', email: 'owner@acme.com', jti: '' },
+        { secret: 'a-real-signup-secret-32-chars-min', expiresIn: '10m' },
+      );
+
+      expect(service.verifyProof(emptyJtiToken)).toEqual({
+        outcome: 'INVALID',
+      });
+    });
+
+    it('proof bị chỉnh sửa jti sau khi ký (chữ ký không còn khớp) → INVALID', () => {
+      const service = new SignupProofService(
+        jwtService,
+        makeConfig('a-real-signup-secret-32-chars-min'),
+      );
+      const token = service.signProof('owner@acme.com');
+      const [header, , signature] = token.split('.');
+      const tamperedPayload = Buffer.from(
+        JSON.stringify({
+          purpose: 'trial_signup_proof',
+          email: 'owner@acme.com',
+          jti: 'attacker-controlled-jti',
+        }),
+      ).toString('base64url');
+      const tamperedToken = `${header}.${tamperedPayload}.${signature}`;
+
+      expect(service.verifyProof(tamperedToken)).toEqual({
+        outcome: 'INVALID',
+      });
+    });
+  });
 });

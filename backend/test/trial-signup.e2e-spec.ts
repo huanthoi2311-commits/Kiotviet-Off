@@ -327,7 +327,7 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     const configService = app.get(ConfigService);
     const signupSecret = configService.get<string>('signup.secret')!;
     const expiredProof = jwtService.sign(
-      { purpose: 'trial_signup_proof', email },
+      { purpose: 'trial_signup_proof', email, jti: 'case9-expired-proof-jti' },
       { secret: signupSecret, expiresIn: '-1s' },
     );
 
@@ -676,6 +676,29 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
 
     const userCount = await prisma.user.count({ where: { email } });
     expect(userCount).toBe(2);
+
+    // 2 proof ĐỘC LẬP (jti khác nhau, xem SignupProofService) → 2 bản ghi finalize riêng biệt,
+    // proofTokenHash KHÁC nhau — chứng minh trực tiếp bằng Postgres thật, không chỉ suy luận từ
+    // response HTTP (đúng bằng chứng D9/CASE 29 mà Architect yêu cầu).
+    const finalizations = await prisma.trialSignupFinalization.findMany({
+      where: { normalizedEmail: email.toLowerCase() },
+    });
+    expect(finalizations).toHaveLength(2);
+    expect(finalizations.map((f) => f.proofTokenHash)[0]).not.toEqual(
+      finalizations.map((f) => f.proofTokenHash)[1],
+    );
+    expect(finalizations.every((f) => f.status === 'COMPLETED')).toBe(true);
+    expect(new Set(finalizations.map((f) => f.organizationId)).size).toBe(2);
+
+    const subscriptions = await prisma.organizationSubscription.findMany({
+      where: {
+        organizationId: {
+          in: finalizations.map((f) => f.organizationId as string),
+        },
+      },
+    });
+    expect(subscriptions).toHaveLength(2);
+    expect(subscriptions.every((s) => s.plan === 'TRIAL')).toBe(true);
   });
 
   // =========================================================================
