@@ -160,6 +160,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # T053.03 — the dashboard shell now resolves entitlements (`useEntitlements` →
+      # Orval-generated `useOrganizationControllerGetCurrent`) on every authenticated page,
+      # including `/dashboard` (exercised by this suite). `src/generated/` is gitignored, so the
+      # build fails with "Module not found" unless generated first — this job never needed the
+      # generated client before (auth-only, no other generated import on the /dashboard path).
+      - name: Generate API client
+        run: npm run generate:api
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 

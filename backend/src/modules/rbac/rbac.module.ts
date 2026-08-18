@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { EntitlementModule } from '../entitlement/entitlement.module';
 import { RbacService } from './application/rbac.service';
 import { ROLE_REPOSITORY } from './domain/repositories/role.repository.interface';
 import { PERMISSION_REPOSITORY } from './domain/repositories/permission.repository.interface';
@@ -8,7 +9,9 @@ import { RolesController } from './presentation/roles.controller';
 import { PermissionsController } from './presentation/permissions.controller';
 import { PermissionsGuard } from './presentation/permissions.guard';
 
+/** EntitlementModule (T053.03) — module lá, an toàn import cho POST /roles gate RBAC_MANAGEMENT. */
 @Module({
+  imports: [EntitlementModule],
   controllers: [RolesController, PermissionsController],
   providers: [
     RbacService,

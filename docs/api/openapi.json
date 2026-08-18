@@ -539,6 +539,73 @@
         ]
       }
     },
+    "/api/v1/entitlements/current": {
+      "get": {
+        "operationId": "EntitlementController_getCurrent",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentEntitlementsResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập / token không hợp lệ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu quyền truy cập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Không tìm thấy tài nguyên",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Lỗi hệ thống",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Danh sách CommercialFeature hiệu lực của tổ chức hiện tại (tiện ích UI, không cấp quyền)",
+        "tags": [
+          "Entitlement"
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "operationId": "AuthController_login",
@@ -16075,6 +16142,20 @@
           "description"
         ]
       },
+      "CurrentEntitlementsResponseDto": {
+        "type": "object",
+        "properties": {
+          "effectiveFeatures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "effectiveFeatures"
+        ]
+      },
       "LoginDto": {
         "type": "object",
         "properties": {
@@ -16454,6 +16535,12 @@
           "storageLimitGB": {
             "type": "object",
             "nullable": true
+          },
+          "effectiveFeatures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -16466,7 +16553,8 @@
           "maxWarehouse",
           "maxProduct",
           "maxCustomer",
-          "storageLimitGB"
+          "storageLimitGB",
+          "effectiveFeatures"
         ]
       },
       "OrganizationDetailResponseDto": {

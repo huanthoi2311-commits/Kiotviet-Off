@@ -56,9 +56,15 @@ describe('User Management (e2e, integration — Postgres thật)', () => {
       create: { organizationId },
       update: {},
     });
+    // T053.03 — entitlement enforcement is now real: POST /users requires the USER_MANAGEMENT
+    // commercial feature, which the schema's default plan (FREE) does not include. This suite's
+    // purpose is user lifecycle/tenant-isolation/RBAC composition, not subscription/entitlement
+    // behavior (that is covered dedicatedly by entitlement.e2e-spec.ts) — provisioning ENTERPRISE
+    // here (in the same create() call, not a post-creation mutation) keeps every feature entitled
+    // so the pre-existing scenarios below continue to exercise exactly what they always tested.
     await prisma.organizationSubscription.upsert({
       where: { organizationId },
-      create: { organizationId },
+      create: { organizationId, plan: 'ENTERPRISE' },
       update: {},
     });
 

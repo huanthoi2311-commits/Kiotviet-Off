@@ -1,4 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
+import type { CommercialFeature } from '@/features/entitlement/commercial-feature';
 import {
   ArrowLeftRight,
   BarChart3,
@@ -27,6 +28,9 @@ export interface NavItem {
   icon: LucideIcon;
   /** Hidden entirely when the current user lacks this permission code (T034.01 §8). */
   permission?: string;
+  /** T053.03 §14 — hidden entirely when the current Organization's Plan does not include this
+   * CommercialFeature. Composes with `permission` (both must pass), never replaces it. */
+  entitlement?: CommercialFeature;
 }
 
 export interface NavSection {
@@ -53,12 +57,14 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/users',
         icon: UsersRound,
         permission: 'user:view',
+        entitlement: 'USER_MANAGEMENT',
       },
       {
         label: 'Vai trò',
         href: '/roles',
         icon: ShieldCheck,
         permission: 'role:view',
+        entitlement: 'RBAC_MANAGEMENT',
       },
     ],
   },
@@ -145,6 +151,7 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/suppliers',
         icon: Truck,
         permission: 'supplier:view',
+        entitlement: 'SUPPLIER',
       },
       {
         label: 'Purchase Orders',

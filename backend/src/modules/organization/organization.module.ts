@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { EntitlementModule } from '../entitlement/entitlement.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { OrganizationService } from './application/organization.service';
 import { ORGANIZATION_REPOSITORY } from './domain/repositories/organization.repository.interface';
@@ -11,7 +12,7 @@ import { PlatformAdminOrPermissionsGuard } from './presentation/guards/platform-
 import { OrganizationController } from './presentation/organization.controller';
 
 @Module({
-  imports: [RbacModule, AuthModule],
+  imports: [RbacModule, AuthModule, EntitlementModule],
   controllers: [OrganizationController],
   providers: [
     OrganizationService,

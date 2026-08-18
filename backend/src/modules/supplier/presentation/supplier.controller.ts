@@ -37,6 +37,8 @@ import {
 } from '../../../common/swagger/api-common-errors.decorator';
 import type { JwtAccessPayload } from '../../../common/types/jwt-payload.type';
 import { JwtAuthGuard } from '../../auth/presentation/guards/jwt-auth.guard';
+import { RequireEntitlement } from '../../entitlement/presentation/entitlement.decorator';
+import { EntitlementGuard } from '../../entitlement/presentation/entitlement.guard';
 import { PermissionsGuard } from '../../rbac/presentation/permissions.guard';
 import { RequirePermissions } from '../../rbac/presentation/permissions.decorator';
 import { ActorContext, SupplierService } from '../application/supplier.service';
@@ -54,7 +56,7 @@ import { UpdateSupplierDto } from '../application/dto/update-supplier.dto';
 @ApiTags('Supplier')
 @ApiBearerAuth()
 @ApiCommonErrors()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, EntitlementGuard, PermissionsGuard)
 @Controller('suppliers')
 export class SupplierController {
   constructor(
@@ -63,6 +65,7 @@ export class SupplierController {
   ) {}
 
   @Post()
+  @RequireEntitlement('SUPPLIER')
   @RequirePermissions('supplier:create')
   @ApiOperation({
     summary:

@@ -22,6 +22,9 @@ export class OrganizationSubscriptionResponseDto {
   @ApiProperty({ nullable: true }) maxProduct: number | null;
   @ApiProperty({ nullable: true }) maxCustomer: number | null;
   @ApiProperty({ nullable: true }) storageLimitGB: number | null;
+  /** T053.03 — Danh sách CommercialFeature đã resolve (Plan default + override) — chỉ tiện ích UI,
+   * KHÔNG phải nguồn xác thực (backend luôn tự kiểm tra lại qua EntitlementGuard). */
+  @ApiProperty({ type: [String] }) effectiveFeatures: string[];
 }
 
 export class OrganizationResponseDto {

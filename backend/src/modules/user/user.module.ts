@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { BranchModule } from '../branch/branch.module';
+import { EntitlementModule } from '../entitlement/entitlement.module';
 import { OrganizationModule } from '../organization/organization.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { UserService } from './application/user.service';
@@ -13,8 +14,15 @@ import { UserController } from './presentation/user.controller';
   // KHÔNG inject SESSION_REPOSITORY trực tiếp). OrganizationModule exports ORGANIZATION_REPOSITORY
   // (không export OrganizationService — đúng pattern PurchaseOrderModule đã có, dùng cho D1 owner
   // lookup). BranchModule exports BranchService (xác minh branchId tenant-owned, T051.06A pattern).
-  // RbacModule exports RbacService (role codes cho GET /users/:id).
-  imports: [RbacModule, AuthModule, BranchModule, OrganizationModule],
+  // RbacModule exports RbacService (role codes cho GET /users/:id). EntitlementModule (T053.03) —
+  // module lá, không tạo vòng lặp — cho POST /users gate USER_MANAGEMENT.
+  imports: [
+    RbacModule,
+    AuthModule,
+    BranchModule,
+    OrganizationModule,
+    EntitlementModule,
+  ],
   controllers: [UserController],
   providers: [
     UserService,

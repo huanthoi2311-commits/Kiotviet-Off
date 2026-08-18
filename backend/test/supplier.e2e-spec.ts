@@ -39,6 +39,19 @@ describe('Supplier Module (e2e, integration)', () => {
     });
     organizationId = organization.id;
 
+    // T053.03 — entitlement enforcement is now real: POST /suppliers requires the SUPPLIER
+    // commercial feature. This fixture never provisioned an OrganizationSubscription row before
+    // (a missing subscription fails closed — zero features, not just "FREE" — T053.03 §27.8), so
+    // it must be created explicitly now. This suite's purpose is Supplier CRUD/restore/Excel
+    // import-export/tenant isolation, not subscription/entitlement behavior (covered dedicatedly
+    // by entitlement.e2e-spec.ts) — ENTERPRISE keeps every feature entitled so the pre-existing
+    // scenarios below continue to exercise exactly what they always tested.
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId },
+      create: { organizationId, plan: 'ENTERPRISE' },
+      update: {},
+    });
+
     for (const permission of PERMISSION_CATALOG) {
       await prisma.permission.upsert({
         where: { code: permission.code },
@@ -396,6 +409,13 @@ describe('Supplier Module (e2e, integration)', () => {
         displayName: 'Supplier E2E Other Org',
         slug: 'supplier-e2e-other',
       },
+      update: {},
+    });
+    // T053.03 — same reasoning as the primary organization above: this org also calls
+    // POST /suppliers later in this test and never had a subscription row before.
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId: otherOrganization.id },
+      create: { organizationId: otherOrganization.id, plan: 'ENTERPRISE' },
       update: {},
     });
     const otherPasswordHash = await argon2.hash('E2ePass@123', {

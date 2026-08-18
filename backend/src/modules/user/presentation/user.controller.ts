@@ -26,6 +26,8 @@ import {
 } from '../../../common/swagger/api-common-errors.decorator';
 import type { JwtAccessPayload } from '../../../common/types/jwt-payload.type';
 import { JwtAuthGuard } from '../../auth/presentation/guards/jwt-auth.guard';
+import { RequireEntitlement } from '../../entitlement/presentation/entitlement.decorator';
+import { EntitlementGuard } from '../../entitlement/presentation/entitlement.guard';
 import { PermissionsGuard } from '../../rbac/presentation/permissions.guard';
 import { RequirePermissions } from '../../rbac/presentation/permissions.decorator';
 import { ActorContext, UserService } from '../application/user.service';
@@ -42,7 +44,7 @@ import {
 @ApiTags('User')
 @ApiBearerAuth()
 @ApiCommonErrors()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, EntitlementGuard, PermissionsGuard)
 @Controller('users')
 export class UserController {
   constructor(private readonly userService: UserService) {}
@@ -72,6 +74,7 @@ export class UserController {
   }
 
   @Post()
+  @RequireEntitlement('USER_MANAGEMENT')
   @RequirePermissions('user:create')
   @ApiOperation({
     summary:
