@@ -38,6 +38,15 @@ test.describe
   let platformActorToken: string;
 
   test.beforeAll(async () => {
+    // `describe.configure({ timeout: 180_000 })` (dòng trên) chỉ áp dụng cho các `test(...)`,
+    // KHÔNG áp dụng cho `beforeAll` — hook này vẫn chạy dưới timeout mặc định của project
+    // (60000ms). `apiLoginWithRetry` có budget backoff tối đa LOGIN_THROTTLE_MAX_ATTEMPTS (5) ×
+    // LOGIN_THROTTLE_BACKOFF_MS (15_000ms) = tới 60-75s CHỈ RIÊNG phần chờ, chưa tính round-trip
+    // — tự nó có thể vượt quá 60000ms khi gặp throttle contention thật (nhiều spec khác trong
+    // cùng worker/IP CI đang đăng nhập cùng lúc). Nới rõ timeout của chính hook này để khớp với
+    // budget thật của `apiLoginWithRetry`, thay vì phụ thuộc vào retry cấp-test của Playwright.
+    test.setTimeout(180_000);
+
     fixtures = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf-8')) as ReleaseFixtures;
 
     // `global-setup.ts` đã promote Organization bootstrap's admin qua đúng CLI production
@@ -154,7 +163,9 @@ test.describe
     await page.getByRole('link', { name: 'Nhân viên' }).click();
     await page.waitForURL('**/users');
     await expect(page.getByRole('heading', { name: 'Nhân viên' })).toBeVisible();
-    await expect(page.getByText('Không có trong gói hiện tại')).not.toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Không có trong gói hiện tại' }),
+    ).not.toBeVisible();
     await expect(page.getByText('Bạn không có quyền truy cập')).not.toBeVisible();
 
     await context.close();
@@ -171,7 +182,7 @@ test.describe
     await expect(page.getByRole('link', { name: 'Nhân viên' })).not.toBeVisible();
 
     await page.goto('/users');
-    await expect(page.getByText('Không có trong gói hiện tại')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Không có trong gói hiện tại' })).toBeVisible();
     await expect(page.getByText('Bạn không có quyền truy cập')).not.toBeVisible();
 
     const accessToken = await apiLogin(org.slug, org.email, org.password);
@@ -208,7 +219,9 @@ test.describe
     await expect(page.getByRole('link', { name: 'Nhân viên' })).not.toBeVisible();
     await page.goto('/users');
     await expect(page.getByText('Bạn không có quyền truy cập')).toBeVisible();
-    await expect(page.getByText('Không có trong gói hiện tại')).not.toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Không có trong gói hiện tại' }),
+    ).not.toBeVisible();
 
     await context.close();
   });
