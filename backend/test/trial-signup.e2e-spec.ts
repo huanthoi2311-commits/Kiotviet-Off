@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -78,42 +78,37 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     expect(res.status).toBe(204);
   }
 
-  /** NestJS `Logger.warn()` (dùng bởi MailProcessor khi SMTP_HOST rỗng) ghi ra `stderr`, KHÔNG
-   * phải `stdout` — chặn CẢ HAI stream để không phụ thuộc vào chi tiết triển khai nội bộ của
-   * `Logger` (có thể đổi giữa các phiên bản Nest). */
+  /** Chặn thẳng `Logger.warn()` (dùng bởi MailProcessor khi SMTP_HOST rỗng) qua `jest.spyOn`, KHÔNG
+   * monkey-patch `process.stdout/stderr.write` — Jest tự thay thế `console.*` bằng cơ chế báo cáo
+   * riêng của nó (gộp theo từng test, in dưới nhãn "● Console"), nên `Logger.warn()` (thực chất gọi
+   * `console.warn` bên trong) KHÔNG BAO GIỜ thật sự chạm tới `process.stdout/stderr.write` ở tầng
+   * mà 1 lần chặn thủ công có thể quan sát được — xác nhận qua chính lần chạy CI đầu tiên (spy trên
+   * 2 stream không bắt được gì). Đây là ĐÚNG pattern đã có sẵn, đã được xác nhận hoạt động, trong
+   * `mail.processor.spec.ts` (`jest.spyOn(Logger.prototype, 'warn')`) — không mock implementation
+   * (để log vẫn thật sự in ra, hữu ích khi cần debug), chỉ ghi lại lời gọi. */
   async function captureOtpFromConsole(
     action: () => Promise<void>,
   ): Promise<string> {
-    const logs: string[] = [];
-    const originalStdoutWrite = process.stdout.write;
-    const originalStderrWrite = process.stderr.write;
-    process.stdout.write = (chunk: string | Uint8Array, ...rest: unknown[]) => {
-      logs.push(String(chunk));
-      const result: boolean = originalStdoutWrite.apply(process.stdout, [
-        chunk,
-        ...rest,
-      ]);
-      return result;
-    };
-    process.stderr.write = (chunk: string | Uint8Array, ...rest: unknown[]) => {
-      logs.push(String(chunk));
-      const result: boolean = originalStderrWrite.apply(process.stderr, [
-        chunk,
-        ...rest,
-      ]);
-      return result;
-    };
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn');
     try {
       await action();
     } finally {
-      process.stdout.write = originalStdoutWrite;
-      process.stderr.write = originalStderrWrite;
+      warnSpy.mockRestore();
     }
-    const joined = logs.join('');
-    const match = joined.match(/otp=(\d{6})/);
+    const otpLog = warnSpy.mock.calls
+      .map((args) => String(args[0]))
+      .find((message) => message.includes('otp='));
+    if (!otpLog) {
+      throw new Error(
+        `Không tìm thấy OTP trong Logger.warn() — các lời gọi: ${JSON.stringify(
+          warnSpy.mock.calls.map((args) => String(args[0])),
+        )}`,
+      );
+    }
+    const match = otpLog.match(/otp=(\d{6})/);
     if (!match) {
       throw new Error(
-        `Không tìm thấy OTP trong log console — output: ${joined.slice(-500)}`,
+        `Logger.warn() có OTP nhưng không khớp định dạng 6 chữ số: ${otpLog}`,
       );
     }
     return match[1];
