@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import {
   OrganizationAggregate,
   OrganizationEntity,
@@ -60,6 +61,13 @@ export interface OrganizationSearchResult {
 export interface AuditContext {
   ip?: string | null;
   userAgent?: string | null;
+  /** T053.04 D16 — mặc định `'organization.created'` (Platform Admin, hành vi cũ, KHÔNG đổi) khi
+   * bỏ trống. `TrialSignupService` truyền `'organization.trial_signup'` — action riêng biệt để
+   * audit trail phân biệt được tổ chức tạo qua self-service signup với tổ chức Platform Admin tạo. */
+  action?: string;
+  /** T053.04 — merge thêm vào `AuditLog.newValue` (vd `{ provisionedVia: 'public_trial_signup' }`).
+   * KHÔNG BAO GIỜ chứa password/OTP/token — chỉ metadata provisioning không nhạy cảm. */
+  extraAuditMetadata?: Record<string, unknown>;
 }
 
 export class OrganizationSlugConflictError extends Error {
@@ -105,6 +113,22 @@ export interface IOrganizationRepository {
   createWithOwner(
     input: CreateOrganizationWithOwnerInput,
     actorUserId: string,
+    auditContext: AuditContext,
+  ): Promise<OrganizationAggregate>;
+  /**
+   * T053.04 D8 — biến thể transaction-composable của `createWithOwner()`: chạy ĐÚNG cùng logic
+   * 9-bước-ghi (không nhân bản), nhưng dùng `tx` do CALLER truyền vào thay vì tự mở
+   * `$transaction` riêng — cho phép caller (vd `TrialSignupService`) gộp việc tiêu thụ signup
+   * proof + provisioning Organization vào 1 Business Transaction duy nhất (Architect Decision D8
+   * — "hai transaction liền kề KHÔNG được chấp nhận"). `actorUserId: string | null` — public
+   * self-service signup KHÔNG có actor xác thực nào (không được bịa ra một actor giả — Architect
+   * Decision D10), khác `createWithOwner()` (actor luôn có thật, Platform Admin). KHÔNG thay đổi
+   * hành vi/chữ ký của `createWithOwner()` — Platform Admin provisioning giữ nguyên 100%.
+   */
+  createWithOwnerInTransaction(
+    tx: Prisma.TransactionClient,
+    input: CreateOrganizationWithOwnerInput,
+    actorUserId: string | null,
     auditContext: AuditContext,
   ): Promise<OrganizationAggregate>;
   findById(id: string): Promise<OrganizationAggregate | null>;

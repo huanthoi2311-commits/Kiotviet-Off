@@ -41,30 +41,66 @@ export class PrismaOrganizationRepository implements IOrganizationRepository {
     auditContext: AuditContext,
   ): Promise<OrganizationAggregate> {
     try {
-      return await this.runCreateWithOwner(input, actorUserId, auditContext);
+      return await this.prisma.$transaction((tx) =>
+        this.writeOrganizationWithOwner(tx, input, actorUserId, auditContext),
+      );
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        const target = (error.meta?.target as string[] | undefined) ?? [];
-        if (target.includes('slug')) {
-          throw new OrganizationSlugConflictError(input.slug);
-        }
-        if (target.includes('taxCode') && input.taxCode) {
-          throw new OrganizationTaxCodeConflictError(input.taxCode);
-        }
-      }
-      throw error;
+      throw this.mapCreateError(error, input);
     }
   }
 
-  private async runCreateWithOwner(
+  /** T053.04 D8 — xem doc-comment ở interface. Caller (vd `TrialSignupService`) tự mở/commit `tx`. */
+  async createWithOwnerInTransaction(
+    tx: Prisma.TransactionClient,
     input: CreateOrganizationWithOwnerInput,
-    actorUserId: string,
+    actorUserId: string | null,
     auditContext: AuditContext,
   ): Promise<OrganizationAggregate> {
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      return await this.writeOrganizationWithOwner(
+        tx,
+        input,
+        actorUserId,
+        auditContext,
+      );
+    } catch (error) {
+      throw this.mapCreateError(error, input);
+    }
+  }
+
+  private mapCreateError(
+    error: unknown,
+    input: CreateOrganizationWithOwnerInput,
+  ): unknown {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      const target = (error.meta?.target as string[] | undefined) ?? [];
+      if (target.includes('slug')) {
+        return new OrganizationSlugConflictError(input.slug);
+      }
+      if (target.includes('taxCode') && input.taxCode) {
+        return new OrganizationTaxCodeConflictError(input.taxCode);
+      }
+    }
+    return error;
+  }
+
+  /**
+   * Core 9-bước-ghi DUY NHẤT (Organization → User owner → link ownerUserId → Role → grant toàn bộ
+   * Permission → UserRole → Settings → Subscription → AuditLog), nhận `tx` từ caller — cả
+   * `createWithOwner()` (tự mở transaction) và `createWithOwnerInTransaction()` (dùng transaction
+   * của caller, T053.04) đều gọi ĐÚNG hàm này, không nơi nào khác được nhân bản logic ghi này
+   * (SPEC-ORG-001 Decision 3, tái xác nhận Architect Decision D7/D8).
+   */
+  private async writeOrganizationWithOwner(
+    tx: Prisma.TransactionClient,
+    input: CreateOrganizationWithOwnerInput,
+    actorUserId: string | null,
+    auditContext: AuditContext,
+  ): Promise<OrganizationAggregate> {
+    {
       const organization = await tx.organization.create({
         data: {
           code: input.code,
@@ -153,7 +189,7 @@ export class PrismaOrganizationRepository implements IOrganizationRepository {
         data: {
           organizationId: organization.id,
           userId: actorUserId,
-          action: 'organization.created',
+          action: auditContext.action ?? 'organization.created',
           entityType: 'Organization',
           entityId: organization.id,
           newValue: {
@@ -161,6 +197,7 @@ export class PrismaOrganizationRepository implements IOrganizationRepository {
             displayName: organization.displayName,
             slug: organization.slug,
             ownerUserId: owner.id,
+            ...auditContext.extraAuditMetadata,
           },
           ip: auditContext.ip ?? null,
           userAgent: auditContext.userAgent ?? null,
@@ -172,7 +209,7 @@ export class PrismaOrganizationRepository implements IOrganizationRepository {
         settings: this.toSettingsEntity(settings),
         subscription: this.toSubscriptionEntity(subscription),
       };
-    });
+    }
   }
 
   async findById(id: string): Promise<OrganizationAggregate | null> {

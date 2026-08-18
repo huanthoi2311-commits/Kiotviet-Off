@@ -15924,6 +15924,212 @@
           "SalesReturn"
         ]
       }
+    },
+    "/api/v1/trial-signup/request-otp": {
+      "post": {
+        "operationId": "TrialSignupController_requestOtp",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestSignupOtpDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "Chưa đăng nhập / token không hợp lệ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu quyền truy cập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Không tìm thấy tài nguyên",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Lỗi hệ thống",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Gửi OTP xác thực email đăng ký dùng thử (cooldown 60s, tối đa 5 lần/giờ)",
+        "tags": [
+          "Trial Signup"
+        ]
+      }
+    },
+    "/api/v1/trial-signup/verify-otp": {
+      "post": {
+        "operationId": "TrialSignupController_verifyOtp",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifySignupOtpDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupProofResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập / token không hợp lệ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu quyền truy cập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Không tìm thấy tài nguyên",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Lỗi hệ thống",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Xác thực OTP, nhận signup proof (hiệu lực 10 phút)",
+        "tags": [
+          "Trial Signup"
+        ]
+      }
+    },
+    "/api/v1/trial-signup": {
+      "post": {
+        "operationId": "TrialSignupController_finalize",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinalizeTrialSignupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập / token không hợp lệ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu quyền truy cập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Không tìm thấy tài nguyên",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Lỗi hệ thống",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Hoàn tất đăng ký dùng thử — tạo Organization (TRIAL) + Owner, đăng nhập ngay",
+        "tags": [
+          "Trial Signup"
+        ]
+      }
     }
   },
   "info": {
@@ -21758,6 +21964,103 @@
         "required": [
           "version",
           "failureReason"
+        ]
+      },
+      "RequestSignupOtpDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "VerifySignupOtpDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "otp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "otp"
+        ]
+      },
+      "SignupProofResponseDto": {
+        "type": "object",
+        "properties": {
+          "signupProofToken": {
+            "type": "string",
+            "description": "Bằng chứng đã xác thực OTP, hiệu lực 10 phút — phải gửi kèm ở POST /trial-signup. Không phải access token, không dùng được cho bất kỳ route nào khác."
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "signupProofToken",
+          "expiresAt"
+        ]
+      },
+      "FinalizeTrialSignupOrganizationDto": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 150
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 60,
+            "description": "Bỏ trống → server tự sinh từ displayName (slugify). Có thể tự chọn/sửa — vẫn phải qua kiểm tra trùng lặp như Organization thường (Hybrid D6)."
+          }
+        },
+        "required": [
+          "displayName"
+        ]
+      },
+      "FinalizeTrialSignupOwnerDto": {
+        "type": "object",
+        "properties": {
+          "fullName": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "fullName",
+          "password"
+        ]
+      },
+      "FinalizeTrialSignupDto": {
+        "type": "object",
+        "properties": {
+          "signupProofToken": {
+            "type": "string",
+            "description": "Nhận từ POST /trial-signup/verify-otp — hiệu lực 10 phút, dùng đúng 1 lần."
+          },
+          "organization": {
+            "$ref": "#/components/schemas/FinalizeTrialSignupOrganizationDto"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/FinalizeTrialSignupOwnerDto"
+          }
+        },
+        "required": [
+          "signupProofToken",
+          "organization",
+          "owner"
         ]
       }
     }

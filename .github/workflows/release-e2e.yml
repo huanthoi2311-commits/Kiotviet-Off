@@ -64,11 +64,13 @@ jobs:
           POSTGRES_PASSWORD="$(openssl rand -hex 24)"
           JWT_ACCESS_SECRET="$(openssl rand -hex 32)"
           JWT_REFRESH_SECRET="$(openssl rand -hex 32)"
+          SIGNUP_SECRET="$(openssl rand -hex 32)"
           FIRST_ADMIN_PASSWORD="$(openssl rand -hex 12)Aa1!"
 
           echo "::add-mask::${POSTGRES_PASSWORD}"
           echo "::add-mask::${JWT_ACCESS_SECRET}"
           echo "::add-mask::${JWT_REFRESH_SECRET}"
+          echo "::add-mask::${SIGNUP_SECRET}"
           echo "::add-mask::${FIRST_ADMIN_PASSWORD}"
 
           cat > .env <<EOF
@@ -90,6 +92,7 @@ jobs:
           JWT_ACCESS_EXPIRES_IN=15m
           JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
           JWT_REFRESH_EXPIRES_IN=30d
+          SIGNUP_SECRET=${SIGNUP_SECRET}
           SWAGGER_ENABLED=false
           METRICS_ENABLED=false
           FIRST_ADMIN_EMAIL=admin@pos-erp-release-e2e.local
@@ -102,14 +105,14 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: docker compose build (base + dev override)
-        run: docker compose -f docker-compose.yml -f docker-compose.override.yml build
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.release-e2e.yml build
 
       - name: docker compose up -d --wait (Postgres/Redis healthy → bring-up → Backend healthy → Frontend healthy)
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait --wait-timeout 180
+          docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.release-e2e.yml up -d --wait --wait-timeout 180
 
       - name: docker compose ps (bằng chứng trạng thái từng service)
-        run: docker compose -f docker-compose.yml -f docker-compose.override.yml ps
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.release-e2e.yml ps
 
       - name: Verify backend /health
         run: |
@@ -118,6 +121,13 @@ jobs:
 
       - name: Verify frontend reachability
         run: curl -sf -o /dev/null -w "%{http_code}\n" http://localhost:3001/ | grep -qE "^(200|307|308)$"
+
+      # T053.04 — Mailpit là "hộp thư thật" mà entitlement.spec.ts/trial-signup Release E2E đọc
+      # lại qua chính HTTP API của nó (KHÔNG đọc log console — NODE_ENV=production redact OTP khỏi
+      # log, xem docker-compose.release-e2e.yml). Xác nhận reachable TRƯỚC khi chạy suite, cùng mẫu
+      # với backend/frontend ở trên.
+      - name: Verify Mailpit reachability
+        run: curl -sf http://localhost:8025/api/v1/info
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -137,6 +147,7 @@ jobs:
           RELEASE_E2E_ORG_SLUG: pos-erp-release-e2e
           RELEASE_E2E_ADMIN_EMAIL: admin@pos-erp-release-e2e.local
           RELEASE_E2E_ADMIN_PASSWORD: ${{ env.CI_FIRST_ADMIN_PASSWORD }}
+          RELEASE_E2E_MAILPIT_URL: http://localhost:8025
         run: npm run test:e2e:release
 
       # §17 — thất bại phải có bằng chứng chẩn đoán: trace/screenshot/report Playwright (đã cấu
@@ -154,8 +165,8 @@ jobs:
 
       - name: Dump docker compose logs on failure
         if: failure()
-        run: docker compose -f docker-compose.yml -f docker-compose.override.yml logs --no-color
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.release-e2e.yml logs --no-color
 
       - name: Final teardown (CI cleanup only — operators must NEVER use -v normally, see runbook)
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.override.yml down -v
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.release-e2e.yml down -v

@@ -52,4 +52,12 @@ export default () => ({
     pass: process.env.SMTP_PASS,
     from: process.env.SMTP_FROM ?? 'no-reply@pos-erp.local',
   },
+  // T053.04 — secret RIÊNG cho toàn bộ vòng đời Trial Signup (hash OTP, ký/xác minh signup proof
+  // token, hash proof token để tra `trial_signup_finalizations`) — KHÔNG dùng chung với
+  // JWT_ACCESS_SECRET/JWT_REFRESH_SECRET (Architect Decision D2 "no purpose confusion") và KHÔNG
+  // dùng chung với OTP forgot-password (vốn không có secret riêng, chỉ SHA-256 trần — D13, không
+  // sửa luồng đó).
+  signup: {
+    secret: process.env.SIGNUP_SECRET,
+  },
 });

@@ -27,6 +27,9 @@ import { OrganizationController } from './presentation/organization.controller';
       useClass: SequenceOrganizationCodeGenerator,
     },
   ],
-  exports: [ORGANIZATION_REPOSITORY],
+  // T053.04 — thêm ORGANIZATION_CODE_GENERATOR (trước chỉ ORGANIZATION_REPOSITORY) để
+  // TrialSignupModule tái dùng ĐÚNG cơ chế sinh Organization.code hiện có, không tự bịa cơ chế
+  // riêng. Chỉ mở rộng export, không đổi hành vi bất kỳ consumer nào đã có.
+  exports: [ORGANIZATION_REPOSITORY, ORGANIZATION_CODE_GENERATOR],
 })
 export class OrganizationModule {}

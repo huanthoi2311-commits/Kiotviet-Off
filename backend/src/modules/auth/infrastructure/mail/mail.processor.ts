@@ -39,10 +39,29 @@ export class MailProcessor extends WorkerHost {
     );
   }
 
+  /** T053.04 D11 — nội dung theo `purpose`, KHÔNG phải template-engine tổng quát (Architect
+   * Decision D11) — chỉ đủ tách biệt 2 nội dung hiện có. `purpose` cũ (forgot-password) giữ
+   * NGUYÊN VĂN chuỗi gốc, không đổi 1 ký tự nào (Architect Decision D13 — không refactor luồng
+   * forgot-password). */
+  private emailContent(
+    purpose: SendOtpEmailJobData['purpose'],
+    otp: string,
+  ): { subject: string; text: string } {
+    if (purpose === 'TRIAL_SIGNUP') {
+      return {
+        subject: 'Mã xác thực đăng ký dùng thử — POS ERP Enterprise',
+        text: `Mã OTP của bạn là ${otp}. Mã có hiệu lực trong 5 phút. Vui lòng không chia sẻ mã này với bất kỳ ai.`,
+      };
+    }
+    return {
+      subject: 'Mã xác thực đặt lại mật khẩu — POS ERP Enterprise',
+      text: `Mã OTP của bạn là ${otp}. Mã có hiệu lực trong 5 phút. Vui lòng không chia sẻ mã này với bất kỳ ai.`,
+    };
+  }
+
   private async handle(job: Job<SendOtpEmailJobData>): Promise<void> {
-    const { to, otp } = job.data;
-    const subject = 'Mã xác thực đặt lại mật khẩu — POS ERP Enterprise';
-    const text = `Mã OTP của bạn là ${otp}. Mã có hiệu lực trong 5 phút. Vui lòng không chia sẻ mã này với bất kỳ ai.`;
+    const { to, otp, purpose } = job.data;
+    const { subject, text } = this.emailContent(purpose, otp);
 
     if (!this.transporter) {
       // T030.11 (DISCOVERY-T030 F17) — winston ghi log ra `logs/*.log` (DailyRotateFile, giữ 14

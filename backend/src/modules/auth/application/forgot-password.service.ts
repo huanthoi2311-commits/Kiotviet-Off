@@ -80,7 +80,7 @@ export class ForgotPasswordService {
     const otp = randomInt(0, 1_000_000).toString().padStart(6, '0');
     const otpHash = this.tokenService.hashOtp(otp);
     await this.otpRepository.save(identifier, otpHash);
-    await this.mailService.sendOtpEmail(email, otp);
+    await this.mailService.sendOtpEmail(email, otp, 'PASSWORD_RESET');
   }
 
   async verifyOtp(
