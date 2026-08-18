@@ -22,6 +22,12 @@ import { REDIS_CLIENT } from '../src/redis/redis.constants';
  * quát (vd mất kết nối) một cách xác định trong 1 E2E test chạy trên Postgres thật mà không tự
  * chế 1 cơ chế inject-lỗi giả — báo cáo trung thực thay vì dựng 1 kịch bản giả tạo.
  */
+// Nhiều test case cùng chia sẻ 1 ngân sách throttle IP (`@Throttle(10/60s)` trên
+// `POST /trial-signup/request-otp`) — `postRequestOtpWithRetry()` có thể backoff tới ~52s (4 lần
+// retry x 13s) trước khi thành công thật hoặc thất bại dứt khoát; Jest timeout mặc định (5s) sẽ
+// giết test giữa chừng nếu không nới ra. Chỉ ảnh hưởng file này (KHÔNG phải global jest config).
+jest.setTimeout(180_000);
+
 describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
   let app: INestApplication<App>;
   let prisma: PrismaClient;
@@ -32,25 +38,66 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@trial-e2e.local`;
   }
 
-  /** Gọi API request-otp thật; OTP thật được đọc qua log console (SMTP_HOST rỗng ở env test →
-   * MailProcessor log OTP thay vì gửi thật, hành vi hiện có không đổi — xem mail.processor.ts) —
-   * test không có quyền truy cập SIGNUP_SECRET runtime để tự hash ngược từ Redis, nên đọc qua log
-   * là cách duy nhất lấy được OTP thật để tiếp tục flow qua đúng API công khai. */
-  async function requestOtpAndCapture(email: string): Promise<void> {
-    await request(server())
-      .post('/api/v1/trial-signup/request-otp')
-      .send({ email })
-      .expect(204);
+  const REQUEST_OTP_THROTTLE_MAX_ATTEMPTS = 5;
+  const REQUEST_OTP_THROTTLE_BACKOFF_MS = 15_000;
+
+  /** Gọi API request-otp thật; retry-với-backoff CHỈ cho 429 (throttle IP thật `@Throttle(10/60s)`
+   * trên route — nhiều test case trong file này cùng chia sẻ 1 IP runner CI, cùng ngân sách, đúng
+   * pattern đã dùng ở Release E2E T053.03 RC1 `apiLoginWithRetry`) — KHÔNG né tránh/vô hiệu hóa
+   * throttle thật, chỉ xử lý như 1 client thật cần tôn trọng rate-limit. Trả nguyên response (status
+   * KHÔNG bị assert ở đây) để caller tự quyết định — vd CASE 2 cần so sánh 2 response nguyên vẹn. */
+  async function postRequestOtpWithRetry(
+    email: string,
+  ): Promise<{ status: number; body: unknown }> {
+    for (
+      let attempt = 1;
+      attempt <= REQUEST_OTP_THROTTLE_MAX_ATTEMPTS;
+      attempt += 1
+    ) {
+      const res = await request(server())
+        .post('/api/v1/trial-signup/request-otp')
+        .send({ email });
+      if (res.status === 429) {
+        if (attempt === REQUEST_OTP_THROTTLE_MAX_ATTEMPTS) {
+          throw new Error(
+            `[postRequestOtpWithRetry] /trial-signup/request-otp vẫn bị throttle (429) sau ${REQUEST_OTP_THROTTLE_MAX_ATTEMPTS} lần retry`,
+          );
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, REQUEST_OTP_THROTTLE_BACKOFF_MS),
+        );
+        continue;
+      }
+      return { status: res.status, body: res.body };
+    }
+    throw new Error('[postRequestOtpWithRetry] unreachable');
   }
 
+  async function requestOtpAndCapture(email: string): Promise<void> {
+    const res = await postRequestOtpWithRetry(email);
+    expect(res.status).toBe(204);
+  }
+
+  /** NestJS `Logger.warn()` (dùng bởi MailProcessor khi SMTP_HOST rỗng) ghi ra `stderr`, KHÔNG
+   * phải `stdout` — chặn CẢ HAI stream để không phụ thuộc vào chi tiết triển khai nội bộ của
+   * `Logger` (có thể đổi giữa các phiên bản Nest). */
   async function captureOtpFromConsole(
     action: () => Promise<void>,
   ): Promise<string> {
     const logs: string[] = [];
-    const originalWrite = process.stdout.write;
+    const originalStdoutWrite = process.stdout.write;
+    const originalStderrWrite = process.stderr.write;
     process.stdout.write = (chunk: string | Uint8Array, ...rest: unknown[]) => {
       logs.push(String(chunk));
-      const result: boolean = originalWrite.apply(process.stdout, [
+      const result: boolean = originalStdoutWrite.apply(process.stdout, [
+        chunk,
+        ...rest,
+      ]);
+      return result;
+    };
+    process.stderr.write = (chunk: string | Uint8Array, ...rest: unknown[]) => {
+      logs.push(String(chunk));
+      const result: boolean = originalStderrWrite.apply(process.stderr, [
         chunk,
         ...rest,
       ]);
@@ -59,7 +106,8 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     try {
       await action();
     } finally {
-      process.stdout.write = originalWrite;
+      process.stdout.write = originalStdoutWrite;
+      process.stderr.write = originalStderrWrite;
     }
     const joined = logs.join('');
     const match = joined.match(/otp=(\d{6})/);
@@ -121,12 +169,8 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
       })
       .expect(201);
 
-    const resFresh = await request(server())
-      .post('/api/v1/trial-signup/request-otp')
-      .send({ email: emailFresh });
-    const resReused = await request(server())
-      .post('/api/v1/trial-signup/request-otp')
-      .send({ email: emailReused });
+    const resFresh = await postRequestOtpWithRetry(emailFresh);
+    const resReused = await postRequestOtpWithRetry(emailReused);
 
     expect(resFresh.status).toBe(204);
     expect(resReused.status).toBe(204);
@@ -565,10 +609,7 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     const beforeOrgCount = await prisma.organization.count();
     const beforeUserCount = await prisma.user.count();
 
-    await request(server())
-      .post('/api/v1/trial-signup/request-otp')
-      .send({ email })
-      .expect(204);
+    await requestOtpAndCapture(email);
 
     expect(await prisma.organization.count()).toBe(beforeOrgCount);
     expect(await prisma.user.count()).toBe(beforeUserCount);
