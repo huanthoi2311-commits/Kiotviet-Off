@@ -80,38 +80,47 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
 
   /** Chặn thẳng `Logger.warn()` (dùng bởi MailProcessor khi SMTP_HOST rỗng) qua `jest.spyOn`, KHÔNG
    * monkey-patch `process.stdout/stderr.write` — Jest tự thay thế `console.*` bằng cơ chế báo cáo
-   * riêng của nó (gộp theo từng test, in dưới nhãn "● Console"), nên `Logger.warn()` (thực chất gọi
-   * `console.warn` bên trong) KHÔNG BAO GIỜ thật sự chạm tới `process.stdout/stderr.write` ở tầng
-   * mà 1 lần chặn thủ công có thể quan sát được — xác nhận qua chính lần chạy CI đầu tiên (spy trên
-   * 2 stream không bắt được gì). Đây là ĐÚNG pattern đã có sẵn, đã được xác nhận hoạt động, trong
-   * `mail.processor.spec.ts` (`jest.spyOn(Logger.prototype, 'warn')`) — không mock implementation
-   * (để log vẫn thật sự in ra, hữu ích khi cần debug), chỉ ghi lại lời gọi. */
+   * riêng của nó, nên `Logger.warn()` (gọi `console.warn` bên trong) không chạm tới
+   * `process.stdout/stderr.write` ở tầng có thể quan sát thủ công được. Đây là ĐÚNG pattern đã có
+   * sẵn, đã xác nhận hoạt động, trong `mail.processor.spec.ts`.
+   *
+   * QUAN TRỌNG — `MailService.sendOtpEmail()` CHỈ enqueue job BullMQ rồi trả về NGAY (không chặn
+   * response API — comment gốc `mail.service.ts`), nên `MailProcessor.handle()` (nơi gọi
+   * `logger.warn`) chạy BẤT ĐỒNG BỘ, THƯỜNG SAU KHI response HTTP của `action()` đã hoàn tất. Chờ
+   * `action()` xong rồi POLL NGẮN cho tới khi spy thấy lời gọi khớp `otp=`, thay vì đọc ngay lập
+   * tức — xác nhận đúng bằng chính lần chạy CI đầu ([]: 0 lời gọi khi đọc ngay sau `action()`). */
   async function captureOtpFromConsole(
     action: () => Promise<void>,
   ): Promise<string> {
     const warnSpy = jest.spyOn(Logger.prototype, 'warn');
     try {
       await action();
+      let otpLog: string | undefined;
+      for (let attempt = 0; attempt < 30 && !otpLog; attempt += 1) {
+        otpLog = warnSpy.mock.calls
+          .map((args) => String(args[0]))
+          .find((message) => message.includes('otp='));
+        if (!otpLog) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+      }
+      if (!otpLog) {
+        throw new Error(
+          `Không tìm thấy OTP trong Logger.warn() sau khi chờ ~6s — các lời gọi: ${JSON.stringify(
+            warnSpy.mock.calls.map((args) => String(args[0])),
+          )}`,
+        );
+      }
+      const match = otpLog.match(/otp=(\d{6})/);
+      if (!match) {
+        throw new Error(
+          `Logger.warn() có OTP nhưng không khớp định dạng 6 chữ số: ${otpLog}`,
+        );
+      }
+      return match[1];
     } finally {
       warnSpy.mockRestore();
     }
-    const otpLog = warnSpy.mock.calls
-      .map((args) => String(args[0]))
-      .find((message) => message.includes('otp='));
-    if (!otpLog) {
-      throw new Error(
-        `Không tìm thấy OTP trong Logger.warn() — các lời gọi: ${JSON.stringify(
-          warnSpy.mock.calls.map((args) => String(args[0])),
-        )}`,
-      );
-    }
-    const match = otpLog.match(/otp=(\d{6})/);
-    if (!match) {
-      throw new Error(
-        `Logger.warn() có OTP nhưng không khớp định dạng 6 chữ số: ${otpLog}`,
-      );
-    }
-    return match[1];
   }
 
   async function signupOtpFlow(email: string): Promise<string> {
