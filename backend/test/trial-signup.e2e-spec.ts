@@ -216,9 +216,7 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     const email = uniqueEmail('case3');
     await requestOtpAndCapture(email);
 
-    const res = await request(server())
-      .post('/api/v1/trial-signup/verify-otp')
-      .send({ email, otp: '000000' });
+    const res = await postVerifyOtpWithRetry(email, '000000');
 
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('OTP_003');
@@ -231,9 +229,7 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     // server chỉ đọc lại từ Redis, không có cache nào khác.
     await redis.del(`signup:otp:${email.toLowerCase()}`);
 
-    const res = await request(server())
-      .post('/api/v1/trial-signup/verify-otp')
-      .send({ email, otp: '123456' });
+    const res = await postVerifyOtpWithRetry(email, '123456');
 
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('OTP_002');
@@ -249,19 +245,15 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     let lastStatus = 0;
     let lastCode = '';
     for (let i = 0; i < 6; i += 1) {
-      const res = await request(server())
-        .post('/api/v1/trial-signup/verify-otp')
-        .send({ email, otp: '000000' });
+      const res = await postVerifyOtpWithRetry(email, '000000');
       lastStatus = res.status;
-      lastCode = res.body.code;
+      lastCode = res.body.code ?? '';
     }
     expect(lastStatus).toBe(400);
     expect(lastCode).toBe('OTP_004');
 
     // OTP THẬT (đúng) cũng không còn dùng được — record đã bị xoá khi đạt ngưỡng.
-    const afterExhaustion = await request(server())
-      .post('/api/v1/trial-signup/verify-otp')
-      .send({ email, otp });
+    const afterExhaustion = await postVerifyOtpWithRetry(email, otp);
     expect(afterExhaustion.status).toBe(400);
     expect(afterExhaustion.body.code).toBe('OTP_002');
   });
@@ -278,14 +270,10 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     );
     expect(otpNew).not.toBe(otpOld);
 
-    const oldAttempt = await request(server())
-      .post('/api/v1/trial-signup/verify-otp')
-      .send({ email, otp: otpOld });
+    const oldAttempt = await postVerifyOtpWithRetry(email, otpOld);
     expect(oldAttempt.status).toBe(400);
 
-    const newAttempt = await request(server())
-      .post('/api/v1/trial-signup/verify-otp')
-      .send({ email, otp: otpNew });
+    const newAttempt = await postVerifyOtpWithRetry(email, otpNew);
     expect(newAttempt.status).toBe(200);
   });
 
