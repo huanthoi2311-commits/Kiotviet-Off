@@ -88,6 +88,7 @@ describe('ForgotPasswordService', () => {
       expect(mailService.sendOtpEmail).toHaveBeenCalledWith(
         email,
         expect.any(String),
+        'PASSWORD_RESET',
       );
       expect(otpRepository.startCooldown).toHaveBeenCalledWith(identifier);
     });

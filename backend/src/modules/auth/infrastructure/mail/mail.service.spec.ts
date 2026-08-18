@@ -24,7 +24,7 @@ describe('MailService — T030.9', () => {
 
   it('happy path — enqueue đúng tên job + đúng data (to/otp), Redis khả dụng bình thường', async () => {
     queue.add.mockResolvedValue(undefined as never);
-    await service.sendOtpEmail('user@example.com', '123456');
+    await service.sendOtpEmail('user@example.com', '123456', 'PASSWORD_RESET');
     expect(queue.add).toHaveBeenCalledWith(
       SEND_OTP_EMAIL_JOB,
       expect.objectContaining({ to: 'user@example.com', otp: '123456' }),
@@ -35,7 +35,7 @@ describe('MailService — T030.9', () => {
     const queueError = new Error('some bullmq error');
     queue.add.mockRejectedValue(queueError);
     await expect(
-      service.sendOtpEmail('user@example.com', '123456'),
+      service.sendOtpEmail('user@example.com', '123456', 'PASSWORD_RESET'),
     ).rejects.toBe(queueError);
   });
 
@@ -45,7 +45,11 @@ describe('MailService — T030.9', () => {
     // offline queue vô thời hạn khi maxRetriesPerRequest: null + Redis không khả dụng.
     queue.add.mockReturnValue(new Promise(() => {}) as never);
 
-    const promise = service.sendOtpEmail('user@example.com', '123456');
+    const promise = service.sendOtpEmail(
+      'user@example.com',
+      '123456',
+      'PASSWORD_RESET',
+    );
     const assertion = expect(promise).rejects.toThrow(
       /Redis\/BullMQ có thể đang không khả dụng/,
     );
@@ -63,7 +67,11 @@ describe('MailService — T030.9', () => {
         }) as never,
     );
 
-    const promise = service.sendOtpEmail('user@example.com', '123456');
+    const promise = service.sendOtpEmail(
+      'user@example.com',
+      '123456',
+      'PASSWORD_RESET',
+    );
     await jest.advanceTimersByTimeAsync(500);
     await expect(promise).resolves.toBeUndefined();
   });

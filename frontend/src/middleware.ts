@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 const REFRESH_COOKIE_NAME = 'refresh_token';
-const AUTH_ROUTE_PREFIXES = ['/login', '/forgot-password'];
+const AUTH_ROUTE_PREFIXES = ['/login', '/forgot-password', '/trial-signup'];
 const DEFAULT_AUTHENTICATED_ROUTE = '/dashboard';
 const DEFAULT_UNAUTHENTICATED_ROUTE = '/login';
 

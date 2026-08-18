@@ -87,6 +87,7 @@ describe('OrganizationService', () => {
   beforeEach(() => {
     organizationRepository = {
       createWithOwner: jest.fn(),
+      createWithOwnerInTransaction: jest.fn(),
       findById: jest.fn(),
       findBySlug: jest.fn(),
       search: jest.fn(),

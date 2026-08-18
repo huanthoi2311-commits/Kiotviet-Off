@@ -36,6 +36,7 @@ enum NodeEnv {
 export const PRODUCTION_SECRET_PLACEHOLDERS = {
   JWT_ACCESS_SECRET: 'change-me-access-secret',
   JWT_REFRESH_SECRET: 'change-me-refresh-secret',
+  SIGNUP_SECRET: 'change-me-signup-secret',
 } as const;
 
 class EnvironmentVariables {
@@ -145,6 +146,15 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   SMTP_FROM: string = 'no-reply@pos-erp.local';
+
+  // T053.04 — secret riêng cho vòng đời Trial Signup (OTP hash/signup proof token). `@IsOptional()`
+  // (KHÁC JWT_ACCESS_SECRET/JWT_REFRESH_SECRET — không đổi `skipMissingProperties: false` thành
+  // bắt buộc ở MỌI môi trường để tránh phá vỡ toàn bộ fixture hiện có của
+  // `env.validation.spec.ts`) — độ an toàn ở production được đảm bảo riêng bởi
+  // `assertProductionSignupSecretSet()` bên dưới, cùng ngưỡng MIN_JWT_SECRET_LENGTH.
+  @IsString()
+  @IsOptional()
+  SIGNUP_SECRET?: string;
 }
 
 /**
@@ -222,6 +232,34 @@ function assertProductionSecretsChanged(config: EnvironmentVariables): void {
 
   if (messages.length > 0) {
     throw new Error(messages.join('\n'));
+  }
+}
+
+/**
+ * T053.04 — cùng chính sách độ mạnh với JWT_ACCESS_SECRET/JWT_REFRESH_SECRET (placeholder bị
+ * chặn, tối thiểu MIN_JWT_SECRET_LENGTH ký tự) nhưng KHÔNG gộp vào `assertProductionSecretsChanged`
+ * — hàm đó có message-format đã được `env.validation.spec.ts` pin chính xác (test [1]/[1b]/...),
+ * thêm 1 biến thứ 3 vào sẽ buộc sửa lại hàng loạt test không liên quan. Hàm riêng, độc lập, KHÔNG
+ * chạy ngoài production — thiếu SIGNUP_SECRET ở dev/test vẫn hợp lệ (chỉ optional ở class trên).
+ */
+function assertProductionSignupSecretSet(config: EnvironmentVariables): void {
+  if (config.NODE_ENV !== NodeEnv.Production) {
+    return;
+  }
+  if (!config.SIGNUP_SECRET) {
+    throw new Error(
+      'Production startup refused because SIGNUP_SECRET is required (Trial Signup OTP/proof token signing)',
+    );
+  }
+  if (config.SIGNUP_SECRET === PRODUCTION_SECRET_PLACEHOLDERS.SIGNUP_SECRET) {
+    throw new Error(
+      'Production startup refused because default secrets are still in use: SIGNUP_SECRET',
+    );
+  }
+  if (config.SIGNUP_SECRET.length < MIN_JWT_SECRET_LENGTH) {
+    throw new Error(
+      `Production startup refused because unsafe SIGNUP_SECRET is in use: SIGNUP_SECRET (độ dài dưới mức tối thiểu ${MIN_JWT_SECRET_LENGTH} ký tự)`,
+    );
   }
 }
 
@@ -367,6 +405,7 @@ export function validateEnv(config: Record<string, unknown>) {
   assertProductionSecretsChanged(validatedConfig);
   assertProductionConfigSafe(validatedConfig);
   assertProductionRedisPasswordSet(validatedConfig);
+  assertProductionSignupSecretSet(validatedConfig);
   warnIfProductionSmtpIncomplete(validatedConfig);
 
   return validatedConfig;

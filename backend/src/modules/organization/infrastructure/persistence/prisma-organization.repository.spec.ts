@@ -346,6 +346,155 @@ describe('PrismaOrganizationRepository', () => {
     });
   });
 
+  describe('createWithOwnerInTransaction (T053.04 D8)', () => {
+    const input = {
+      code: 'ORG000001',
+      displayName: 'Acme',
+      slug: 'acme',
+      owner: {
+        username: 'owner',
+        fullName: 'Owner Name',
+        email: 'owner@acme.com',
+        passwordHash: 'hashed',
+      },
+    };
+
+    function makeClient() {
+      return {
+        organization: {
+          create: jest.fn().mockResolvedValue(rawOrg),
+          update: jest.fn().mockResolvedValue({}),
+        },
+        user: {
+          create: jest.fn().mockResolvedValue({ id: 'user-1' }),
+        },
+        role: { create: jest.fn().mockResolvedValue({ id: 'role-1' }) },
+        permission: {
+          findMany: jest.fn().mockResolvedValue([{ id: 'perm-1' }]),
+        },
+        rolePermission: { createMany: jest.fn().mockResolvedValue({}) },
+        userRole: { create: jest.fn().mockResolvedValue({}) },
+        organizationSettings: {
+          create: jest.fn().mockResolvedValue(rawSettings),
+        },
+        organizationSubscription: {
+          create: jest.fn().mockResolvedValue(rawSubscription),
+        },
+        auditLog: { create: jest.fn().mockResolvedValue({}) },
+      };
+    }
+
+    it('dùng ĐÚNG tx do caller truyền vào, KHÔNG tự mở $transaction riêng', async () => {
+      const client = makeClient();
+
+      await repository.createWithOwnerInTransaction(
+        client as unknown as Prisma.TransactionClient,
+        input,
+        null,
+        { ip: '127.0.0.1', userAgent: 'jest' },
+      );
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(client.organization.create).toHaveBeenCalled();
+    });
+
+    it('actorUserId=null → createdBy/AuditLog.userId đều null (không bịa actor, D10)', async () => {
+      const client = makeClient();
+
+      await repository.createWithOwnerInTransaction(
+        client as unknown as Prisma.TransactionClient,
+        input,
+        null,
+        { ip: '127.0.0.1', userAgent: 'jest' },
+      );
+
+      expect(client.organization.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ createdBy: null }),
+        }),
+      );
+      expect(client.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ createdBy: null }),
+        }),
+      );
+      expect(client.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ userId: null }),
+        }),
+      );
+    });
+
+    it('auditContext.action tùy chỉnh (vd "organization.trial_signup") ghi đè mặc định "organization.created"', async () => {
+      const client = makeClient();
+
+      await repository.createWithOwnerInTransaction(
+        client as unknown as Prisma.TransactionClient,
+        input,
+        null,
+        {
+          ip: null,
+          userAgent: null,
+          action: 'organization.trial_signup',
+          extraAuditMetadata: { provisionedVia: 'public_trial_signup' },
+        },
+      );
+
+      expect(client.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'organization.trial_signup',
+            newValue: expect.objectContaining({
+              provisionedVia: 'public_trial_signup',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('createWithOwner() (Platform Admin, actor thật) KHÔNG bị ảnh hưởng — vẫn action mặc định "organization.created", vẫn tự mở $transaction', async () => {
+      const client = makeClient();
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(client),
+      );
+
+      await repository.createWithOwner(input, 'admin-1', {
+        ip: '127.0.0.1',
+        userAgent: 'jest',
+      });
+
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(client.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'organization.created',
+            userId: 'admin-1',
+          }),
+        }),
+      );
+    });
+
+    it('P2002 slug conflict trong transaction ngoài (caller-managed) vẫn ném OrganizationSlugConflictError', async () => {
+      const client = makeClient();
+      client.organization.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('duplicate', {
+          code: 'P2002',
+          clientVersion: '6.19.3',
+          meta: { target: ['slug'] },
+        }),
+      );
+
+      await expect(
+        repository.createWithOwnerInTransaction(
+          client as unknown as Prisma.TransactionClient,
+          input,
+          null,
+          {},
+        ),
+      ).rejects.toThrow(OrganizationSlugConflictError);
+    });
+  });
+
   describe('findById', () => {
     it('trả về null khi không tìm thấy Organization', async () => {
       prisma.organization.findUnique.mockResolvedValue(null);

@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import { getRequestId } from '../../../../common/context/request-context';
 import {
   MAIL_QUEUE,
+  OtpEmailPurpose,
   SEND_OTP_EMAIL_JOB,
   SendOtpEmailJobData,
 } from './mail.constants';
@@ -41,7 +42,11 @@ export class MailService {
     private readonly mailQueue: Queue<SendOtpEmailJobData>,
   ) {}
 
-  async sendOtpEmail(to: string, otp: string): Promise<void> {
+  async sendOtpEmail(
+    to: string,
+    otp: string,
+    purpose: OtpEmailPurpose,
+  ): Promise<void> {
     let timer: NodeJS.Timeout;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(
@@ -55,6 +60,7 @@ export class MailService {
         this.mailQueue.add(SEND_OTP_EMAIL_JOB, {
           to,
           otp,
+          purpose,
           requestId: getRequestId(),
         }),
         timeout,

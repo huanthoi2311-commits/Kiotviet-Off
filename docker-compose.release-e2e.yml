@@ -1,0 +1,31 @@
+# T053.04 — DÙNG RIÊNG cho workflow Release E2E (.github/workflows/release-e2e.yml), KHÔNG merge
+# vào docker-compose.yml (vận hành thật) hay docker-compose.override.yml (dev cục bộ) — 2 file đó
+# giữ nguyên, không có khái niệm "mail catcher" nào trong luồng vận hành/dev thật.
+#
+# Trial Signup OTP (T053.04) gửi qua email thật (MailService/MailProcessor, cùng cơ chế OTP
+# forgot-password đã có) — ở production/dev, SMTP_HOST rỗng khiến OTP chỉ log ra console (redact ở
+# NODE_ENV=production, xem mail.processor.ts). Release E2E chạy NODE_ENV=production (T051.08 §16 —
+# chứng minh trên đúng gói triển khai thật), nên OTP SẼ bị redact trong log — Playwright test không
+# có cách nào đọc được OTP thật qua console. KHÔNG chấp nhận yếu hoá redaction production (test-only
+# bypass) chỉ để tiện test — thay vào đó, dùng 1 SMTP catcher thật (Mailpit) làm "email thật" mà
+# Playwright đọc lại qua HTTP API của chính nó, giống hệt người dùng thật mở hộp thư — luồng gửi
+# mail của backend hoàn toàn không đổi (SMTP_HOST trỏ vào Mailpit thay vì SMTP thật ngoài đời).
+services:
+  mailpit:
+    image: axllent/mailpit:v1.20
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8025/api/v1/info"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    environment:
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+    depends_on:
+      mailpit:
+        condition: service_healthy

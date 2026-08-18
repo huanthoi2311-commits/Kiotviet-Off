@@ -74,11 +74,13 @@ jobs:
           POSTGRES_PASSWORD="$(openssl rand -hex 24)"
           JWT_ACCESS_SECRET="$(openssl rand -hex 32)"
           JWT_REFRESH_SECRET="$(openssl rand -hex 32)"
+          SIGNUP_SECRET="$(openssl rand -hex 32)"
           FIRST_ADMIN_PASSWORD="$(openssl rand -hex 12)Aa1!"
 
           echo "::add-mask::${POSTGRES_PASSWORD}"
           echo "::add-mask::${JWT_ACCESS_SECRET}"
           echo "::add-mask::${JWT_REFRESH_SECRET}"
+          echo "::add-mask::${SIGNUP_SECRET}"
           echo "::add-mask::${FIRST_ADMIN_PASSWORD}"
 
           cat > .env <<EOF
@@ -100,6 +102,7 @@ jobs:
           JWT_ACCESS_EXPIRES_IN=15m
           JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
           JWT_REFRESH_EXPIRES_IN=30d
+          SIGNUP_SECRET=${SIGNUP_SECRET}
           SWAGGER_ENABLED=false
           METRICS_ENABLED=false
           FIRST_ADMIN_EMAIL=admin@pos-erp-ci.local

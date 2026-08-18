@@ -41,6 +41,9 @@ import { JwtAccessStrategy } from './presentation/strategies/jwt-access.strategy
     { provide: PASSWORD_HASHER, useClass: Argon2PasswordHasher },
     { provide: DEVICE_INFO_RESOLVER, useClass: DeviceInfoResolver },
   ],
-  exports: [AuthService, PASSWORD_HASHER],
+  // T053.04 — thêm MailService (trước chỉ AuthService, PASSWORD_HASHER) để TrialSignupModule tái
+  // dùng ĐÚNG hàng đợi `mail`/BullMQ hiện có (purpose-aware, xem mail.constants.ts) thay vì tự
+  // đăng ký queue riêng. Chỉ mở rộng export, không đổi hành vi consumer đã có.
+  exports: [AuthService, PASSWORD_HASHER, MailService],
 })
 export class AuthModule {}

@@ -2166,6 +2166,45 @@ model SupplierPaymentOperation {
   @@map("supplier_payment_operations")
 }
 
+// =========================================================================
+// TRIAL SIGNUP — IDEMPOTENCY / REPLAY (T053.04)
+// =========================================================================
+
+enum TrialSignupFinalizationStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+/// Ho tro Idempotency/Replay cho POST /trial-signup (T053.04) — cung nen tang voi
+/// CheckoutOperation/SupplierPaymentOperation (unique constraint + CAS reclaim) NHUNG khong co
+/// organizationId/actor xac thuc tai thoi diem reserve (luong CONG KHAI, chua co to chuc nao ca)
+/// — khoa duy nhat la hash cua chinh signup proof token (JWT ky rieng, chi cap sau khi OTP da
+/// xac thuc, khong doan duoc). requestFingerprint la BAT BIEN sau khi tao, cung nguyen tac voi
+/// SupplierPaymentOperation (T052.05A.1 §9) — 1 proof token luon dai dien cho DUNG 1 y dinh
+/// signup bat bien. Khong phai aggregate nghiep vu, chi la bang ho tro ky thuat — KHONG BAO GIO
+/// luu password/OTP/token tho (chi luu hash cua token).
+model TrialSignupFinalization {
+  id                 String                         @id @default(uuid()) @db.Uuid
+  proofTokenHash     String                         @unique
+  normalizedEmail    String
+  requestFingerprint String
+  status             TrialSignupFinalizationStatus  @default(PROCESSING)
+  /// NULL khi PROCESSING/FAILED — chi co gia tri sau khi chuyen COMPLETED.
+  organizationId     String?                        @db.Uuid
+  userId             String?                        @db.Uuid
+
+  createdAt   DateTime  @default(now())
+  /// Set khi chuyen sang COMPLETED hoac FAILED — NULL khi con PROCESSING.
+  completedAt DateTime?
+  /// Retention — danh cho Cleanup Job trong tuong lai (KHONG trien khai o T053.04, xem D18).
+  expiresAt   DateTime
+
+  @@index([status, createdAt])
+  @@index([expiresAt])
+  @@map("trial_signup_finalizations")
+}
+
 model CashBook {
   id             String       @id @default(uuid()) @db.Uuid
   organizationId String       @db.Uuid

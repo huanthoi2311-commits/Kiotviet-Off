@@ -58,6 +58,19 @@ export const ErrorCode = {
   OTP_COOLDOWN_ACTIVE: 'OTP_006',
   OTP_ACCOUNT_NOT_FOUND: 'OTP_007',
 
+  // Trial Signup (SIGNUP_xxx) — T053.04. Tái dùng OTP_xxx ở trên cho request/verify-otp (cùng ý
+  // nghĩa hệt forgot-password: invalid/expired, sai OTP, vượt số lần thử, đang cooldown, vượt rate
+  // limit) — chỉ thêm mã MỚI cho những tình huống KHÔNG có ở forgot-password (proof token, finalize).
+  SIGNUP_PROOF_INVALID: 'SIGNUP_001',
+  SIGNUP_PROOF_EXPIRED: 'SIGNUP_002',
+  // Ném khi 1 proof token ĐÃ dùng (COMPLETED) bị submit lại với intent (org/owner) KHÁC bản gốc —
+  // KHÔNG ném khi intent giống hệt (đó là replay hợp lệ, trả về nguyên kết quả thành công cũ).
+  SIGNUP_INTENT_MISMATCH: 'SIGNUP_003',
+  // Ném khi 1 proof token đang PROCESSING (1 request khác đang xử lý đồng thời) hoặc vừa thua race
+  // insert — client nên coi là tạm thời, không phải lỗi vĩnh viễn.
+  SIGNUP_FINALIZATION_CONFLICT: 'SIGNUP_004',
+  SIGNUP_PROVISIONING_FAILED: 'SIGNUP_005',
+
   // Product (PRODUCT_xxx)
   PRODUCT_NOT_FOUND: 'PRODUCT_001',
   PRODUCT_DUPLICATE: 'PRODUCT_002',

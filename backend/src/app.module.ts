@@ -14,6 +14,7 @@ import { InvoiceModule } from './modules/invoice/invoice.module';
 import { OrganizationModule } from './modules/organization/organization.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { SalesReturnModule } from './modules/sales-return/sales-return.module';
+import { TrialSignupModule } from './modules/trial-signup/trial-signup.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
@@ -96,6 +97,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     InvoiceModule,
     CheckoutModule,
     SalesReturnModule,
+    TrialSignupModule,
     MetricsModule,
   ],
   controllers: [AppController],

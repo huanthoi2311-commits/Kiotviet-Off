@@ -192,6 +192,28 @@ export class AuthService {
     await this.sessionRepository.revokeAllForUser(userId);
   }
 
+  /**
+   * T053.04 — public wrapper để TrialSignupService cấp phiên đăng nhập THẬT ngay sau khi
+   * provisioning Organization/Owner thành công, KHÔNG cần mật khẩu (danh tính đã được chứng minh
+   * qua OTP + signup proof, không phải qua `login()` — không tái dùng `login()` vì nó bắt buộc
+   * verify mật khẩu). Cùng lý do repository-boundary với `revokeAllSessionsForUser()` — module
+   * khác không được tự inject SESSION_REPOSITORY. Dùng cho CẢ nhánh tạo mới lẫn nhánh replay
+   * (D9) — replay luôn cấp 1 session MỚI, không cố khôi phục token của lần gọi trước.
+   */
+  async issueSessionForNewUser(
+    userId: string,
+    device: DeviceContext,
+  ): Promise<IssuedSession> {
+    const user = await this.userRepository.findById(userId);
+    if (!user || user.status !== 'ACTIVE') {
+      throw new UnauthorizedException(
+        withCode(ErrorCode.AUTH_ACCOUNT_NOT_ACTIVE, 'Tài khoản không khả dụng'),
+      );
+    }
+    await this.userRepository.updateLastLoginAt(user.id);
+    return this.issueSession(user, device);
+  }
+
   async listSessions(userId: string): Promise<SessionEntity[]> {
     return this.sessionRepository.listActiveForUser(userId);
   }

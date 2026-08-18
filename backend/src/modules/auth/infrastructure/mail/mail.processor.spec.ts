@@ -33,7 +33,13 @@ describe('MailProcessor — T030.9', () => {
   it('SMTP chưa cấu hình (SMTP_HOST rỗng) — log OTP thay vì gửi thật, KHÔNG throw (hành vi hiện có, không đổi)', async () => {
     const processor = new MailProcessor(makeConfig({ 'mail.from': 'a@b.com' }));
     await expect(
-      processor.process(makeJob({ to: 'user@example.com', otp: '123456' })),
+      processor.process(
+        makeJob({
+          to: 'user@example.com',
+          otp: '123456',
+          purpose: 'PASSWORD_RESET',
+        }),
+      ),
     ).resolves.toBeUndefined();
     expect(sendMailMock).not.toHaveBeenCalled();
   });
@@ -47,7 +53,13 @@ describe('MailProcessor — T030.9', () => {
         'mail.from': 'noreply@pos-erp.local',
       }),
     );
-    await processor.process(makeJob({ to: 'user@example.com', otp: '654321' }));
+    await processor.process(
+      makeJob({
+        to: 'user@example.com',
+        otp: '654321',
+        purpose: 'PASSWORD_RESET',
+      }),
+    );
     expect(sendMailMock).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'user@example.com',
@@ -68,7 +80,13 @@ describe('MailProcessor — T030.9', () => {
       }),
     );
     await expect(
-      processor.process(makeJob({ to: 'user@example.com', otp: '111111' })),
+      processor.process(
+        makeJob({
+          to: 'user@example.com',
+          otp: '111111',
+          purpose: 'PASSWORD_RESET',
+        }),
+      ),
     ).rejects.toBe(smtpError);
   });
 });
@@ -97,7 +115,13 @@ describe('MailProcessor — T030.11 (OTP logging redaction)', () => {
     const processor = new MailProcessor(
       makeConfig({ env: 'production', 'mail.from': 'a@b.com' }),
     );
-    await processor.process(makeJob({ to: 'user@example.com', otp: '999999' }));
+    await processor.process(
+      makeJob({
+        to: 'user@example.com',
+        otp: '999999',
+        purpose: 'PASSWORD_RESET',
+      }),
+    );
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const logged = warnSpy.mock.calls[0][0] as string;
@@ -111,7 +135,13 @@ describe('MailProcessor — T030.11 (OTP logging redaction)', () => {
     const processor = new MailProcessor(
       makeConfig({ env: 'development', 'mail.from': 'a@b.com' }),
     );
-    await processor.process(makeJob({ to: 'user@example.com', otp: '888888' }));
+    await processor.process(
+      makeJob({
+        to: 'user@example.com',
+        otp: '888888',
+        purpose: 'PASSWORD_RESET',
+      }),
+    );
 
     const logged = warnSpy.mock.calls[0][0] as string;
     expect(logged).toContain('888888');
@@ -119,7 +149,13 @@ describe('MailProcessor — T030.11 (OTP logging redaction)', () => {
 
   it('env không set (mặc định coi như không phải production) → log VẪN chứa OTP thật', async () => {
     const processor = new MailProcessor(makeConfig({ 'mail.from': 'a@b.com' }));
-    await processor.process(makeJob({ to: 'user@example.com', otp: '777777' }));
+    await processor.process(
+      makeJob({
+        to: 'user@example.com',
+        otp: '777777',
+        purpose: 'PASSWORD_RESET',
+      }),
+    );
 
     const logged = warnSpy.mock.calls[0][0] as string;
     expect(logged).toContain('777777');
@@ -135,7 +171,13 @@ describe('MailProcessor — T030.11 (OTP logging redaction)', () => {
         'mail.from': 'noreply@pos-erp.local',
       }),
     );
-    await processor.process(makeJob({ to: 'user@example.com', otp: '555555' }));
+    await processor.process(
+      makeJob({
+        to: 'user@example.com',
+        otp: '555555',
+        purpose: 'PASSWORD_RESET',
+      }),
+    );
 
     expect(warnSpy).not.toHaveBeenCalled();
     expect(sendMailMock).toHaveBeenCalled();
