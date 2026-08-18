@@ -9,6 +9,7 @@ import { App } from 'supertest/types';
 import { createE2eApp } from './helpers/create-e2e-app';
 import { AppModule } from '../src/app.module';
 import { REDIS_CLIENT } from '../src/redis/redis.constants';
+import { PERMISSION_CATALOG } from '../src/modules/rbac/infrastructure/permission-catalog';
 
 /**
  * Integration Test — T053.04 Self-Service Trial Signup + Email/OTP (real Postgres + Redis, CASE
@@ -23,10 +24,10 @@ import { REDIS_CLIENT } from '../src/redis/redis.constants';
  * chế 1 cơ chế inject-lỗi giả — báo cáo trung thực thay vì dựng 1 kịch bản giả tạo.
  */
 // Nhiều test case cùng chia sẻ 1 ngân sách throttle IP (`@Throttle(10/60s)` trên
-// `POST /trial-signup/request-otp`) — `postRequestOtpWithRetry()` có thể backoff tới ~52s (4 lần
-// retry x 13s) trước khi thành công thật hoặc thất bại dứt khoát; Jest timeout mặc định (5s) sẽ
-// giết test giữa chừng nếu không nới ra. Chỉ ảnh hưởng file này (KHÔNG phải global jest config).
-jest.setTimeout(180_000);
+// request-otp/verify-otp) — `postWithThrottleRetry()` có thể backoff tới ~120s (8 lần retry x
+// 15s) trước khi thành công thật hoặc thất bại dứt khoát; Jest timeout mặc định (5s) sẽ giết test
+// giữa chừng nếu không nới ra. Chỉ ảnh hưởng file này (KHÔNG phải global jest config).
+jest.setTimeout(240_000);
 
 describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
   let app: INestApplication<App>;
@@ -38,39 +39,56 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@trial-e2e.local`;
   }
 
-  const REQUEST_OTP_THROTTLE_MAX_ATTEMPTS = 5;
-  const REQUEST_OTP_THROTTLE_BACKOFF_MS = 15_000;
+  // 8x15s (tối đa 120s chờ) — CASE 29 (test cuối file) từng vẫn 429 sau 5x15s=75s: file này có
+  // ~20 lời gọi request-otp/verify-otp cộng dồn cho tới đó, tổng lưu lượng CẢ FILE vượt ngân sách
+  // 10/60s bền vững trong khoảng thời gian đó (không chỉ 1 đợt burst ngắn) — nới thêm dư địa chờ
+  // thay vì giảm mạnh số ca kiểm thử.
+  const THROTTLE_MAX_ATTEMPTS = 8;
+  const THROTTLE_BACKOFF_MS = 15_000;
 
-  /** Gọi API request-otp thật; retry-với-backoff CHỈ cho 429 (throttle IP thật `@Throttle(10/60s)`
-   * trên route — nhiều test case trong file này cùng chia sẻ 1 IP runner CI, cùng ngân sách, đúng
-   * pattern đã dùng ở Release E2E T053.03 RC1 `apiLoginWithRetry`) — KHÔNG né tránh/vô hiệu hóa
-   * throttle thật, chỉ xử lý như 1 client thật cần tôn trọng rate-limit. Trả nguyên response (status
-   * KHÔNG bị assert ở đây) để caller tự quyết định — vd CASE 2 cần so sánh 2 response nguyên vẹn. */
-  async function postRequestOtpWithRetry(
-    email: string,
-  ): Promise<{ status: number; body: unknown }> {
-    for (
-      let attempt = 1;
-      attempt <= REQUEST_OTP_THROTTLE_MAX_ATTEMPTS;
-      attempt += 1
-    ) {
-      const res = await request(server())
-        .post('/api/v1/trial-signup/request-otp')
-        .send({ email });
+  /** Retry-với-backoff CHỈ cho 429 (throttle IP thật `@Throttle(10/60s)` — CẢ request-otp LẪN
+   * verify-otp có route riêng nhưng CÙNG chia sẻ 1 ngân sách IP runner CI, đúng pattern đã dùng ở
+   * Release E2E T053.03 RC1 `apiLoginWithRetry`) — KHÔNG né tránh/vô hiệu hóa throttle thật, chỉ xử
+   * lý như 1 client thật cần tôn trọng rate-limit. Trả nguyên response (status KHÔNG bị assert ở
+   * đây) để caller tự quyết định — vd CASE 2 cần so sánh 2 response nguyên vẹn, CASE 7 cần phân
+   * biệt 200 (thắng) / 400 (thua, NOT_FOUND thật) mà KHÔNG lẫn với 429 (throttle, không phải kết
+   * quả nghiệp vụ). */
+  async function postWithThrottleRetry(
+    path: string,
+    body: Record<string, string>,
+  ): Promise<{ status: number; body: { code?: string; data?: unknown } }> {
+    for (let attempt = 1; attempt <= THROTTLE_MAX_ATTEMPTS; attempt += 1) {
+      const res = await request(server()).post(path).send(body);
       if (res.status === 429) {
-        if (attempt === REQUEST_OTP_THROTTLE_MAX_ATTEMPTS) {
+        if (attempt === THROTTLE_MAX_ATTEMPTS) {
           throw new Error(
-            `[postRequestOtpWithRetry] /trial-signup/request-otp vẫn bị throttle (429) sau ${REQUEST_OTP_THROTTLE_MAX_ATTEMPTS} lần retry`,
+            `[postWithThrottleRetry] ${path} vẫn bị throttle (429) sau ${THROTTLE_MAX_ATTEMPTS} lần retry`,
           );
         }
         await new Promise((resolve) =>
-          setTimeout(resolve, REQUEST_OTP_THROTTLE_BACKOFF_MS),
+          setTimeout(resolve, THROTTLE_BACKOFF_MS),
         );
         continue;
       }
       return { status: res.status, body: res.body };
     }
-    throw new Error('[postRequestOtpWithRetry] unreachable');
+    throw new Error('[postWithThrottleRetry] unreachable');
+  }
+
+  async function postRequestOtpWithRetry(
+    email: string,
+  ): Promise<{ status: number; body: unknown }> {
+    return postWithThrottleRetry('/api/v1/trial-signup/request-otp', { email });
+  }
+
+  async function postVerifyOtpWithRetry(
+    email: string,
+    otp: string,
+  ): Promise<{ status: number; body: { code?: string; data?: unknown } }> {
+    return postWithThrottleRetry('/api/v1/trial-signup/verify-otp', {
+      email,
+      otp,
+    });
   }
 
   async function requestOtpAndCapture(email: string): Promise<void> {
@@ -125,16 +143,29 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
 
   async function signupOtpFlow(email: string): Promise<string> {
     const otp = await captureOtpFromConsole(() => requestOtpAndCapture(email));
-    const verifyRes = await request(server())
-      .post('/api/v1/trial-signup/verify-otp')
-      .send({ email, otp })
-      .expect(200);
-    return verifyRes.body.data.signupProofToken as string;
+    const verifyRes = await postVerifyOtpWithRetry(email, otp);
+    expect(verifyRes.status).toBe(200);
+    return (verifyRes.body.data as { signupProofToken: string })
+      .signupProofToken;
   }
 
   beforeAll(async () => {
     prisma = new PrismaClient();
     await prisma.$connect();
+
+    // `writeOrganizationWithOwner()` (dùng chung bởi Platform Admin path và Trial Signup) grant
+    // quyền Owner bằng cách đọc lại bảng `Permission` (`tx.permission.findMany(...)`) — bảng này
+    // KHÔNG có sẵn qua migration, phải upsert từ `PERMISSION_CATALOG` giống hệt cách
+    // `entitlement.e2e-spec.ts` đã làm cho file của nó. KHÔNG seed ở đây → CASE 16 (RBAC đủ quyền)
+    // phụ thuộc thứ tự chạy file test khác đã seed trước hay chưa — rủi ro thật, không phải giả
+    // định (xác nhận qua CI: `grantedPermissionCount` = 0 khi thiếu bước này).
+    for (const permission of PERMISSION_CATALOG) {
+      await prisma.permission.upsert({
+        where: { code: permission.code },
+        create: permission,
+        update: {},
+      });
+    }
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -208,13 +239,16 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     expect(res.body.code).toBe('OTP_002');
   });
 
-  it('CASE 5: brute-force exhaustion — 5 lần sai liên tiếp → OTP_MAX_ATTEMPTS_EXCEEDED, mã đúng KHÔNG còn dùng được nữa', async () => {
+  it('CASE 5: brute-force exhaustion — 5 lần sai được PHÉP (OTP_INCORRECT), lần thứ 6 mới OTP_MAX_ATTEMPTS_EXCEEDED, mã đúng KHÔNG còn dùng được nữa', async () => {
     const email = uniqueEmail('case5');
     const otp = await captureOtpFromConsole(() => requestOtpAndCapture(email));
 
+    // Cùng ngưỡng kiểm tra "attempts >= maxAttempts" (TRƯỚC khi tăng) với forgot-password gốc —
+    // "tối đa 5 lần thử" nghĩa là 5 LẦN SAI được phép (attempts 1..5, đều OTP_INCORRECT); lần gọi
+    // thứ 6 mới thực sự bị chặn MAX_ATTEMPTS_EXCEEDED.
     let lastStatus = 0;
     let lastCode = '';
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 6; i += 1) {
       const res = await request(server())
         .post('/api/v1/trial-signup/verify-otp')
         .send({ email, otp: '000000' });
@@ -264,15 +298,11 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     const otp = await captureOtpFromConsole(() => requestOtpAndCapture(email));
 
     const [resA, resB] = await Promise.all([
-      request(server())
-        .post('/api/v1/trial-signup/verify-otp')
-        .send({ email, otp }),
-      request(server())
-        .post('/api/v1/trial-signup/verify-otp')
-        .send({ email, otp }),
+      postVerifyOtpWithRetry(email, otp),
+      postVerifyOtpWithRetry(email, otp),
     ]);
 
-    const statuses = [resA.status, resB.status].sort();
+    const statuses = [resA.status, resB.status].sort((a, b) => a - b);
     expect(statuses).toEqual([200, 400]);
     const loser = resA.status === 400 ? resA : resB;
     expect(loser.body.code).toBe('OTP_002'); // NOT_FOUND — record đã bị xoá bởi request thắng
@@ -442,8 +472,14 @@ describe('Trial Signup (e2e, integration) — T053.04 CASE 1-32', () => {
     expect(res1.body.data.userInfo.organizationId).toBe(
       res2.body.data.userInfo.organizationId,
     );
-    // Access token MỚI ở mỗi lần replay (session mới, không phải token cũ tái sử dụng).
-    expect(res1.body.data.accessToken).not.toBe(res2.body.data.accessToken);
+    // Session MỚI thật sự ở mỗi lần replay — kiểm tra qua chính DB (2 row Session riêng biệt cho
+    // owner), KHÔNG so sánh 2 giá trị accessToken JWT trực tiếp: 2 lần ký JWT xảy ra trong CÙNG 1
+    // giây wall-clock (iat cùng giá trị) có thể ra CÙNG chuỗi byte hệt nhau dù vẫn là 2 phiên hợp
+    // lệ độc lập — không phải lỗi bảo mật, chỉ là chi tiết triển khai JWT không nên assert trực tiếp.
+    const sessionCount = await prisma.session.count({
+      where: { userId: res1.body.data.userInfo.id },
+    });
+    expect(sessionCount).toBeGreaterThanOrEqual(2);
 
     const orgCount = await prisma.organization.count({
       where: { displayName },
