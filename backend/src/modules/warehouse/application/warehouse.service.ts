@@ -7,6 +7,9 @@ import {
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
+import { BranchService } from '../../branch/application/branch.service';
+import { USER_REPOSITORY } from '../../user/domain/repositories/user.repository.interface';
+import type { IUserRepository } from '../../user/domain/repositories/user.repository.interface';
 import { WarehouseEntity } from '../domain/entities/warehouse.entity';
 import { WAREHOUSE_REPOSITORY } from '../domain/repositories/warehouse.repository.interface';
 import type {
@@ -35,12 +38,30 @@ export class WarehouseService {
     @Inject(WAREHOUSE_REPOSITORY)
     private readonly warehouseRepository: IWarehouseRepository,
     private readonly auditLogService: AuditLogService,
+    private readonly branchService: BranchService,
+    @Inject(USER_REPOSITORY)
+    private readonly userRepository: IUserRepository,
   ) {}
 
   async create(
     dto: CreateWarehouseDto,
     actor: ActorContext,
   ): Promise<WarehouseResponseDto> {
+    // T053.05A — branchId/managerId là foreign id tenant-owned (Branch/User) — FK Prisma chỉ đảm
+    // bảo hàng tồn tại, KHÔNG đảm bảo đúng tổ chức. Bắt buộc xác minh qua đúng port công khai đã
+    // duyệt (BranchService.getById / USER_REPOSITORY.findById) TRƯỚC khi ghi Warehouse, cùng
+    // pattern UserService.create đã dùng cho branchId (T051.06A).
+    await this.branchService.getById(dto.branchId, {
+      userId: actor.userId,
+      organizationId: actor.organizationId,
+    });
+    if (dto.managerId) {
+      await this.assertManagerInOrganization(
+        dto.managerId,
+        actor.organizationId,
+      );
+    }
+
     const created = await this.warehouseRepository.create({
       organizationId: actor.organizationId,
       ...dto,
@@ -109,6 +130,22 @@ export class WarehouseService {
       actor.organizationId,
     );
     if (!existing) throw this.notFound();
+
+    // T053.05A — branchId: chỉ xác minh khi CÓ mặt trong request (undefined = không đổi).
+    // managerId: tri-state — undefined = giữ nguyên, null = xoá (KHÔNG cần tra User), string = xác
+    // minh thuộc actor.organizationId trước khi ghi. KHÔNG được gộp undefined/null làm một.
+    if (dto.branchId !== undefined) {
+      await this.branchService.getById(dto.branchId, {
+        userId: actor.userId,
+        organizationId: actor.organizationId,
+      });
+    }
+    if (dto.managerId !== undefined && dto.managerId !== null) {
+      await this.assertManagerInOrganization(
+        dto.managerId,
+        actor.organizationId,
+      );
+    }
 
     const updated = await this.warehouseRepository.update(id, {
       ...dto,
@@ -205,6 +242,24 @@ export class WarehouseService {
     return new NotFoundException(
       withCode(ErrorCode.WAREHOUSE_NOT_FOUND, 'Không tìm thấy kho'),
     );
+  }
+
+  /** T053.05A — `IUserRepository.findById` đã non-disclosing sẵn (cross-tenant hoặc không tồn tại
+   * đều trả `null` như nhau — xem doc-comment interface), nên cross-tenant managerId và managerId
+   * không tồn tại luôn ra CÙNG 1 USER_001, không có tín hiệu phân biệt nào rò rỉ ra ngoài. */
+  private async assertManagerInOrganization(
+    managerId: string,
+    organizationId: string,
+  ): Promise<void> {
+    const manager = await this.userRepository.findById(
+      managerId,
+      organizationId,
+    );
+    if (!manager) {
+      throw new NotFoundException(
+        withCode(ErrorCode.USER_NOT_FOUND, 'Không tìm thấy người dùng'),
+      );
+    }
   }
 
   private toAuditSnapshot(warehouse: WarehouseEntity): Record<string, unknown> {

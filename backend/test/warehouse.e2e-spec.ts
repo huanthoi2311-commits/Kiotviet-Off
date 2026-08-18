@@ -201,8 +201,8 @@ describe('Warehouse Module (e2e, integration)', () => {
       .expect(409);
   });
 
-  it('BRANCH-NOT-FOUND: từ chối tạo kho với branchId không tồn tại', async () => {
-    await request(app.getHttpServer())
+  it('BRANCH-NOT-FOUND: từ chối tạo kho với branchId không tồn tại (T053.05A — 404 BRANCH_001, xác minh TRƯỚC khi ghi, không còn dựa vào FK Prisma)', async () => {
+    const res = await request(app.getHttpServer())
       .post('/api/v1/warehouses')
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
@@ -210,7 +210,8 @@ describe('Warehouse Module (e2e, integration)', () => {
         code: `NOBRANCH-${Date.now()}`,
         name: 'Kho không có chi nhánh',
       })
-      .expect(400);
+      .expect(404);
+    expect(res.body.code).toBe('BRANCH_001');
   });
 
   it('BLOCK-DELETE: từ chối xóa kho đang có tồn kho', async () => {
@@ -269,5 +270,224 @@ describe('Warehouse Module (e2e, integration)', () => {
       .get(`/api/v1/warehouses/${id}`)
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
+  });
+
+  describe('T053.05A — branchId/managerId tenant-isolation (Org A vs Org B, real Postgres)', () => {
+    let orgBId: string;
+    let orgBBranchId: string;
+    let orgBUserId: string;
+
+    beforeAll(async () => {
+      const orgB = await prisma.organization.upsert({
+        where: { slug: 'warehouse-e2e-org-b' },
+        create: {
+          code: 'WAREHOUSE-E2E-ORG-B',
+          displayName: 'Warehouse E2E Org B',
+          slug: 'warehouse-e2e-org-b',
+        },
+        update: {},
+      });
+      orgBId = orgB.id;
+
+      const branchB = await prisma.branch.upsert({
+        where: {
+          organizationId_code: { organizationId: orgBId, code: 'E2E-BRANCH-B' },
+        },
+        create: {
+          organizationId: orgBId,
+          code: 'E2E-BRANCH-B',
+          name: 'Chi nhánh E2E Org B',
+        },
+        update: {},
+      });
+      orgBBranchId = branchB.id;
+
+      const passwordHashB = await argon2.hash('E2ePass@123', {
+        type: argon2.argon2id,
+      });
+      const userB = await prisma.user.upsert({
+        where: {
+          organizationId_email: {
+            organizationId: orgBId,
+            email: 'warehouse-e2e-org-b@pos-erp.local',
+          },
+        },
+        create: {
+          organizationId: orgBId,
+          username: 'warehouse-e2e-org-b',
+          email: 'warehouse-e2e-org-b@pos-erp.local',
+          passwordHash: passwordHashB,
+        },
+        update: {},
+      });
+      orgBUserId = userB.id;
+    });
+
+    it('E1: Org A + Branch A + User A (manager) → tạo kho thành công', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/warehouses')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          branchId,
+          code: `E1-${Date.now()}`,
+          name: 'Kho E1',
+        })
+        .expect(201);
+      expect(res.body.data.branchId).toBe(branchId);
+    });
+
+    it('E2: Org A actor + Branch B (org khác) → 404 BRANCH_001, KHÔNG có Warehouse nào mang quan hệ bất khả thi được tạo', async () => {
+      const code = `E2-${Date.now()}`;
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/warehouses')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ branchId: orgBBranchId, code, name: 'Kho E2 (tấn công)' })
+        .expect(404);
+      expect(res.body.code).toBe('BRANCH_001');
+
+      const impossible = await prisma.warehouse.findFirst({
+        where: { organizationId, branchId: orgBBranchId },
+      });
+      expect(impossible).toBeNull();
+      const byCode = await prisma.warehouse.findFirst({ where: { code } });
+      expect(byCode).toBeNull();
+    });
+
+    it('E3: Org A actor + User B (org khác) làm manager → 404 USER_001, KHÔNG có Warehouse nào mang quan hệ bất khả thi được tạo', async () => {
+      const code = `E3-${Date.now()}`;
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/warehouses')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          branchId,
+          managerId: orgBUserId,
+          code,
+          name: 'Kho E3 (tấn công)',
+        })
+        .expect(404);
+      expect(res.body.code).toBe('USER_001');
+
+      const impossible = await prisma.warehouse.findFirst({
+        where: { organizationId, managerId: orgBUserId },
+      });
+      expect(impossible).toBeNull();
+      const byCode = await prisma.warehouse.findFirst({ where: { code } });
+      expect(byCode).toBeNull();
+    });
+
+    it('E4: branchId không tồn tại → CÙNG 404 BRANCH_001 như E2 (non-disclosing)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/warehouses')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          branchId: '00000000-0000-4000-8000-000000000001',
+          code: `E4-${Date.now()}`,
+          name: 'Kho E4',
+        })
+        .expect(404);
+      expect(res.body.code).toBe('BRANCH_001');
+    });
+
+    it('E5: managerId không tồn tại → CÙNG 404 USER_001 như E3 (non-disclosing)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/warehouses')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          branchId,
+          managerId: '00000000-0000-4000-8000-000000000002',
+          code: `E5-${Date.now()}`,
+          name: 'Kho E5',
+        })
+        .expect(404);
+      expect(res.body.code).toBe('USER_001');
+    });
+
+    it('E6: Warehouse hiện có của Org A KHÔNG thể bị UPDATE branchId sang Branch B', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/warehouses')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ branchId, code: `E6-${Date.now()}`, name: 'Kho E6' })
+        .expect(201);
+      const id = created.body.data.id;
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/warehouses/${id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ branchId: orgBBranchId })
+        .expect(404);
+      expect(res.body.code).toBe('BRANCH_001');
+
+      const stillOrgABranch = await prisma.warehouse.findUnique({
+        where: { id },
+      });
+      expect(stillOrgABranch?.branchId).toBe(branchId);
+    });
+
+    it('E7: Warehouse hiện có của Org A KHÔNG thể bị UPDATE managerId sang User B', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/warehouses')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ branchId, code: `E7-${Date.now()}`, name: 'Kho E7' })
+        .expect(201);
+      const id = created.body.data.id;
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/warehouses/${id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ managerId: orgBUserId })
+        .expect(404);
+      expect(res.body.code).toBe('USER_001');
+
+      const stillNoManager = await prisma.warehouse.findUnique({
+        where: { id },
+      });
+      expect(stillNoManager?.managerId).toBeNull();
+    });
+
+    it('E8: managerId = null xoá manager hợp lệ (không cần tra User)', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/v1/warehouses')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          branchId,
+          managerId: undefined,
+          code: `E8-${Date.now()}`,
+          name: 'Kho E8',
+        })
+        .expect(201);
+      const id = created.body.data.id;
+
+      // Gán manager hợp lệ (cùng tổ chức) trước, rồi xoá bằng null.
+      await prisma.warehouse.update({
+        where: { id },
+        data: { managerId: null },
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/warehouses/${id}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ managerId: null })
+        .expect(200);
+      expect(res.body.data.managerId).toBeNull();
+    });
+
+    it('E9: sau toàn bộ tấn công bị từ chối, trạng thái Org B (Branch/User/Warehouse) không đổi', async () => {
+      const branchBAfter = await prisma.branch.findUnique({
+        where: { id: orgBBranchId },
+      });
+      expect(branchBAfter).not.toBeNull();
+      expect(branchBAfter?.organizationId).toBe(orgBId);
+
+      const userBAfter = await prisma.user.findUnique({
+        where: { id: orgBUserId },
+      });
+      expect(userBAfter).not.toBeNull();
+      expect(userBAfter?.organizationId).toBe(orgBId);
+
+      const orgBWarehouseCount = await prisma.warehouse.count({
+        where: { organizationId: orgBId },
+      });
+      expect(orgBWarehouseCount).toBe(0);
+    });
   });
 });
