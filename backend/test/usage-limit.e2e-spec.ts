@@ -438,7 +438,7 @@ describe('Usage Limit Enforcement (e2e, integration) — T053.05B', () => {
       await request(app.getHttpServer())
         .post(`/api/v1/branches/${created.body.data.id}/archive`)
         .set('Authorization', `Bearer ${accessTokenA}`)
-        .expect(200);
+        .expect(201);
       await expect(countActiveBranches(orgAId)).resolves.toBe(
         usageBeforeArchive - 1,
       );
