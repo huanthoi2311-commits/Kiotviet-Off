@@ -6,6 +6,7 @@ import { SUPPLIER_REPOSITORY } from '../domain/repositories/supplier.repository.
 import type { ISupplierRepository } from '../domain/repositories/supplier.repository.interface';
 import { SUPPLIER_PRODUCT_REPOSITORY } from '../domain/repositories/supplier-product.repository.interface';
 import type { ISupplierProductRepository } from '../domain/repositories/supplier-product.repository.interface';
+import { ProductDomainService } from '../../product/application/product-domain.service';
 import { ActorContext } from './supplier.service';
 import { SupplierProductResponseDto } from './dto/supplier-product-response.dto';
 import { UpsertSupplierProductDto } from './dto/upsert-supplier-product.dto';
@@ -18,6 +19,7 @@ export class SupplierProductService {
     private readonly supplierProductRepository: ISupplierProductRepository,
     @Inject(SUPPLIER_REPOSITORY)
     private readonly supplierRepository: ISupplierRepository,
+    private readonly productDomainService: ProductDomainService,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -41,6 +43,7 @@ export class SupplierProductService {
     actor: ActorContext,
   ): Promise<SupplierProductResponseDto> {
     await this.assertSupplierExists(supplierId, actor.organizationId);
+    await this.assertProductExists(dto.productId, actor.organizationId);
 
     const mapping = await this.supplierProductRepository.upsert({
       supplierId,
@@ -121,6 +124,26 @@ export class SupplierProductService {
     if (!supplier) {
       throw new NotFoundException(
         withCode(ErrorCode.SUPPLIER_NOT_FOUND, 'Không tìm thấy nhà cung cấp'),
+      );
+    }
+  }
+
+  /** T053.05C-1 — `productId` là foreign id tenant-owned (Product), FK Prisma chỉ đảm bảo hàng
+   * tồn tại, KHÔNG đảm bảo đúng tổ chức. Xác minh qua `ProductDomainService.findById(id,
+   * organizationId)` (cửa ngõ đọc công khai đã duyệt, ADR-0010) TRƯỚC khi ghi mapping — cùng
+   * pattern `assertSupplierExists` ở trên, đối xứng cho vế còn lại của DTO.
+   */
+  private async assertProductExists(
+    productId: string,
+    organizationId: string,
+  ): Promise<void> {
+    const product = await this.productDomainService.findById(
+      productId,
+      organizationId,
+    );
+    if (!product) {
+      throw new NotFoundException(
+        withCode(ErrorCode.PRODUCT_NOT_FOUND, 'Không tìm thấy sản phẩm'),
       );
     }
   }
