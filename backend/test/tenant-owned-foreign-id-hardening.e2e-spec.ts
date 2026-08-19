@@ -160,10 +160,12 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
     });
     orgAId = orgA.id;
     // T053.05B - to chuc test fixture nay tao truc tiep, khong tu dong co OrganizationSubscription.
+    // T053.05C-1 (Gate F) - plan TRIAL (khong phai FREE mac dinh) vi POST /suppliers gan
+    // @RequireEntitlement('SUPPLIER'), FREE khong co feature nay (T053.03 PLAN_ENTITLEMENTS).
     await prisma.organizationSubscription.upsert({
       where: { organizationId: orgAId },
-      create: { organizationId: orgAId },
-      update: {},
+      create: { organizationId: orgAId, plan: 'TRIAL' },
+      update: { plan: 'TRIAL' },
     });
 
     const orgB = await prisma.organization.upsert({
@@ -885,7 +887,7 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
               invoiceItemId: orgAInvoiceItemId,
               quantity: 1,
               reason: 'DAMAGED',
-              warehouseId: '11111111-1111-1111-1111-111111111111',
+              warehouseId: '00000000-0000-0000-0000-000000000000',
             },
           ],
         })
@@ -917,7 +919,7 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
       expect(res.body.data.status).toBe('DRAFT');
     });
 
-    it('E8. Sau toàn bộ tấn công bị từ chối ở Gate E — Org B vẫn thao tác Inventory bình thường qua đúng production code path (recordMovement), không bị ảnh hưởng bởi các lần thử của Org A', async () => {
+    it('E8. Sau toàn bộ tấn công bị từ chối ở Gate E — Org B vẫn thao tác Inventory bình thường qua đúng production code path (recordMovement, bao gồm cùng nhánh defense-in-depth vừa thêm ở T053.05C-1 với organizationId khớp), không bị ảnh hưởng bởi các lần thử của Org A. Ghi +5 rồi -5 để không phá bất biến ORG_B_KNOWN_QUANTITY mà các assertion khác trong file dựa vào.', async () => {
       const before = await prisma.inventory.findUniqueOrThrow({
         where: {
           warehouseId_productId: {
@@ -926,6 +928,7 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
           },
         },
       });
+
       await prisma.$transaction((tx) =>
         inventoryRepository.recordMovement(tx, {
           organizationId: orgBId,
@@ -938,7 +941,7 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
           createdBy: orgAUserId,
         }),
       );
-      const after = await prisma.inventory.findUniqueOrThrow({
+      const afterIncrease = await prisma.inventory.findUniqueOrThrow({
         where: {
           warehouseId_productId: {
             warehouseId: warehouseBId,
@@ -946,8 +949,22 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
           },
         },
       });
-      expect(Number(after.quantity)).toBe(Number(before.quantity) + 5);
-      expect(after.organizationId).toBe(orgBId);
+      expect(Number(afterIncrease.quantity)).toBe(Number(before.quantity) + 5);
+      expect(afterIncrease.organizationId).toBe(orgBId);
+
+      await prisma.$transaction((tx) =>
+        inventoryRepository.recordMovement(tx, {
+          organizationId: orgBId,
+          warehouseId: warehouseBId,
+          productId: productBId,
+          movementType: 'ADJUSTMENT',
+          referenceType: 'SYSTEM',
+          quantity: -5,
+          checkNegativeStock: false,
+          createdBy: orgAUserId,
+        }),
+      );
+      await assertOrgBInventoryUnchanged();
     });
   });
 
@@ -984,7 +1001,7 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
       const res = await request(app.getHttpServer())
         .post(`/api/v1/suppliers/${supplierAForProductId}/products`)
         .set('Authorization', `Bearer ${orgAToken}`)
-        .send({ productId: '22222222-2222-2222-2222-222222222222' })
+        .send({ productId: '00000000-0000-0000-0000-000000000000' })
         .expect(404);
       expect(res.body.code).toBe('PRODUCT_001');
     });
