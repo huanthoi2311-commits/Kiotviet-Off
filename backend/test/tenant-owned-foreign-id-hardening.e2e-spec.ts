@@ -140,6 +140,12 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
       update: {},
     });
     orgAId = orgA.id;
+    // T053.05B - to chuc test fixture nay tao truc tiep, khong tu dong co OrganizationSubscription.
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId: orgAId },
+      create: { organizationId: orgAId },
+      update: {},
+    });
 
     const orgB = await prisma.organization.upsert({
       where: { slug: 'tenant-fk-hardening-org-b' },
@@ -151,6 +157,11 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
       update: {},
     });
     orgBId = orgB.id;
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId: orgBId },
+      create: { organizationId: orgBId },
+      update: {},
+    });
 
     const role = await prisma.role.upsert({
       where: {

@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { UsageLimitService } from '../../../usage-limit/application/usage-limit.service';
 import { ProductConcurrencyConflictError } from '../../domain/errors/product.errors';
 import { PrismaProductRepository } from './prisma-product.repository';
 
@@ -35,6 +36,7 @@ describe('PrismaProductRepository', () => {
     stockCountItem: { findFirst: jest.Mock };
     $transaction: jest.Mock;
   };
+  let usageLimit: jest.Mocked<Pick<UsageLimitService, 'lock' | 'getLimit'>>;
 
   const rawProduct = {
     id: 'product-1',
@@ -92,8 +94,13 @@ describe('PrismaProductRepository', () => {
       stockCountItem: { findFirst: jest.fn() },
       $transaction: jest.fn(),
     };
+    usageLimit = {
+      lock: jest.fn().mockResolvedValue(undefined),
+      getLimit: jest.fn().mockResolvedValue(null),
+    };
     repository = new PrismaProductRepository(
       prisma as unknown as PrismaService,
+      usageLimit as unknown as UsageLimitService,
     );
   });
 
@@ -111,12 +118,25 @@ describe('PrismaProductRepository', () => {
       createdBy: 'user-1',
     };
 
-    it('tạo product kèm prices/images/barcodes trong 1 lệnh Prisma nested (atomic)', async () => {
-      prisma.product.create.mockResolvedValue(rawProduct);
+    function makeCreateTx(overrides: { count?: number } = {}) {
+      const client = {
+        product: {
+          count: jest.fn().mockResolvedValue(overrides.count ?? 0),
+          create: jest.fn().mockResolvedValue(rawProduct),
+        },
+      };
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(client),
+      );
+      return client;
+    }
+
+    it('tạo product kèm prices/images/barcodes trong 1 lệnh Prisma nested (atomic, limit null)', async () => {
+      const tx = makeCreateTx();
 
       const result = await repository.create(input);
 
-      expect(prisma.product.create).toHaveBeenCalledWith(
+      expect(tx.product.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             prices: { createMany: { data: input.prices } },
@@ -128,7 +148,8 @@ describe('PrismaProductRepository', () => {
     });
 
     it('dịch lỗi P2002 (trùng SKU/slug/barcode) sang ConflictException', async () => {
-      prisma.product.create.mockRejectedValue(
+      const tx = makeCreateTx();
+      tx.product.create.mockRejectedValue(
         knownError('P2002', { target: ['sku'] }),
       );
 
@@ -136,7 +157,8 @@ describe('PrismaProductRepository', () => {
     });
 
     it('dịch lỗi P2003 (categoryId không tồn tại) sang BadRequestException', async () => {
-      prisma.product.create.mockRejectedValue(
+      const tx = makeCreateTx();
+      tx.product.create.mockRejectedValue(
         knownError('P2003', { field_name: 'products_categoryId_fkey' }),
       );
 
@@ -146,12 +168,13 @@ describe('PrismaProductRepository', () => {
     });
 
     it('ném thẳng lỗi không xác định (không phải Prisma known error)', async () => {
-      prisma.product.create.mockRejectedValue(new Error('boom'));
+      const tx = makeCreateTx();
+      tx.product.create.mockRejectedValue(new Error('boom'));
       await expect(repository.create(input)).rejects.toThrow('boom');
     });
 
     it('tạo kèm images/barcodes, tự gán sortOrder/isThumbnail/isDefault mặc định theo vị trí đầu tiên', async () => {
-      prisma.product.create.mockResolvedValue(rawProduct);
+      const tx = makeCreateTx();
 
       await repository.create({
         ...input,
@@ -162,7 +185,7 @@ describe('PrismaProductRepository', () => {
         ],
       });
 
-      const callArg = prisma.product.create.mock.calls[0][0];
+      const callArg = tx.product.create.mock.calls[0][0];
       expect(callArg.data.images.createMany.data[0]).toMatchObject({
         url: 'https://cdn/a.jpg',
         sortOrder: 0,
@@ -180,6 +203,45 @@ describe('PrismaProductRepository', () => {
         code: '222',
         isDefault: false,
       });
+    });
+
+    it('T053.05B — thứ tự bắt buộc LOCK → đọc limit → COUNT(deletedAt IS NULL, mọi type) → INSERT', async () => {
+      const tx = makeCreateTx({ count: 47 });
+      const callOrder: string[] = [];
+      usageLimit.lock.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('lock');
+      });
+      usageLimit.getLimit.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('getLimit');
+        return 50;
+      });
+      tx.product.count.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('count');
+        return 47;
+      });
+      tx.product.create.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('create');
+        return rawProduct;
+      });
+
+      await repository.create(input);
+
+      expect(callOrder).toEqual(['lock', 'getLimit', 'count', 'create']);
+      expect(usageLimit.lock).toHaveBeenCalledWith(tx, 'org-1', 'PRODUCT');
+      expect(tx.product.count).toHaveBeenCalledWith({
+        where: { organizationId: 'org-1', deletedAt: null },
+      });
+    });
+
+    it('T053.05B — currentUsage >= limit → 409, tx.product.create KHÔNG được gọi', async () => {
+      const tx = makeCreateTx({ count: 50 });
+      usageLimit.getLimit.mockResolvedValue(50);
+      await expect(repository.create(input)).rejects.toThrow(ConflictException);
+      expect(tx.product.create).not.toHaveBeenCalled();
     });
   });
 
@@ -307,7 +369,7 @@ describe('PrismaProductRepository', () => {
     });
   });
 
-  describe('softDelete / restore', () => {
+  describe('softDelete', () => {
     it('softDelete set deletedAt + status=ARCHIVED (Decision 4), tăng version', async () => {
       prisma.product.update.mockResolvedValue(rawProduct);
       await repository.softDelete('product-1', 'user-1');
@@ -321,11 +383,26 @@ describe('PrismaProductRepository', () => {
         }),
       );
     });
+  });
 
-    it('restore clear deletedAt + status=INACTIVE (Decision A05, không phải ACTIVE), tăng version', async () => {
-      prisma.product.update.mockResolvedValue(rawProduct);
-      await repository.restore('product-1', 'user-1');
-      expect(prisma.product.update).toHaveBeenCalledWith(
+  describe('restore (T053.05B — quota-increasing, cùng khoá PRODUCT với create)', () => {
+    function makeRestoreTx(overrides: { count?: number } = {}) {
+      const client = {
+        product: {
+          count: jest.fn().mockResolvedValue(overrides.count ?? 0),
+          update: jest.fn().mockResolvedValue(rawProduct),
+        },
+      };
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(client),
+      );
+      return client;
+    }
+
+    it('restore clear deletedAt + status=INACTIVE (Decision A05, không phải ACTIVE), tăng version (limit null)', async () => {
+      const tx = makeRestoreTx();
+      await repository.restore('product-1', 'org-1', 'user-1');
+      expect(tx.product.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: {
             deletedAt: null,
@@ -335,6 +412,56 @@ describe('PrismaProductRepository', () => {
           },
         }),
       );
+    });
+
+    it('T053.05B — dùng CÙNG khoá logic (organizationId, PRODUCT) như create()', async () => {
+      makeRestoreTx();
+      await repository.restore('product-1', 'org-1', 'user-1');
+      expect(usageLimit.lock).toHaveBeenCalledWith(
+        expect.anything(),
+        'org-1',
+        'PRODUCT',
+      );
+    });
+
+    it('T053.05B — thứ tự bắt buộc LOCK → đọc limit → COUNT → UPDATE(deletedAt:null)', async () => {
+      const tx = makeRestoreTx({ count: 47 });
+      const callOrder: string[] = [];
+      usageLimit.lock.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('lock');
+      });
+      usageLimit.getLimit.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('getLimit');
+        return 50;
+      });
+      tx.product.count.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('count');
+        return 47;
+      });
+      tx.product.update.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('update');
+        return rawProduct;
+      });
+
+      await repository.restore('product-1', 'org-1', 'user-1');
+
+      expect(callOrder).toEqual(['lock', 'getLimit', 'count', 'update']);
+      expect(tx.product.count).toHaveBeenCalledWith({
+        where: { organizationId: 'org-1', deletedAt: null },
+      });
+    });
+
+    it('T053.05B — currentUsage >= limit → 409, tx.product.update (restore) KHÔNG được gọi', async () => {
+      const tx = makeRestoreTx({ count: 50 });
+      usageLimit.getLimit.mockResolvedValue(50);
+      await expect(
+        repository.restore('product-1', 'org-1', 'user-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(tx.product.update).not.toHaveBeenCalled();
     });
   });
 

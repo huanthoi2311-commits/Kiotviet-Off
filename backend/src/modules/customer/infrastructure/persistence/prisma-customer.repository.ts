@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
+import { assertUsageCapacity } from '../../../usage-limit/domain/usage-limit-policy';
+import { UsageLimitService } from '../../../usage-limit/application/usage-limit.service';
 import {
   CustomerEntity,
   CustomerStatus,
@@ -20,35 +22,54 @@ type RawCustomer = Prisma.CustomerGetPayload<Record<string, never>>;
 
 @Injectable()
 export class PrismaCustomerRepository implements ICustomerRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly usageLimit: UsageLimitService,
+  ) {}
 
+  /** T053.05B — LOCK → đọc limit → COUNT (deletedAt IS NULL, ACTIVE/INACTIVE đều tính) → INSERT,
+   * cùng 1 transaction. */
   async create(input: CreateCustomerInput): Promise<CustomerEntity> {
     try {
-      const customer = await this.prisma.customer.create({
-        data: {
-          organizationId: input.organizationId,
-          code: input.code,
-          customerType: input.customerType ?? 'RETAIL',
-          fullName: input.fullName,
-          phone: input.phone ?? null,
-          email: input.email ?? null,
-          birthday: input.birthday ?? null,
-          gender: input.gender ?? null,
-          taxCode: input.taxCode ?? null,
-          companyName: input.companyName ?? null,
-          contactName: input.contactName ?? null,
-          address: input.address ?? null,
-          province: input.province ?? null,
-          district: input.district ?? null,
-          ward: input.ward ?? null,
-          avatar: input.avatar ?? null,
-          note: input.note ?? null,
-          creditLimit: input.creditLimit ?? null,
-          paymentTermDays: input.paymentTermDays ?? null,
-          status: 'ACTIVE',
-          createdBy: input.createdBy,
-          updatedBy: input.createdBy,
-        },
+      const customer = await this.prisma.$transaction(async (tx) => {
+        await this.usageLimit.lock(tx, input.organizationId, 'CUSTOMER');
+        const limit = await this.usageLimit.getLimit(
+          tx,
+          input.organizationId,
+          'CUSTOMER',
+        );
+        if (limit !== null) {
+          const currentUsage = await tx.customer.count({
+            where: { organizationId: input.organizationId, deletedAt: null },
+          });
+          assertUsageCapacity({ resource: 'CUSTOMER', currentUsage, limit });
+        }
+        return tx.customer.create({
+          data: {
+            organizationId: input.organizationId,
+            code: input.code,
+            customerType: input.customerType ?? 'RETAIL',
+            fullName: input.fullName,
+            phone: input.phone ?? null,
+            email: input.email ?? null,
+            birthday: input.birthday ?? null,
+            gender: input.gender ?? null,
+            taxCode: input.taxCode ?? null,
+            companyName: input.companyName ?? null,
+            contactName: input.contactName ?? null,
+            address: input.address ?? null,
+            province: input.province ?? null,
+            district: input.district ?? null,
+            ward: input.ward ?? null,
+            avatar: input.avatar ?? null,
+            note: input.note ?? null,
+            creditLimit: input.creditLimit ?? null,
+            paymentTermDays: input.paymentTermDays ?? null,
+            status: 'ACTIVE',
+            createdBy: input.createdBy,
+            updatedBy: input.createdBy,
+          },
+        });
       });
       return this.toEntity(customer);
     } catch (error) {
@@ -170,24 +191,43 @@ export class PrismaCustomerRepository implements ICustomerRepository {
     }
   }
 
+  /** T053.05B — RESTORE là quota-increasing (deletedAt: null → tính lại vào maxCustomer, Architect
+   * Decision "Quota-Increasing Restore Transitions") — dùng CHUNG khoá logic (organizationId,
+   * 'CUSTOMER') với create() để 2 thao tác serialize lẫn nhau. CAS/version hiện có GIỮ NGUYÊN
+   * (vẫn `updateMany` với where.version=expectedVersion, vẫn ném CustomerConcurrencyConflictError
+   * khi count=0) — quota chỉ thêm 1 bước kiểm tra TRƯỚC updateMany, không thay đổi ngữ nghĩa CAS. */
   async restore(
     id: string,
     organizationId: string,
     expectedVersion: number,
     restoredBy: string,
   ): Promise<void> {
-    const result = await this.prisma.customer.updateMany({
-      where: { id, organizationId, version: expectedVersion },
-      data: {
-        deletedAt: null,
-        status: 'INACTIVE',
-        updatedBy: restoredBy,
-        version: { increment: 1 },
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await this.usageLimit.lock(tx, organizationId, 'CUSTOMER');
+      const limit = await this.usageLimit.getLimit(
+        tx,
+        organizationId,
+        'CUSTOMER',
+      );
+      if (limit !== null) {
+        const currentUsage = await tx.customer.count({
+          where: { organizationId, deletedAt: null },
+        });
+        assertUsageCapacity({ resource: 'CUSTOMER', currentUsage, limit });
+      }
+      const result = await tx.customer.updateMany({
+        where: { id, organizationId, version: expectedVersion },
+        data: {
+          deletedAt: null,
+          status: 'INACTIVE',
+          updatedBy: restoredBy,
+          version: { increment: 1 },
+        },
+      });
+      if (result.count === 0) {
+        throw new CustomerConcurrencyConflictError(id);
+      }
     });
-    if (result.count === 0) {
-      throw new CustomerConcurrencyConflictError(id);
-    }
   }
 
   async search(params: CustomerSearchParams): Promise<CustomerSearchResult> {

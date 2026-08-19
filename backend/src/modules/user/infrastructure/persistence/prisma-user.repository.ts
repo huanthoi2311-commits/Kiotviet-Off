@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { assertUsageCapacity } from '../../../usage-limit/domain/usage-limit-policy';
+import { UsageLimitService } from '../../../usage-limit/application/usage-limit.service';
 import { UserEntity, UserStatus } from '../../domain/entities/user.entity';
 import {
   CreateUserInput,
@@ -46,7 +48,10 @@ const USER_SELECT = {
 
 @Injectable()
 export class PrismaUserRepository implements IUserRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly usageLimit: UsageLimitService,
+  ) {}
 
   async findById(
     id: string,
@@ -114,22 +119,39 @@ export class PrismaUserRepository implements IUserRepository {
     return !!found;
   }
 
+  /** T053.05B — LOCK → đọc limit → COUNT (ACTIVE/INACTIVE/LOCKED đều tính, Architect Decision:
+   * status KHÔNG giải phóng hạn mức maxUser) → INSERT, tất cả trong CÙNG 1 transaction (bắt buộc
+   * để đúng bất biến "check-then-create" dưới tải đồng thời — xem UsageLimitService). */
   async create(input: CreateUserInput): Promise<UserEntity> {
     try {
-      const user = await this.prisma.user.create({
-        data: {
-          organizationId: input.organizationId,
-          branchId: input.branchId ?? null,
-          username: input.username,
-          fullName: input.fullName ?? null,
-          email: input.email,
-          phone: input.phone ?? null,
-          passwordHash: input.passwordHash,
-          status: 'ACTIVE',
-          createdBy: input.createdBy,
-          updatedBy: input.createdBy,
-        },
-        select: USER_SELECT,
+      const user = await this.prisma.$transaction(async (tx) => {
+        await this.usageLimit.lock(tx, input.organizationId, 'USER');
+        const limit = await this.usageLimit.getLimit(
+          tx,
+          input.organizationId,
+          'USER',
+        );
+        if (limit !== null) {
+          const currentUsage = await tx.user.count({
+            where: { organizationId: input.organizationId, deletedAt: null },
+          });
+          assertUsageCapacity({ resource: 'USER', currentUsage, limit });
+        }
+        return tx.user.create({
+          data: {
+            organizationId: input.organizationId,
+            branchId: input.branchId ?? null,
+            username: input.username,
+            fullName: input.fullName ?? null,
+            email: input.email,
+            phone: input.phone ?? null,
+            passwordHash: input.passwordHash,
+            status: 'ACTIVE',
+            createdBy: input.createdBy,
+            updatedBy: input.createdBy,
+          },
+          select: USER_SELECT,
+        });
       });
       return this.toEntity(user);
     } catch (error) {

@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { assertUsageCapacity } from '../../../usage-limit/domain/usage-limit-policy';
+import { UsageLimitService } from '../../../usage-limit/application/usage-limit.service';
 import { BranchEntity } from '../../domain/entities/branch.entity';
 import {
   BranchHasActiveWarehouseError,
@@ -18,28 +20,47 @@ type RawBranch = Prisma.BranchGetPayload<Record<string, never>>;
 
 @Injectable()
 export class PrismaBranchRepository implements IBranchRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly usageLimit: UsageLimitService,
+  ) {}
 
+  /** T053.05B — LOCK → đọc limit → COUNT (chỉ status=ACTIVE, Architect Decision: Branch đã
+   * ARCHIVED giải phóng hạn mức — khác User) → INSERT, cùng 1 transaction. */
   async create(input: CreateBranchInput): Promise<BranchEntity> {
     try {
-      const branch = await this.prisma.branch.create({
-        data: {
-          organizationId: input.organizationId,
-          code: input.code,
-          name: input.name,
-          email: input.email ?? null,
-          address: input.address ?? null,
-          province: input.province ?? null,
-          district: input.district ?? null,
-          ward: input.ward ?? null,
-          phone: input.phone ?? null,
-          invoicePrefix: input.invoicePrefix ?? null,
-          receiptPrefix: input.receiptPrefix ?? null,
-          timezone: input.timezone ?? 'Asia/Ho_Chi_Minh',
-          currencyCode: input.currencyCode ?? 'VND',
-          managerUserId: input.managerUserId ?? null,
-          createdBy: input.createdBy,
-        },
+      const branch = await this.prisma.$transaction(async (tx) => {
+        await this.usageLimit.lock(tx, input.organizationId, 'BRANCH');
+        const limit = await this.usageLimit.getLimit(
+          tx,
+          input.organizationId,
+          'BRANCH',
+        );
+        if (limit !== null) {
+          const currentUsage = await tx.branch.count({
+            where: { organizationId: input.organizationId, status: 'ACTIVE' },
+          });
+          assertUsageCapacity({ resource: 'BRANCH', currentUsage, limit });
+        }
+        return tx.branch.create({
+          data: {
+            organizationId: input.organizationId,
+            code: input.code,
+            name: input.name,
+            email: input.email ?? null,
+            address: input.address ?? null,
+            province: input.province ?? null,
+            district: input.district ?? null,
+            ward: input.ward ?? null,
+            phone: input.phone ?? null,
+            invoicePrefix: input.invoicePrefix ?? null,
+            receiptPrefix: input.receiptPrefix ?? null,
+            timezone: input.timezone ?? 'Asia/Ho_Chi_Minh',
+            currencyCode: input.currencyCode ?? 'VND',
+            managerUserId: input.managerUserId ?? null,
+            createdBy: input.createdBy,
+          },
+        });
       });
       return this.toEntity(branch);
     } catch (error) {

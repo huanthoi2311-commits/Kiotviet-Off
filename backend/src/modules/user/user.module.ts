@@ -4,6 +4,7 @@ import { BranchModule } from '../branch/branch.module';
 import { EntitlementModule } from '../entitlement/entitlement.module';
 import { OrganizationModule } from '../organization/organization.module';
 import { RbacModule } from '../rbac/rbac.module';
+import { UsageLimitModule } from '../usage-limit/usage-limit.module';
 import { UserService } from './application/user.service';
 import { USER_REPOSITORY } from './domain/repositories/user.repository.interface';
 import { PrismaUserRepository } from './infrastructure/persistence/prisma-user.repository';
@@ -22,6 +23,7 @@ import { UserController } from './presentation/user.controller';
     BranchModule,
     OrganizationModule,
     EntitlementModule,
+    UsageLimitModule,
   ],
   controllers: [UserController],
   providers: [

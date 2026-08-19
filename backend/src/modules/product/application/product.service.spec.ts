@@ -603,6 +603,7 @@ describe('ProductService', () => {
 
       expect(productRepository.restore).toHaveBeenCalledWith(
         'product-1',
+        'org-1',
         'user-1',
       );
       expect(result.deletedAt).toBeNull();

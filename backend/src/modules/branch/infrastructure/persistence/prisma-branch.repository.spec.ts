@@ -1,5 +1,7 @@
+import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { UsageLimitService } from '../../../usage-limit/application/usage-limit.service';
 import {
   BranchHasActiveWarehouseError,
   BranchInvoicePrefixConflictError,
@@ -21,6 +23,7 @@ describe('PrismaBranchRepository', () => {
     };
     $transaction: jest.Mock;
   };
+  let usageLimit: jest.Mocked<Pick<UsageLimitService, 'lock' | 'getLimit'>>;
 
   const rawBranch = {
     id: 'branch-1',
@@ -57,7 +60,14 @@ describe('PrismaBranchRepository', () => {
       },
       $transaction: jest.fn(),
     };
-    repository = new PrismaBranchRepository(prisma as unknown as PrismaService);
+    usageLimit = {
+      lock: jest.fn().mockResolvedValue(undefined),
+      getLimit: jest.fn().mockResolvedValue(null),
+    };
+    repository = new PrismaBranchRepository(
+      prisma as unknown as PrismaService,
+      usageLimit as unknown as UsageLimitService,
+    );
   });
 
   const createInput = {
@@ -69,11 +79,24 @@ describe('PrismaBranchRepository', () => {
   };
 
   describe('create', () => {
-    it('tạo branch thành công', async () => {
-      prisma.branch.create.mockResolvedValue(rawBranch);
+    function makeCreateTx(overrides: { count?: number } = {}) {
+      const client = {
+        branch: {
+          count: jest.fn().mockResolvedValue(overrides.count ?? 0),
+          create: jest.fn().mockResolvedValue(rawBranch),
+        },
+      };
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(client),
+      );
+      return client;
+    }
+
+    it('tạo branch thành công (limit null — không giới hạn)', async () => {
+      const tx = makeCreateTx();
       const result = await repository.create(createInput);
       expect(result.code).toBe('BR000001');
-      expect(prisma.branch.create).toHaveBeenCalledWith(
+      expect(tx.branch.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             timezone: 'Asia/Ho_Chi_Minh',
@@ -84,7 +107,8 @@ describe('PrismaBranchRepository', () => {
     });
 
     it('ném BranchInvoicePrefixConflictError khi invoicePrefix trùng (P2002)', async () => {
-      prisma.branch.create.mockRejectedValue(
+      const tx = makeCreateTx();
+      tx.branch.create.mockRejectedValue(
         new Prisma.PrismaClientKnownRequestError('duplicate', {
           code: 'P2002',
           clientVersion: '6.19.3',
@@ -94,6 +118,54 @@ describe('PrismaBranchRepository', () => {
       await expect(repository.create(createInput)).rejects.toThrow(
         BranchInvoicePrefixConflictError,
       );
+    });
+
+    it('T053.05B — thứ tự bắt buộc LOCK → đọc limit → COUNT(status=ACTIVE) → INSERT', async () => {
+      const tx = makeCreateTx({ count: 1 });
+      const callOrder: string[] = [];
+      usageLimit.lock.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('lock');
+      });
+      usageLimit.getLimit.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('getLimit');
+        return 2;
+      });
+      tx.branch.count.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('count');
+        return 1;
+      });
+      tx.branch.create.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('create');
+        return rawBranch;
+      });
+
+      await repository.create(createInput);
+
+      expect(callOrder).toEqual(['lock', 'getLimit', 'count', 'create']);
+      expect(usageLimit.lock).toHaveBeenCalledWith(tx, 'org-1', 'BRANCH');
+      expect(tx.branch.count).toHaveBeenCalledWith({
+        where: { organizationId: 'org-1', status: 'ACTIVE' },
+      });
+    });
+
+    it('T053.05B — limit=null → KHÔNG gọi COUNT', async () => {
+      const tx = makeCreateTx();
+      usageLimit.getLimit.mockResolvedValue(null);
+      await repository.create(createInput);
+      expect(tx.branch.count).not.toHaveBeenCalled();
+    });
+
+    it('T053.05B — currentUsage(ACTIVE) >= limit → 409, tx.branch.create KHÔNG được gọi', async () => {
+      const tx = makeCreateTx({ count: 2 });
+      usageLimit.getLimit.mockResolvedValue(2);
+      await expect(repository.create(createInput)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(tx.branch.create).not.toHaveBeenCalled();
     });
   });
 
