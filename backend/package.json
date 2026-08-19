@@ -37,6 +37,7 @@
     "ops:backup": "ts-node -T prisma/backup.ts",
     "ops:restore": "ts-node -T prisma/restore.ts",
     "ops:verify-restore": "ts-node -T prisma/verify-restore.ts",
+    "ops:audit-tenant-foreign-id-integrity": "ts-node -T prisma/audit-tenant-foreign-id-integrity.ts",
     "export:openapi": "ts-node -T scripts/export-openapi.ts"
   },
   "dependencies": {
