@@ -110,26 +110,17 @@ test.describe.serial('T053.05B — Usage Limit Enforcement (real stack, real bro
     await page.waitForURL('**/dashboard', { timeout: 30_000 });
   }
 
-  async function apiLogin(
-    organizationSlug: string,
-    email: string,
-    password: string,
-  ): Promise<string> {
-    const api = await playwrightRequest.newContext();
-    const res = await api.post(`${backendBaseUrl()}/auth/login`, {
-      data: { organizationSlug, email, password },
-    });
-    expect(res.ok(), `Đăng nhập API thất bại: ${await res.text()}`).toBeTruthy();
-    const accessToken = (await res.json()).data.accessToken as string;
-    await api.dispose();
-    return accessToken;
-  }
-
   test('User quota (TRIAL maxUser=3): tạo qua UI thật tới đúng hạn mức, vượt hạn mức bị từ chối 409 SUBSCRIPTION_001 qua UI thật, không ghi thêm User', async ({
     browser,
   }) => {
     const org = await createTenantOrgWithPlan('TRIAL', 'user-quota');
-    const ownerAccessToken = await apiLogin(org.slug, org.email, org.password);
+    // apiLoginWithRetry (support.ts) — retry-với-backoff cho 429, KHÔNG dùng apiLogin không-retry
+    // (đã gây "1 flaky" thật trong CI: ThrottlerException khi ngân sách 5 lần/60s/IP dùng chung với
+    // các spec khác chạy ngay trước bị cạn tạm thời — throttle hoạt động đúng thiết kế, không phải
+    // lỗi sản phẩm, nhưng lời gọi PHẢI tôn trọng rate-limit như 1 client thật, không được ném lỗi
+    // ngay ở lần 429 đầu tiên).
+    const ownerAccessToken = (await apiLoginWithRetry(org.slug, org.email, org.password))
+      .accessToken;
     const api = await playwrightRequest.newContext();
 
     async function currentUserUsage(): Promise<number> {
@@ -207,7 +198,8 @@ test.describe.serial('T053.05B — Usage Limit Enforcement (real stack, real bro
     browser,
   }) => {
     const org = await createTenantOrgWithPlan('TRIAL', 'product-quota');
-    const ownerAccessToken = await apiLogin(org.slug, org.email, org.password);
+    const ownerAccessToken = (await apiLoginWithRetry(org.slug, org.email, org.password))
+      .accessToken;
     const api: APIRequestContext = await playwrightRequest.newContext({
       extraHTTPHeaders: { Authorization: `Bearer ${ownerAccessToken}` },
     });
