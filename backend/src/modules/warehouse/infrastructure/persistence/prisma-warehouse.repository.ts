@@ -7,6 +7,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
+import { assertUsageCapacity } from '../../../usage-limit/domain/usage-limit-policy';
+import { UsageLimitService } from '../../../usage-limit/application/usage-limit.service';
 import { WarehouseEntity } from '../../domain/entities/warehouse.entity';
 import {
   CreateWarehouseInput,
@@ -20,26 +22,44 @@ type RawWarehouse = Prisma.WarehouseGetPayload<Record<string, never>>;
 
 @Injectable()
 export class PrismaWarehouseRepository implements IWarehouseRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly usageLimit: UsageLimitService,
+  ) {}
 
+  /** T053.05B — LOCK → đọc limit → COUNT (deletedAt IS NULL) → INSERT, cùng 1 transaction. */
   async create(input: CreateWarehouseInput): Promise<WarehouseEntity> {
     try {
-      const warehouse = await this.prisma.warehouse.create({
-        data: {
-          organizationId: input.organizationId,
-          branchId: input.branchId,
-          managerId: input.managerId ?? null,
-          code: input.code,
-          name: input.name,
-          type: input.type ?? 'MAIN',
-          address: input.address ?? null,
-          phone: input.phone ?? null,
-          email: input.email ?? null,
-          description: input.description ?? null,
-          status: input.status ?? 'ACTIVE',
-          createdBy: input.createdBy,
-          updatedBy: input.createdBy,
-        },
+      const warehouse = await this.prisma.$transaction(async (tx) => {
+        await this.usageLimit.lock(tx, input.organizationId, 'WAREHOUSE');
+        const limit = await this.usageLimit.getLimit(
+          tx,
+          input.organizationId,
+          'WAREHOUSE',
+        );
+        if (limit !== null) {
+          const currentUsage = await tx.warehouse.count({
+            where: { organizationId: input.organizationId, deletedAt: null },
+          });
+          assertUsageCapacity({ resource: 'WAREHOUSE', currentUsage, limit });
+        }
+        return tx.warehouse.create({
+          data: {
+            organizationId: input.organizationId,
+            branchId: input.branchId,
+            managerId: input.managerId ?? null,
+            code: input.code,
+            name: input.name,
+            type: input.type ?? 'MAIN',
+            address: input.address ?? null,
+            phone: input.phone ?? null,
+            email: input.email ?? null,
+            description: input.description ?? null,
+            status: input.status ?? 'ACTIVE',
+            createdBy: input.createdBy,
+            updatedBy: input.createdBy,
+          },
+        });
       });
       return this.toEntity(warehouse);
     } catch (error) {
@@ -101,10 +121,35 @@ export class PrismaWarehouseRepository implements IWarehouseRepository {
     });
   }
 
-  async restore(id: string, restoredBy: string): Promise<void> {
-    await this.prisma.warehouse.update({
-      where: { id },
-      data: { deletedAt: null, updatedBy: restoredBy },
+  /** T053.05B — RESTORE là quota-increasing (deletedAt: null → tính lại vào maxWarehouse,
+   * Architect Decision "Quota-Increasing Restore Transitions") — dùng CHUNG khoá logic
+   * (organizationId, 'WAREHOUSE') với create() để 2 thao tác nghiêm ngặt serialize lẫn nhau,
+   * không tạo namespace khoá riêng cho restore (namespace riêng sẽ cho phép create+restore chạy
+   * song song và vượt hạn mức). Service đã xác minh tenant qua findByIdIncludingDeleted TRƯỚC khi
+   * gọi hàm này — thứ tự đó giữ nguyên 404 (không tồn tại/khác tổ chức) tách biệt khỏi 409 (hết
+   * hạn mức), không đảo ngược. */
+  async restore(
+    id: string,
+    organizationId: string,
+    restoredBy: string,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await this.usageLimit.lock(tx, organizationId, 'WAREHOUSE');
+      const limit = await this.usageLimit.getLimit(
+        tx,
+        organizationId,
+        'WAREHOUSE',
+      );
+      if (limit !== null) {
+        const currentUsage = await tx.warehouse.count({
+          where: { organizationId, deletedAt: null },
+        });
+        assertUsageCapacity({ resource: 'WAREHOUSE', currentUsage, limit });
+      }
+      await tx.warehouse.update({
+        where: { id },
+        data: { deletedAt: null, updatedBy: restoredBy },
+      });
     });
   }
 

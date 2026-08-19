@@ -7,6 +7,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ErrorCode } from '../../../../common/errors/error-codes';
 import { withCode } from '../../../../common/errors/with-code';
+import { assertUsageCapacity } from '../../../usage-limit/domain/usage-limit-policy';
+import { UsageLimitService } from '../../../usage-limit/application/usage-limit.service';
 import { ProductEntity } from '../../domain/entities/product.entity';
 import { ProductConcurrencyConflictError } from '../../domain/errors/product.errors';
 import {
@@ -32,61 +34,81 @@ type ProductWithRelations = Prisma.ProductGetPayload<{
 
 @Injectable()
 export class PrismaProductRepository implements IProductRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly usageLimit: UsageLimitService,
+  ) {}
 
+  /** T053.05B — LOCK → đọc limit → COUNT (deletedAt IS NULL, MỌI type tính như nhau — Architect
+   * Decision: STANDARD/SERVICE/VARIANT_PARENT/VARIANT_CHILD đều 1 dòng = 1 đơn vị hạn mức, không
+   * trọng số) → INSERT (kèm nested prices/images/barcodes như cũ), cùng 1 transaction. */
   async create(input: CreateProductInput): Promise<ProductEntity> {
     try {
-      const product = await this.prisma.product.create({
-        data: {
-          organizationId: input.organizationId,
-          categoryId: input.categoryId,
-          brandId: input.brandId ?? null,
-          unitId: input.unitId,
-          parentProductId: input.parentProductId ?? null,
-          sku: input.sku,
-          slug: input.slug,
-          name: input.name,
-          description: input.description ?? null,
-          costPrice: input.costPrice,
-          vat: input.vat ?? 0,
-          weight: input.weight ?? null,
-          length: input.length ?? null,
-          width: input.width ?? null,
-          height: input.height ?? null,
-          minStock: input.minStock ?? null,
-          maxStock: input.maxStock ?? null,
-          type: input.type,
-          allowSale: input.allowSale ?? true,
-          status: input.status ?? 'ACTIVE',
-          isActive: input.isActive ?? true,
-          createdBy: input.createdBy,
-          updatedBy: input.createdBy,
-          prices: { createMany: { data: input.prices } },
-          images: input.images?.length
-            ? {
-                createMany: {
-                  data: input.images.map((image, index) => ({
-                    url: image.url,
-                    sortOrder: image.sortOrder ?? index,
-                    isThumbnail: image.isThumbnail ?? index === 0,
-                  })),
-                },
-              }
-            : undefined,
-          barcodes: input.barcodes?.length
-            ? {
-                createMany: {
-                  data: input.barcodes.map((barcode, index) => ({
-                    organizationId: input.organizationId,
-                    code: barcode.code,
-                    type: barcode.type,
-                    isDefault: barcode.isDefault ?? index === 0,
-                  })),
-                },
-              }
-            : undefined,
-        },
-        include: PRODUCT_INCLUDE,
+      const product = await this.prisma.$transaction(async (tx) => {
+        await this.usageLimit.lock(tx, input.organizationId, 'PRODUCT');
+        const limit = await this.usageLimit.getLimit(
+          tx,
+          input.organizationId,
+          'PRODUCT',
+        );
+        if (limit !== null) {
+          const currentUsage = await tx.product.count({
+            where: { organizationId: input.organizationId, deletedAt: null },
+          });
+          assertUsageCapacity({ resource: 'PRODUCT', currentUsage, limit });
+        }
+        return tx.product.create({
+          data: {
+            organizationId: input.organizationId,
+            categoryId: input.categoryId,
+            brandId: input.brandId ?? null,
+            unitId: input.unitId,
+            parentProductId: input.parentProductId ?? null,
+            sku: input.sku,
+            slug: input.slug,
+            name: input.name,
+            description: input.description ?? null,
+            costPrice: input.costPrice,
+            vat: input.vat ?? 0,
+            weight: input.weight ?? null,
+            length: input.length ?? null,
+            width: input.width ?? null,
+            height: input.height ?? null,
+            minStock: input.minStock ?? null,
+            maxStock: input.maxStock ?? null,
+            type: input.type,
+            allowSale: input.allowSale ?? true,
+            status: input.status ?? 'ACTIVE',
+            isActive: input.isActive ?? true,
+            createdBy: input.createdBy,
+            updatedBy: input.createdBy,
+            prices: { createMany: { data: input.prices } },
+            images: input.images?.length
+              ? {
+                  createMany: {
+                    data: input.images.map((image, index) => ({
+                      url: image.url,
+                      sortOrder: image.sortOrder ?? index,
+                      isThumbnail: image.isThumbnail ?? index === 0,
+                    })),
+                  },
+                }
+              : undefined,
+            barcodes: input.barcodes?.length
+              ? {
+                  createMany: {
+                    data: input.barcodes.map((barcode, index) => ({
+                      organizationId: input.organizationId,
+                      code: barcode.code,
+                      type: barcode.type,
+                      isDefault: barcode.isDefault ?? index === 0,
+                    })),
+                  },
+                }
+              : undefined,
+          },
+          include: PRODUCT_INCLUDE,
+        });
       });
 
       return this.toEntity(product);
@@ -187,16 +209,39 @@ export class PrismaProductRepository implements IProductRepository {
     });
   }
 
-  /** Decision A05: restore luôn trả status về INACTIVE (không phải ACTIVE) — tránh vô tình bán lại. */
-  async restore(id: string, restoredBy: string): Promise<void> {
-    await this.prisma.product.update({
-      where: { id },
-      data: {
-        deletedAt: null,
-        status: 'INACTIVE',
-        updatedBy: restoredBy,
-        version: { increment: 1 },
-      },
+  /** Decision A05: restore luôn trả status về INACTIVE (không phải ACTIVE) — tránh vô tình bán lại.
+   * T053.05B — RESTORE là quota-increasing (deletedAt: null → tính lại vào maxProduct, Architect
+   * Decision "Quota-Increasing Restore Transitions") — dùng CHUNG khoá logic (organizationId,
+   * 'PRODUCT') với create() để 2 thao tác serialize lẫn nhau, không tạo namespace khoá riêng. Vẫn
+   * dùng `update` (không phải `updateMany` CAS) như nguyên bản — restore() gốc không có CAS trên
+   * version, chỉ update() có; không tự thêm CAS mới ở đây. */
+  async restore(
+    id: string,
+    organizationId: string,
+    restoredBy: string,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await this.usageLimit.lock(tx, organizationId, 'PRODUCT');
+      const limit = await this.usageLimit.getLimit(
+        tx,
+        organizationId,
+        'PRODUCT',
+      );
+      if (limit !== null) {
+        const currentUsage = await tx.product.count({
+          where: { organizationId, deletedAt: null },
+        });
+        assertUsageCapacity({ resource: 'PRODUCT', currentUsage, limit });
+      }
+      await tx.product.update({
+        where: { id },
+        data: {
+          deletedAt: null,
+          status: 'INACTIVE',
+          updatedBy: restoredBy,
+          version: { increment: 1 },
+        },
+      });
     });
   }
 

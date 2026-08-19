@@ -1,6 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { UsageLimitService } from '../../../usage-limit/application/usage-limit.service';
 import { PrismaCustomerRepository } from './prisma-customer.repository';
 
 function knownError(code: string, meta?: Record<string, unknown>) {
@@ -57,6 +58,7 @@ describe('PrismaCustomerRepository', () => {
     };
     $transaction: jest.Mock;
   };
+  let usageLimit: jest.Mocked<Pick<UsageLimitService, 'lock' | 'getLimit'>>;
 
   beforeEach(() => {
     prisma = {
@@ -71,8 +73,13 @@ describe('PrismaCustomerRepository', () => {
       },
       $transaction: jest.fn(),
     };
+    usageLimit = {
+      lock: jest.fn().mockResolvedValue(undefined),
+      getLimit: jest.fn().mockResolvedValue(null),
+    };
     repository = new PrismaCustomerRepository(
       prisma as unknown as PrismaService,
+      usageLimit as unknown as UsageLimitService,
     );
   });
 
@@ -85,8 +92,21 @@ describe('PrismaCustomerRepository', () => {
       createdBy: 'user-1',
     };
 
-    it('tạo thành công', async () => {
-      prisma.customer.create.mockResolvedValue(rawCustomer);
+    function makeCreateTx(overrides: { count?: number } = {}) {
+      const client = {
+        customer: {
+          count: jest.fn().mockResolvedValue(overrides.count ?? 0),
+          create: jest.fn().mockResolvedValue(rawCustomer),
+        },
+      };
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(client),
+      );
+      return client;
+    }
+
+    it('tạo thành công (limit null)', async () => {
+      makeCreateTx();
       const result = await repository.create(input);
       expect(result.code).toBe('CUS000001');
       expect(result.currentDebt).toBe('0');
@@ -94,15 +114,56 @@ describe('PrismaCustomerRepository', () => {
     });
 
     it('dịch lỗi P2002 trên code sang ConflictException', async () => {
-      prisma.customer.create.mockRejectedValue(
+      const tx = makeCreateTx();
+      tx.customer.create.mockRejectedValue(
         knownError('P2002', { target: ['organizationId', 'code'] }),
       );
       await expect(repository.create(input)).rejects.toThrow(ConflictException);
     });
 
     it('ném thẳng lỗi không xác định', async () => {
-      prisma.customer.create.mockRejectedValue(new Error('boom'));
+      const tx = makeCreateTx();
+      tx.customer.create.mockRejectedValue(new Error('boom'));
       await expect(repository.create(input)).rejects.toThrow('boom');
+    });
+
+    it('T053.05B — thứ tự bắt buộc LOCK → đọc limit → COUNT(deletedAt IS NULL) → INSERT', async () => {
+      const tx = makeCreateTx({ count: 49 });
+      const callOrder: string[] = [];
+      usageLimit.lock.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('lock');
+      });
+      usageLimit.getLimit.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('getLimit');
+        return 50;
+      });
+      tx.customer.count.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('count');
+        return 49;
+      });
+      tx.customer.create.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('create');
+        return rawCustomer;
+      });
+
+      await repository.create(input);
+
+      expect(callOrder).toEqual(['lock', 'getLimit', 'count', 'create']);
+      expect(usageLimit.lock).toHaveBeenCalledWith(tx, 'org-1', 'CUSTOMER');
+      expect(tx.customer.count).toHaveBeenCalledWith({
+        where: { organizationId: 'org-1', deletedAt: null },
+      });
+    });
+
+    it('T053.05B — currentUsage >= limit → 409, tx.customer.create KHÔNG được gọi', async () => {
+      const tx = makeCreateTx({ count: 50 });
+      usageLimit.getLimit.mockResolvedValue(50);
+      await expect(repository.create(input)).rejects.toThrow(ConflictException);
+      expect(tx.customer.create).not.toHaveBeenCalled();
     });
   });
 
@@ -255,11 +316,30 @@ describe('PrismaCustomerRepository', () => {
         repository.softDelete('cus-1', 'org-1', 1, 'user-1'),
       ).rejects.toThrow('vừa bị thay đổi bởi giao dịch khác');
     });
+  });
 
-    it('restore set deletedAt=null + status=INACTIVE, lọc theo organizationId+version', async () => {
-      prisma.customer.updateMany.mockResolvedValue({ count: 1 });
+  describe('restore (T053.05B — quota-increasing, cùng khoá CUSTOMER với create, giữ nguyên CAS)', () => {
+    function makeRestoreTx(
+      overrides: { count?: number; updateManyCount?: number } = {},
+    ) {
+      const client = {
+        customer: {
+          count: jest.fn().mockResolvedValue(overrides.count ?? 0),
+          updateMany: jest
+            .fn()
+            .mockResolvedValue({ count: overrides.updateManyCount ?? 1 }),
+        },
+      };
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(client),
+      );
+      return client;
+    }
+
+    it('restore set deletedAt=null + status=INACTIVE, lọc theo organizationId+version (limit null)', async () => {
+      const tx = makeRestoreTx({ updateManyCount: 1 });
       await repository.restore('cus-1', 'org-1', 2, 'user-1');
-      expect(prisma.customer.updateMany).toHaveBeenCalledWith({
+      expect(tx.customer.updateMany).toHaveBeenCalledWith({
         where: { id: 'cus-1', organizationId: 'org-1', version: 2 },
         data: {
           deletedAt: null,
@@ -270,11 +350,61 @@ describe('PrismaCustomerRepository', () => {
       });
     });
 
-    it('restore ném lỗi concurrency khi version không khớp', async () => {
-      prisma.customer.updateMany.mockResolvedValue({ count: 0 });
+    it('restore ném lỗi concurrency khi version không khớp (CAS giữ nguyên)', async () => {
+      makeRestoreTx({ updateManyCount: 0 });
       await expect(
         repository.restore('cus-1', 'org-1', 2, 'user-1'),
       ).rejects.toThrow('vừa bị thay đổi bởi giao dịch khác');
+    });
+
+    it('T053.05B — dùng CÙNG khoá logic (organizationId, CUSTOMER) như create()', async () => {
+      makeRestoreTx();
+      await repository.restore('cus-1', 'org-1', 2, 'user-1');
+      expect(usageLimit.lock).toHaveBeenCalledWith(
+        expect.anything(),
+        'org-1',
+        'CUSTOMER',
+      );
+    });
+
+    it('T053.05B — thứ tự bắt buộc LOCK → đọc limit → COUNT → updateMany (CAS)', async () => {
+      const tx = makeRestoreTx({ count: 49, updateManyCount: 1 });
+      const callOrder: string[] = [];
+      usageLimit.lock.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('lock');
+      });
+      usageLimit.getLimit.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('getLimit');
+        return 50;
+      });
+      tx.customer.count.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('count');
+        return 49;
+      });
+      tx.customer.updateMany.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('updateMany');
+        return { count: 1 };
+      });
+
+      await repository.restore('cus-1', 'org-1', 2, 'user-1');
+
+      expect(callOrder).toEqual(['lock', 'getLimit', 'count', 'updateMany']);
+      expect(tx.customer.count).toHaveBeenCalledWith({
+        where: { organizationId: 'org-1', deletedAt: null },
+      });
+    });
+
+    it('T053.05B — currentUsage >= limit → 409, tx.customer.updateMany (restore) KHÔNG được gọi', async () => {
+      const tx = makeRestoreTx({ count: 50 });
+      usageLimit.getLimit.mockResolvedValue(50);
+      await expect(
+        repository.restore('cus-1', 'org-1', 2, 'user-1'),
+      ).rejects.toThrow(ConflictException);
+      expect(tx.customer.updateMany).not.toHaveBeenCalled();
     });
   });
 

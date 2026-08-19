@@ -252,6 +252,10 @@ export const ErrorCode = {
   SALES_RETURN_REFUND_VERSION_CONFLICT: 'SALES_RETURN_013',
   SALES_RETURN_NOT_RECEIVED_FOR_REFUND: 'SALES_RETURN_014',
 
+  // Subscription Usage (SUBSCRIPTION_xxx) — T053.05B, tách biệt ENTITLEMENT_001 (tính năng KHÔNG
+  // có trong gói) khỏi "tính năng CÓ trong gói nhưng đã dùng hết hạn mức" (quota exhausted).
+  SUBSCRIPTION_USAGE_LIMIT_REACHED: 'SUBSCRIPTION_001',
+
   // Generic (dùng khi exception không tự gắn code cụ thể)
   VALIDATION_FAILED: 'VALIDATION_001',
   NOT_FOUND: 'HTTP_404',

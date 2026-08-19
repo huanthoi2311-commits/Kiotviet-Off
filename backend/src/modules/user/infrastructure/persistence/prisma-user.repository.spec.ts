@@ -1,5 +1,7 @@
+import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { UsageLimitService } from '../../../usage-limit/application/usage-limit.service';
 import {
   UserEmailConflictError,
   UserUsernameConflictError,
@@ -41,6 +43,7 @@ describe('PrismaUserRepository', () => {
     };
     $transaction: jest.Mock;
   };
+  let usageLimit: jest.Mocked<Pick<UsageLimitService, 'lock' | 'getLimit'>>;
 
   beforeEach(() => {
     prisma = {
@@ -53,7 +56,14 @@ describe('PrismaUserRepository', () => {
       },
       $transaction: jest.fn(),
     };
-    repository = new PrismaUserRepository(prisma as unknown as PrismaService);
+    usageLimit = {
+      lock: jest.fn().mockResolvedValue(undefined),
+      getLimit: jest.fn().mockResolvedValue(null),
+    };
+    repository = new PrismaUserRepository(
+      prisma as unknown as PrismaService,
+      usageLimit as unknown as UsageLimitService,
+    );
   });
 
   describe('findById', () => {
@@ -126,22 +136,99 @@ describe('PrismaUserRepository', () => {
       createdBy: 'admin-1',
     };
 
-    it('tạo user thành công, status luôn ACTIVE', async () => {
-      prisma.user.create.mockResolvedValue(rawUser);
+    /** T053.05B — create() giờ chạy trong $transaction; mô phỏng đúng interactive-callback API
+     * (cùng pattern đã dùng ở prisma-organization.repository.spec.ts). */
+    function makeTx(overrides: { count?: number } = {}) {
+      return {
+        user: {
+          count: jest.fn().mockResolvedValue(overrides.count ?? 0),
+          create: jest.fn().mockResolvedValue(rawUser),
+        },
+      };
+    }
+
+    it('tạo user thành công, status luôn ACTIVE (limit null — không giới hạn)', async () => {
+      const tx = makeTx();
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(tx),
+      );
 
       const result = await repository.create(input);
 
       expect(result.id).toBe('user-1');
-      expect(prisma.user.create).toHaveBeenCalledWith(
+      expect(tx.user.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ status: 'ACTIVE' }),
         }),
       );
     });
 
+    it('T053.05B — thứ tự bắt buộc: LOCK → đọc limit → COUNT → INSERT (limit không null)', async () => {
+      const tx = makeTx({ count: 1 });
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(tx),
+      );
+      const callOrder: string[] = [];
+      usageLimit.lock.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('lock');
+      });
+      usageLimit.getLimit.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('getLimit');
+        return 3;
+      });
+      tx.user.count.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('count');
+        return 1;
+      });
+      tx.user.create.mockImplementation(async () => {
+        await Promise.resolve();
+        callOrder.push('create');
+        return rawUser;
+      });
+
+      await repository.create(input);
+
+      expect(callOrder).toEqual(['lock', 'getLimit', 'count', 'create']);
+      expect(usageLimit.lock).toHaveBeenCalledWith(tx, 'org-1', 'USER');
+      expect(tx.user.count).toHaveBeenCalledWith({
+        where: { organizationId: 'org-1', deletedAt: null },
+      });
+    });
+
+    it('T053.05B — limit=null (unlimited) → KHÔNG gọi COUNT, vẫn tạo thành công', async () => {
+      usageLimit.getLimit.mockResolvedValue(null);
+      const tx = makeTx();
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(tx),
+      );
+
+      await repository.create(input);
+
+      expect(tx.user.count).not.toHaveBeenCalled();
+      expect(tx.user.create).toHaveBeenCalled();
+    });
+
+    it('T053.05B — currentUsage >= limit → SUBSCRIPTION_USAGE_LIMIT_REACHED (409), tx.user.create KHÔNG được gọi', async () => {
+      usageLimit.getLimit.mockResolvedValue(3);
+      const tx = makeTx({ count: 3 });
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(tx),
+      );
+
+      await expect(repository.create(input)).rejects.toThrow(ConflictException);
+      expect(tx.user.create).not.toHaveBeenCalled();
+    });
+
     it('map P2002 trên username sang UserUsernameConflictError', async () => {
-      prisma.user.create.mockRejectedValue(
+      const tx = makeTx();
+      tx.user.create.mockRejectedValue(
         makeP2002(['organizationId', 'username']),
+      );
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(tx),
       );
 
       await expect(repository.create(input)).rejects.toThrow(
@@ -150,8 +237,10 @@ describe('PrismaUserRepository', () => {
     });
 
     it('map P2002 trên email sang UserEmailConflictError', async () => {
-      prisma.user.create.mockRejectedValue(
-        makeP2002(['organizationId', 'email']),
+      const tx = makeTx();
+      tx.user.create.mockRejectedValue(makeP2002(['organizationId', 'email']));
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(tx),
       );
 
       await expect(repository.create(input)).rejects.toThrow(

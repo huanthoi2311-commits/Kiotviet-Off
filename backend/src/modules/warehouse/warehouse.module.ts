@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { RbacModule } from '../rbac/rbac.module';
 import { BranchModule } from '../branch/branch.module';
 import { UserModule } from '../user/user.module';
+import { UsageLimitModule } from '../usage-limit/usage-limit.module';
 import { WarehouseService } from './application/warehouse.service';
 import { WAREHOUSE_REPOSITORY } from './domain/repositories/warehouse.repository.interface';
 import { PrismaWarehouseRepository } from './infrastructure/persistence/prisma-warehouse.repository';
@@ -12,8 +13,10 @@ import { WarehouseController } from './presentation/warehouse.controller';
 // đã duyệt (BranchService.getById, USER_REPOSITORY.findById — cùng pattern UserService.create đã
 // dùng cho branchId) — không tự thêm 1 cách kiểm tra Branch/User thứ hai. Không tạo vòng lặp: cả
 // BranchModule lẫn UserModule đều không (trực tiếp hay gián tiếp) import lại WarehouseModule.
+// T053.05B — UsageLimitModule (module lá) nhập thêm để PrismaWarehouseRepository khoá/đọc hạn mức
+// maxWarehouse trước khi create()/restore().
 @Module({
-  imports: [RbacModule, BranchModule, UserModule],
+  imports: [RbacModule, BranchModule, UserModule, UsageLimitModule],
   controllers: [WarehouseController],
   providers: [
     WarehouseService,

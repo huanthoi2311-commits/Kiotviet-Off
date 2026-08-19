@@ -463,6 +463,7 @@ describe('WarehouseService', () => {
       expect(result.deletedAt).toBeNull();
       expect(warehouseRepository.restore).toHaveBeenCalledWith(
         'wh-1',
+        'org-1',
         'user-1',
       );
       expect(auditLogService.log).toHaveBeenCalledWith(

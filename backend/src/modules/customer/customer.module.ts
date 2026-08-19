@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { RbacModule } from '../rbac/rbac.module';
+import { UsageLimitModule } from '../usage-limit/usage-limit.module';
 import { CustomerDomainService } from './application/customer-domain.service';
 import { CustomerService } from './application/customer.service';
 import { CustomerPointSubscriber } from './application/subscribers/customer-point.subscriber';
@@ -15,7 +16,7 @@ import { CustomerController } from './presentation/customer.controller';
  * port), không phụ thuộc repository token/persistence contract trực tiếp.
  */
 @Module({
-  imports: [RbacModule],
+  imports: [RbacModule, UsageLimitModule],
   controllers: [CustomerController],
   providers: [
     CustomerService,

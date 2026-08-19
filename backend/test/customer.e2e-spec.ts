@@ -35,6 +35,12 @@ describe('Customer Module (e2e, integration)', () => {
       update: {},
     });
     organizationId = organization.id;
+    // T053.05B - to chuc test fixture nay tao truc tiep qua prisma.organization.upsert (khong qua writeOrganizationWithOwner), KHONG tu dong co OrganizationSubscription - can them thu cong de UsageLimitService.getLimit() khong fail-closed.
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId },
+      create: { organizationId },
+      update: {},
+    });
 
     for (const permission of PERMISSION_CATALOG) {
       await prisma.permission.upsert({

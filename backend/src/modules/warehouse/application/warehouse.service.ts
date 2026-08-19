@@ -217,7 +217,11 @@ export class WarehouseService {
       );
     }
 
-    await this.warehouseRepository.restore(id, actor.userId);
+    await this.warehouseRepository.restore(
+      id,
+      actor.organizationId,
+      actor.userId,
+    );
     const restored = await this.warehouseRepository.findById(
       id,
       actor.organizationId,

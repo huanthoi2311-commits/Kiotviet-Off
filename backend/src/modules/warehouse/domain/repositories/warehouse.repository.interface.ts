@@ -66,7 +66,14 @@ export interface IWarehouseRepository {
   ): Promise<WarehouseEntity | null>;
   update(id: string, input: UpdateWarehouseInput): Promise<WarehouseEntity>;
   softDelete(id: string, deletedBy: string): Promise<void>;
-  restore(id: string, restoredBy: string): Promise<void>;
+  /** T053.05B — restore() cần organizationId vì đây là thao tác quota-increasing (giải phóng
+   * dòng khỏi trạng thái deletedAt IS NULL → tính vào maxWarehouse) — LOCK/COUNT phải scope đúng
+   * tổ chức, không chỉ dựa vào Service đã xác minh tenant trước đó. */
+  restore(
+    id: string,
+    organizationId: string,
+    restoredBy: string,
+  ): Promise<void>;
   search(params: WarehouseSearchParams): Promise<WarehouseSearchResult>;
   existsByCode(
     organizationId: string,

@@ -36,6 +36,12 @@ describe('Barcode Module (e2e, integration)', () => {
       create: { code, displayName: `${code} Org`, slug },
       update: {},
     });
+    // T053.05B - to chuc test fixture nay tao truc tiep, khong tu dong co OrganizationSubscription.
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId: organization.id },
+      create: { organizationId: organization.id },
+      update: {},
+    });
 
     for (const permission of PERMISSION_CATALOG) {
       await prisma.permission.upsert({

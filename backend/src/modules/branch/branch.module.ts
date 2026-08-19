@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { RbacModule } from '../rbac/rbac.module';
+import { UsageLimitModule } from '../usage-limit/usage-limit.module';
 import { BranchService } from './application/branch.service';
 import { BRANCH_REPOSITORY } from './domain/repositories/branch.repository.interface';
 import { BRANCH_CODE_GENERATOR } from './domain/services/branch-code-generator.interface';
@@ -8,7 +9,7 @@ import { PrismaBranchRepository } from './infrastructure/persistence/prisma-bran
 import { BranchController } from './presentation/branch.controller';
 
 @Module({
-  imports: [RbacModule],
+  imports: [RbacModule, UsageLimitModule],
   controllers: [BranchController],
   providers: [
     BranchService,

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { RbacModule } from '../rbac/rbac.module';
+import { UsageLimitModule } from '../usage-limit/usage-limit.module';
 import { ProductService } from './application/product.service';
 import { ProductDomainService } from './application/product-domain.service';
 import { PRODUCT_REPOSITORY } from './domain/repositories/product.repository.interface';
@@ -11,7 +12,7 @@ import { PrismaProductRepository } from './infrastructure/persistence/prisma-pro
 import { ProductController } from './presentation/product.controller';
 
 @Module({
-  imports: [RbacModule],
+  imports: [RbacModule, UsageLimitModule],
   controllers: [ProductController],
   providers: [
     ProductService,

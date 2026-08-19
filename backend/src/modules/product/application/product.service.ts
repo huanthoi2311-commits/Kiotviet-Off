@@ -309,7 +309,11 @@ export class ProductService {
 
     // Decision A05: restore luon tra status ve INACTIVE (khong phai ACTIVE) - da xu ly o
     // PrismaProductRepository.restore() (Commit 3), khong lap lai logic o day.
-    await this.productRepository.restore(id, actor.userId);
+    await this.productRepository.restore(
+      id,
+      actor.organizationId,
+      actor.userId,
+    );
     const restored = await this.productRepository.findById(
       id,
       actor.organizationId,

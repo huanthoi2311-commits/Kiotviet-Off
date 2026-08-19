@@ -125,7 +125,14 @@ export interface IProductRepository {
     input: UpdateProductInput,
   ): Promise<ProductEntity>;
   softDelete(id: string, deletedBy: string): Promise<void>;
-  restore(id: string, restoredBy: string): Promise<void>;
+  /** T053.05B — restore() cần organizationId: đây là thao tác quota-increasing (giải phóng dòng
+   * khỏi trạng thái deletedAt IS NULL → tính lại vào maxProduct) — LOCK/COUNT phải scope đúng tổ
+   * chức trong CÙNG transaction, không chỉ dựa vào Service đã xác minh tenant trước đó. */
+  restore(
+    id: string,
+    organizationId: string,
+    restoredBy: string,
+  ): Promise<void>;
   search(params: ProductSearchParams): Promise<ProductSearchResult>;
   existsBySku(organizationId: string, sku: string): Promise<boolean>;
   existsBySlug(

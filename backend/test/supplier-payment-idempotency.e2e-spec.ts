@@ -55,6 +55,11 @@ describe('SupplierPayment Idempotency (e2e, integration — Postgres thật)', (
       update: {},
     });
     const organizationId = organization.id;
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId },
+      create: { organizationId },
+      update: {},
+    });
 
     for (const permission of PERMISSION_CATALOG) {
       await prisma.permission.upsert({
