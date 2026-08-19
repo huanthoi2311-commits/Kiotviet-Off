@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
+import { UserReferenceService } from '../../user/application/user-reference.service';
+import { WarehouseReferenceService } from '../../warehouse/application/warehouse-reference.service';
 import {
   BRANCH_REPOSITORY,
   BranchHasActiveWarehouseError,
@@ -37,6 +39,8 @@ export class BranchService {
     private readonly branchRepository: IBranchRepository,
     @Inject(BRANCH_CODE_GENERATOR)
     private readonly codeGenerator: IBranchCodeGenerator,
+    private readonly userReferenceService: UserReferenceService,
+    private readonly warehouseReferenceService: WarehouseReferenceService,
   ) {}
 
   async create(
@@ -55,6 +59,16 @@ export class BranchService {
           ErrorCode.BRANCH_INVOICE_PREFIX_CONFLICT,
           `Tiền tố hóa đơn "${dto.invoicePrefix}" đã được sử dụng trong tổ chức`,
         ),
+      );
+    }
+    // T053.05C-2 — managerUserId là foreign id tenant-owned (User) — FK Prisma chỉ đảm bảo hàng
+    // tồn tại, KHÔNG đảm bảo đúng tổ chức. CreateBranchDto không cho phép null (chỉ optional
+    // string) nhưng vẫn kiểm tra truthy (cùng pattern WarehouseService.create() đã dùng cho
+    // managerId, T053.05A) — undefined/không có giá trị thì bỏ qua.
+    if (dto.managerUserId) {
+      await this.assertManagerInOrganization(
+        dto.managerUserId,
+        actor.organizationId,
       );
     }
 
@@ -113,6 +127,25 @@ export class BranchService {
     actor: ActorContext,
   ): Promise<BranchResponseDto> {
     await this.findOrThrow(id, actor.organizationId);
+    // T053.05C-2 — managerUserId/defaultWarehouseId: tri-state — undefined = giữ nguyên (không
+    // kiểm tra), null = xoá (KHÔNG cần tra User/Warehouse), string = xác minh thuộc
+    // actor.organizationId trước khi ghi. KHÔNG được gộp undefined/null làm một (cùng pattern
+    // WarehouseService.update() đã dùng cho managerId, T053.05A).
+    if (dto.managerUserId !== undefined && dto.managerUserId !== null) {
+      await this.assertManagerInOrganization(
+        dto.managerUserId,
+        actor.organizationId,
+      );
+    }
+    if (
+      dto.defaultWarehouseId !== undefined &&
+      dto.defaultWarehouseId !== null
+    ) {
+      await this.assertDefaultWarehouseInOrganization(
+        dto.defaultWarehouseId,
+        actor.organizationId,
+      );
+    }
     try {
       const branch = await this.branchRepository.update(
         id,
@@ -150,6 +183,42 @@ export class BranchService {
       actor.userId,
     );
     return BranchMapper.toResponseDto(branch);
+  }
+
+  /** T053.05C-2 — `UserReferenceService.findById` đã non-disclosing sẵn (cross-tenant hoặc không
+   * tồn tại đều trả `null` như nhau — xem doc-comment interface), nên cross-tenant managerUserId
+   * và managerUserId không tồn tại luôn ra CÙNG 1 USER_001, không có tín hiệu phân biệt nào rò rỉ
+   * ra ngoài (cùng pattern WarehouseService.assertManagerInOrganization()). */
+  private async assertManagerInOrganization(
+    managerUserId: string,
+    organizationId: string,
+  ): Promise<void> {
+    const manager = await this.userReferenceService.findById(
+      managerUserId,
+      organizationId,
+    );
+    if (!manager) {
+      throw new NotFoundException(
+        withCode(ErrorCode.USER_NOT_FOUND, 'Không tìm thấy người dùng'),
+      );
+    }
+  }
+
+  /** T053.05C-2 — cùng bất biến non-disclosing như `assertManagerInOrganization` ở trên, áp dụng
+   * cho `defaultWarehouseId` (Warehouse). */
+  private async assertDefaultWarehouseInOrganization(
+    warehouseId: string,
+    organizationId: string,
+  ): Promise<void> {
+    const warehouse = await this.warehouseReferenceService.findById(
+      warehouseId,
+      organizationId,
+    );
+    if (!warehouse) {
+      throw new NotFoundException(
+        withCode(ErrorCode.WAREHOUSE_NOT_FOUND, 'Không tìm thấy kho'),
+      );
+    }
   }
 
   private async findOrThrow(id: string, organizationId: string) {

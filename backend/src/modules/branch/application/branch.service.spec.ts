@@ -1,4 +1,6 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
+import { UserReferenceService } from '../../user/application/user-reference.service';
+import { WarehouseReferenceService } from '../../warehouse/application/warehouse-reference.service';
 import {
   BranchHasActiveWarehouseError,
   BranchInvoicePrefixConflictError,
@@ -12,8 +14,15 @@ describe('BranchService', () => {
   let service: BranchService;
   let branchRepository: jest.Mocked<IBranchRepository>;
   let codeGenerator: jest.Mocked<IBranchCodeGenerator>;
+  let userReferenceService: jest.Mocked<Pick<UserReferenceService, 'findById'>>;
+  let warehouseReferenceService: jest.Mocked<
+    Pick<WarehouseReferenceService, 'findById'>
+  >;
 
   const actor: ActorContext = { userId: 'user-1', organizationId: 'org-1' };
+
+  const user = { id: 'user-2', organizationId: 'org-1' } as never;
+  const warehouse = { id: 'warehouse-1', organizationId: 'org-1' } as never;
 
   const branch = {
     id: 'branch-1',
@@ -50,7 +59,14 @@ describe('BranchService', () => {
       countActiveByOrganization: jest.fn(),
     };
     codeGenerator = { generate: jest.fn() };
-    service = new BranchService(branchRepository, codeGenerator);
+    userReferenceService = { findById: jest.fn() };
+    warehouseReferenceService = { findById: jest.fn() };
+    service = new BranchService(
+      branchRepository,
+      codeGenerator,
+      userReferenceService as unknown as UserReferenceService,
+      warehouseReferenceService as unknown as WarehouseReferenceService,
+    );
   });
 
   describe('create', () => {
@@ -196,6 +212,146 @@ describe('BranchService', () => {
       });
       const result = await service.setDefault('branch-1', actor);
       expect(result.isMain).toBe(true);
+    });
+  });
+
+  // T053.05C-2 — B-U1..B-U10: managerUserId (CreateBranchDto/UpdateBranchDto) và
+  // defaultWarehouseId (UpdateBranchDto) là foreign id tenant-owned (User/Warehouse). Mọi rejection
+  // phải chứng minh: (a) đúng canonical error contract (USER_NOT_FOUND/WAREHOUSE_NOT_FOUND — không
+  // mã lỗi mới, không 403), (b) branchRepository.create()/update() KHÔNG được gọi.
+  describe('T053.05C-2 — managerUserId / defaultWarehouseId tenant-isolation', () => {
+    beforeEach(() => {
+      branchRepository.existsByInvoicePrefix.mockResolvedValue(false);
+      codeGenerator.generate.mockResolvedValue('BR000001');
+      branchRepository.create.mockResolvedValue(branch);
+      branchRepository.findById.mockResolvedValue(branch);
+      branchRepository.update.mockResolvedValue(branch);
+    });
+
+    it('B-U1: create — managerUserId undefined → KHÔNG tra User, tạo thành công', async () => {
+      await service.create({ name: 'HN', invoicePrefix: 'HN' }, actor);
+      expect(userReferenceService.findById).not.toHaveBeenCalled();
+      expect(branchRepository.create).toHaveBeenCalled();
+    });
+
+    it('B-U2: create — managerUserId cùng tổ chức → tra User, tạo thành công', async () => {
+      userReferenceService.findById.mockResolvedValue(user);
+      await service.create(
+        { name: 'HN', invoicePrefix: 'HN', managerUserId: 'user-2' },
+        actor,
+      );
+      expect(userReferenceService.findById).toHaveBeenCalledWith(
+        'user-2',
+        'org-1',
+      );
+      expect(branchRepository.create).toHaveBeenCalled();
+    });
+
+    it('B-U3: create — managerUserId khác tổ chức/không tồn tại → NotFoundException(USER_NOT_FOUND), KHÔNG gọi create()', async () => {
+      userReferenceService.findById.mockResolvedValue(null);
+      const promise = service.create(
+        { name: 'HN', invoicePrefix: 'HN', managerUserId: 'user-x' },
+        actor,
+      );
+      await expect(promise).rejects.toThrow(NotFoundException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'USER_001' },
+      });
+      expect(branchRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('B-U4: update — managerUserId undefined → KHÔNG tra User, giữ nguyên giá trị hiện có', async () => {
+      await service.update('branch-1', { name: 'X' }, actor);
+      expect(userReferenceService.findById).not.toHaveBeenCalled();
+      expect(branchRepository.update).toHaveBeenCalled();
+      // undefined = key hoàn toàn vắng mặt trong input truyền cho repository (Prisma coi thiếu key
+      // là "không đổi" — KHÔNG giống truyền managerUserId: undefined tường minh, dù giá trị runtime
+      // như nhau, để không nhầm với B-U5 (null tường minh = xoá)).
+      const updateInput = branchRepository.update.mock.calls[0][2];
+      expect(updateInput).not.toHaveProperty('managerUserId');
+    });
+
+    it('B-U5: update — managerUserId null → KHÔNG tra User, xoá giá trị (repository nhận null)', async () => {
+      await service.update('branch-1', { managerUserId: null as never }, actor);
+      expect(userReferenceService.findById).not.toHaveBeenCalled();
+      expect(branchRepository.update).toHaveBeenCalledWith(
+        'branch-1',
+        'org-1',
+        expect.objectContaining({ managerUserId: null }),
+      );
+    });
+
+    it('B-U6: update — managerUserId cùng tổ chức → tra User, cập nhật thành công', async () => {
+      userReferenceService.findById.mockResolvedValue(user);
+      await service.update('branch-1', { managerUserId: 'user-2' }, actor);
+      expect(userReferenceService.findById).toHaveBeenCalledWith(
+        'user-2',
+        'org-1',
+      );
+      expect(branchRepository.update).toHaveBeenCalled();
+    });
+
+    it('B-U7: update — managerUserId khác tổ chức/không tồn tại → NotFoundException(USER_NOT_FOUND), KHÔNG gọi update()', async () => {
+      userReferenceService.findById.mockResolvedValue(null);
+      const promise = service.update(
+        'branch-1',
+        { managerUserId: 'user-x' },
+        actor,
+      );
+      await expect(promise).rejects.toThrow(NotFoundException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'USER_001' },
+      });
+      expect(branchRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('B-U8: update — defaultWarehouseId undefined → KHÔNG tra Warehouse, giữ nguyên giá trị hiện có', async () => {
+      await service.update('branch-1', { name: 'X' }, actor);
+      expect(warehouseReferenceService.findById).not.toHaveBeenCalled();
+      expect(branchRepository.update).toHaveBeenCalled();
+      const updateInput = branchRepository.update.mock.calls[0][2];
+      expect(updateInput).not.toHaveProperty('defaultWarehouseId');
+    });
+
+    it('B-U9: update — defaultWarehouseId null → KHÔNG tra Warehouse, xoá giá trị (repository nhận null)', async () => {
+      await service.update(
+        'branch-1',
+        { defaultWarehouseId: null as never },
+        actor,
+      );
+      expect(warehouseReferenceService.findById).not.toHaveBeenCalled();
+      expect(branchRepository.update).toHaveBeenCalledWith(
+        'branch-1',
+        'org-1',
+        expect.objectContaining({ defaultWarehouseId: null }),
+      );
+    });
+
+    it('B-U10: update — defaultWarehouseId cùng tổ chức → cập nhật thành công; khác tổ chức/không tồn tại → NotFoundException(WAREHOUSE_NOT_FOUND), KHÔNG gọi update()', async () => {
+      warehouseReferenceService.findById.mockResolvedValue(warehouse);
+      await service.update(
+        'branch-1',
+        { defaultWarehouseId: 'warehouse-1' },
+        actor,
+      );
+      expect(warehouseReferenceService.findById).toHaveBeenCalledWith(
+        'warehouse-1',
+        'org-1',
+      );
+      expect(branchRepository.update).toHaveBeenCalled();
+
+      branchRepository.update.mockClear();
+      warehouseReferenceService.findById.mockResolvedValue(null);
+      const rejectedPromise = service.update(
+        'branch-1',
+        { defaultWarehouseId: 'warehouse-x' },
+        actor,
+      );
+      await expect(rejectedPromise).rejects.toThrow(NotFoundException);
+      await expect(rejectedPromise).rejects.toMatchObject({
+        response: { errorCode: 'WAREHOUSE_001' },
+      });
+      expect(branchRepository.update).not.toHaveBeenCalled();
     });
   });
 });
