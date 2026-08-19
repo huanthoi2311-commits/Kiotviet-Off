@@ -3,6 +3,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { InvoiceModule } from '../invoice/invoice.module';
 import { ProductModule } from '../product/product.module';
 import { RbacModule } from '../rbac/rbac.module';
+import { WarehouseModule } from '../warehouse/warehouse.module';
 import { RefundDomainService } from './application/refund-domain.service';
 import { ReturnEligibilityService } from './application/return-eligibility.service';
 import { SalesReturnService } from './application/sales-return.service';
@@ -26,9 +27,23 @@ import { SalesReturnController } from './presentation/sales-return.controller';
  * T014 Phase 5 — bổ sung `SalesReturnController` (REST API cho Return + Refund), import
  * `RbacModule` để dùng `PermissionsGuard`/`@RequirePermissions()` (đúng convention
  * PurchaseReturn/Customer/Supplier).
+ *
+ * T053.05C-1 — bổ sung `WarehouseModule` để `SalesReturnService` xác minh `warehouseId` (foreign
+ * id tenant-owned) thuộc `actor.organizationId` TRƯỚC khi ghi `SalesReturnItem`, tái dùng đúng
+ * port công khai đã duyệt (`WarehouseService.findOne(id, organizationId)`, cùng pattern Checkout/
+ * PurchaseOrder/InventoryAdjustment/Transfer/StockCount đã dùng). Không tạo vòng lặp: đã truy vết
+ * toàn bộ transitive import của `WarehouseModule` (RbacModule, BranchModule, UserModule,
+ * UsageLimitModule, và cấp tiếp theo AuthModule/EntitlementModule/OrganizationModule) — không có
+ * module nào trong tập đó import lại SalesReturnModule/InventoryModule/InvoiceModule/ProductModule.
  */
 @Module({
-  imports: [InvoiceModule, ProductModule, InventoryModule, RbacModule],
+  imports: [
+    InvoiceModule,
+    ProductModule,
+    InventoryModule,
+    RbacModule,
+    WarehouseModule,
+  ],
   controllers: [SalesReturnController],
   providers: [
     SalesReturnService,
