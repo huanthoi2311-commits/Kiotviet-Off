@@ -8,6 +8,9 @@ import {
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
+import { CategoryReferenceService } from '../../category/application/category-reference.service';
+import { BrandReferenceService } from '../../brand/application/brand-reference.service';
+import { UnitDomainService } from '../../unit/application/unit-domain.service';
 import { ProductEntity, ProductType } from '../domain/entities/product.entity';
 import { ProductConcurrencyConflictError } from '../domain/errors/product.errors';
 import { PRODUCT_REPOSITORY } from '../domain/repositories/product.repository.interface';
@@ -44,6 +47,9 @@ export class ProductService {
     @Inject(SKU_GENERATOR) private readonly skuGenerator: ISkuGenerator,
     @Inject(SLUG_GENERATOR) private readonly slugGenerator: ISlugGenerator,
     private readonly auditLogService: AuditLogService,
+    private readonly categoryReferenceService: CategoryReferenceService,
+    private readonly brandReferenceService: BrandReferenceService,
+    private readonly unitDomainService: UnitDomainService,
   ) {}
 
   async create(
@@ -57,6 +63,16 @@ export class ProductService {
       dto.categoryId,
       actor.organizationId,
     );
+    // T053.05C-2 — categoryId/unitId là bắt buộc (không @IsOptional() ở CreateProductDto) — luôn
+    // xác minh. brandId tùy chọn (không null ở create) — chỉ xác minh khi có giá trị (cùng pattern
+    // BranchService.create() dùng cho managerUserId). Đặt SAU assertValidVariantRelationship() để
+    // giữ nguyên thứ tự ưu tiên lỗi hiện có (retail price / variant relationship vẫn thắng trước
+    // nếu request đồng thời sai nhiều trường — xem báo cáo Validation Order Audit).
+    await this.assertCategoryExists(dto.categoryId, actor.organizationId);
+    if (dto.brandId) {
+      await this.assertBrandExists(dto.brandId, actor.organizationId);
+    }
+    await this.assertUnitExists(dto.unitId, actor.organizationId);
 
     const [sku, slug] = await Promise.all([
       this.skuGenerator.generate(actor.organizationId),
@@ -167,6 +183,21 @@ export class ProductService {
       effectiveCategoryId,
       actor.organizationId,
     );
+    // T053.05C-2 — categoryId/unitId: KHÔNG null trong UpdateProductDto (không có "xoá danh
+    // mục/đơn vị tính") — chỉ xác minh khi có mặt trong request (undefined = giữ nguyên, cùng
+    // pattern WarehouseService.update() dùng cho branchId). brandId: tùy chọn VÀ nullable — tri-
+    // state (undefined = giữ nguyên, null = xoá không cần tra, string = xác minh — cùng pattern
+    // WarehouseService.update()/BranchService.update() dùng cho managerId/managerUserId). Đặt SAU
+    // assertValidVariantRelationship() để giữ nguyên thứ tự ưu tiên lỗi hiện có.
+    if (dto.categoryId !== undefined) {
+      await this.assertCategoryExists(dto.categoryId, actor.organizationId);
+    }
+    if (dto.brandId !== undefined && dto.brandId !== null) {
+      await this.assertBrandExists(dto.brandId, actor.organizationId);
+    }
+    if (dto.unitId !== undefined) {
+      await this.assertUnitExists(dto.unitId, actor.organizationId);
+    }
 
     // Product Type Rule (Decision A06) - gate sau Feature Flag (Decision A12/C03): tat thi giu
     // hanh vi truoc refactor (doi type tu do, dung "type" chua tung ton tai truoc SPEC nay nen
@@ -387,6 +418,59 @@ export class ProductService {
           ErrorCode.PRODUCT_VARIANT_PARENT_NOT_ALLOWED,
           'parentProductId chỉ được phép khi type=VARIANT_CHILD',
         ),
+      );
+    }
+  }
+
+  /** T053.05C-2 — `CategoryReferenceService.findById` đã non-disclosing sẵn (cross-tenant hoặc
+   * không tồn tại đều trả `null` như nhau), nên cross-tenant categoryId và categoryId không tồn
+   * tại luôn ra CÙNG 1 CATEGORY_001, không có tín hiệu phân biệt nào rò rỉ ra ngoài. */
+  private async assertCategoryExists(
+    categoryId: string,
+    organizationId: string,
+  ): Promise<void> {
+    const category = await this.categoryReferenceService.findById(
+      categoryId,
+      organizationId,
+    );
+    if (!category) {
+      throw new NotFoundException(
+        withCode(ErrorCode.CATEGORY_NOT_FOUND, 'Không tìm thấy danh mục'),
+      );
+    }
+  }
+
+  /** Cùng bất biến non-disclosing như `assertCategoryExists` ở trên, áp dụng cho `brandId`. */
+  private async assertBrandExists(
+    brandId: string,
+    organizationId: string,
+  ): Promise<void> {
+    const brand = await this.brandReferenceService.findById(
+      brandId,
+      organizationId,
+    );
+    if (!brand) {
+      throw new NotFoundException(
+        withCode(ErrorCode.BRAND_NOT_FOUND, 'Không tìm thấy thương hiệu'),
+      );
+    }
+  }
+
+  /** Cùng bất biến non-disclosing như `assertCategoryExists` ở trên, áp dụng cho `unitId`. LƯU Ý:
+   * `UnitDomainService.findByIdForReference` nhận tham số theo thứ tự (organizationId, unitId) —
+   * NGƯỢC với `findById(id, organizationId)` của Category/Brand/User/Warehouse (chữ ký đã có sẵn
+   * từ SPEC-BARCODE-001 §9.4, KHÔNG đổi để giữ nguyên hành vi cho `barcode` module). */
+  private async assertUnitExists(
+    unitId: string,
+    organizationId: string,
+  ): Promise<void> {
+    const unit = await this.unitDomainService.findByIdForReference(
+      organizationId,
+      unitId,
+    );
+    if (!unit) {
+      throw new NotFoundException(
+        withCode(ErrorCode.UNIT_NOT_FOUND, 'Không tìm thấy đơn vị tính'),
       );
     }
   }
