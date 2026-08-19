@@ -42,6 +42,15 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
   let productBId: string;
   let orgAToken: string;
   let orgAUserId: string;
+  // T053.05C-2 (Gate G/H) — Category/Brand/Unit của cả 2 tổ chức + 1 User thứ hai của Org B (mục
+  // tiêu tấn công cho Branch.managerUserId, không dùng orgAUserId/actor).
+  let categoryAId: string;
+  let categoryBId: string;
+  let brandAId: string;
+  let brandBId: string;
+  let unitAId: string;
+  let unitBId: string;
+  let userBId: string;
 
   const ORG_B_KNOWN_QUANTITY = 50;
   const ORG_B_KNOWN_UNIT_COST = 30000;
@@ -135,6 +144,35 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
       },
     });
     expect(supplierProducts).toHaveLength(0);
+
+    // T053.05C-2 (Gate G) — không Branch nào của Org A tham chiếu managerUserId/defaultWarehouseId
+    // của Org B.
+    const branchesWithForeignManager = await prisma.branch.findMany({
+      where: { organizationId: orgAId, managerUserId: userBId },
+    });
+    expect(branchesWithForeignManager).toHaveLength(0);
+
+    const branchesWithForeignDefaultWarehouse = await prisma.branch.findMany({
+      where: { organizationId: orgAId, defaultWarehouseId: warehouseBId },
+    });
+    expect(branchesWithForeignDefaultWarehouse).toHaveLength(0);
+
+    // T053.05C-2 (Gate H) — không Product nào của Org A tham chiếu categoryId/brandId/unitId của
+    // Org B.
+    const productsWithForeignCategory = await prisma.product.findMany({
+      where: { organizationId: orgAId, categoryId: categoryBId },
+    });
+    expect(productsWithForeignCategory).toHaveLength(0);
+
+    const productsWithForeignBrand = await prisma.product.findMany({
+      where: { organizationId: orgAId, brandId: brandBId },
+    });
+    expect(productsWithForeignBrand).toHaveLength(0);
+
+    const productsWithForeignUnit = await prisma.product.findMany({
+      where: { organizationId: orgAId, unitId: unitBId },
+    });
+    expect(productsWithForeignUnit).toHaveLength(0);
   }
 
   beforeAll(async () => {
@@ -208,6 +246,8 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
           { code: { startsWith: 'pos:' } },
           { code: { startsWith: 'sales_return:' } },
           { code: { startsWith: 'supplier:' } },
+          // T053.05C-2 — Gate G (Branch) cần branch:*.
+          { code: { startsWith: 'branch:' } },
         ],
       },
     });
@@ -364,12 +404,25 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
       },
       update: {},
     });
+    const brandA = await prisma.brand.upsert({
+      where: {
+        organizationId_code: { organizationId: orgAId, code: 'E2E-FK-BRD-A' },
+      },
+      create: {
+        organizationId: orgAId,
+        code: 'E2E-FK-BRD-A',
+        name: 'Thương hiệu A (FK Hardening)',
+      },
+      update: {},
+    });
+
     const productARes = await request(app.getHttpServer())
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${orgAToken}`)
       .send({
         type: 'STANDARD',
         categoryId: categoryA.id,
+        brandId: brandA.id,
         unitId: unitA.id,
         name: `Sản phẩm A FK hardening e2e ${Date.now()}`,
         costPrice: 10000,
@@ -377,6 +430,9 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
       })
       .expect(201);
     productAId = productARes.body.data.id;
+    categoryAId = categoryA.id;
+    brandAId = brandA.id;
+    unitAId = unitA.id;
 
     const categoryB = await prisma.category.upsert({
       where: {
@@ -402,10 +458,22 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
       },
       update: {},
     });
+    const brandB = await prisma.brand.upsert({
+      where: {
+        organizationId_code: { organizationId: orgBId, code: 'E2E-FK-BRD-B' },
+      },
+      create: {
+        organizationId: orgBId,
+        code: 'E2E-FK-BRD-B',
+        name: 'Thương hiệu B (FK Hardening)',
+      },
+      update: {},
+    });
     const productB = await prisma.product.create({
       data: {
         organizationId: orgBId,
         categoryId: categoryB.id,
+        brandId: brandB.id,
         unitId: unitB.id,
         sku: `SP-FK-B-${Date.now()}`,
         slug: `san-pham-b-fk-hardening-${Date.now()}`,
@@ -416,6 +484,28 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
       },
     });
     productBId = productB.id;
+    categoryBId = categoryB.id;
+    brandBId = brandB.id;
+    unitBId = unitB.id;
+
+    // T053.05C-2 (Gate G) — User thứ hai thuộc Org B (mục tiêu tấn công cho Branch.managerUserId).
+    // Tạo thẳng qua Prisma (không cần token/HTTP access, cùng pattern supplierB/warehouseB).
+    const userB = await prisma.user.upsert({
+      where: {
+        organizationId_email: {
+          organizationId: orgBId,
+          email: 'fk-harden-b@pos-erp.local',
+        },
+      },
+      create: {
+        organizationId: orgBId,
+        username: 'fk-harden-b',
+        email: 'fk-harden-b@pos-erp.local',
+        passwordHash,
+      },
+      update: {},
+    });
+    userBId = userB.id;
 
     // Seed Org A's own inventory (đủ hàng để giao dịch hợp lệ) + Org B's KNOWN pre-existing
     // inventory (mục tiêu chứng minh KHÔNG bị Org A chạm vào).
@@ -1031,7 +1121,376 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
     });
   });
 
-  it('FINAL. Sau toàn bộ 6 Gate (A-F) — không tồn tại quan hệ xuyên tổ chức bất khả thi nào, Inventory/SalesReturnItem/SupplierProduct thật của Org B nguyên vẹn', async () => {
+  // ============================================================
+  // Gate G — Branch (managerUserId / defaultWarehouseId) — T053.05C-2
+  // ============================================================
+  describe('Gate G — Branch', () => {
+    let branchGId: string;
+
+    // Fixture riêng cho các test update (G4-G7) — tách khỏi G3 (chỉ chứng minh create thành công
+    // qua request HTTP riêng), cùng mẫu Gate E/F dùng beforeAll lồng nhau để thiết lập state dùng
+    // chung, không phụ thuộc thứ tự chạy giữa các it().
+    beforeAll(async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/branches')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          name: `Chi nhánh Gate G fixture ${Date.now()}`,
+          managerUserId: orgAUserId,
+        })
+        .expect(201);
+      branchGId = res.body.data.id;
+    });
+
+    it('G1. managerUserId của Org B — 404 USER_001, không tạo Branch mang managerUserId ngoại lai', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/branches')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          name: `Chi nhánh Gate G1 ${Date.now()}`,
+          managerUserId: userBId,
+        })
+        .expect(404);
+      expect(res.body.code).toBe('USER_001');
+
+      const foreignManagerBranches = await prisma.branch.findMany({
+        where: { organizationId: orgAId, managerUserId: userBId },
+      });
+      expect(foreignManagerBranches).toHaveLength(0);
+    });
+
+    it('G2. managerUserId không tồn tại — CÙNG 404 USER_001 như cross-tenant (không phân biệt được)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/branches')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          name: `Chi nhánh Gate G2 ${Date.now()}`,
+          managerUserId: '00000000-0000-0000-0000-000000000000',
+        })
+        .expect(404);
+      expect(res.body.code).toBe('USER_001');
+    });
+
+    it('G3. managerUserId của chính Org A — thành công (201)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/branches')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          name: `Chi nhánh Gate G3 ${Date.now()}`,
+          managerUserId: orgAUserId,
+        })
+        .expect(201);
+      expect(res.body.data.managerUserId).toBe(orgAUserId);
+    });
+
+    it('G4. update — defaultWarehouseId của Org B — 404 WAREHOUSE_001, Branch không đổi', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/branches/${branchGId}`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ defaultWarehouseId: warehouseBId })
+        .expect(404);
+      expect(res.body.code).toBe('WAREHOUSE_001');
+
+      const unchanged = await prisma.branch.findUniqueOrThrow({
+        where: { id: branchGId },
+      });
+      expect(unchanged.defaultWarehouseId).toBeNull();
+    });
+
+    it('G5. update — defaultWarehouseId không tồn tại — CÙNG 404 WAREHOUSE_001 như cross-tenant', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/branches/${branchGId}`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ defaultWarehouseId: '00000000-0000-0000-0000-000000000000' })
+        .expect(404);
+      expect(res.body.code).toBe('WAREHOUSE_001');
+    });
+
+    it('G6. update — defaultWarehouseId của chính Org A — thành công (200)', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/branches/${branchGId}`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ defaultWarehouseId: warehouseAId })
+        .expect(200);
+      expect(res.body.data.defaultWarehouseId).toBe(warehouseAId);
+    });
+
+    it('G7. update — managerUserId của Org B — 404 USER_001 (đường update cũng được bảo vệ, không chỉ create)', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/branches/${branchGId}`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ managerUserId: userBId })
+        .expect(404);
+      expect(res.body.code).toBe('USER_001');
+
+      const unchanged = await prisma.branch.findUniqueOrThrow({
+        where: { id: branchGId },
+      });
+      expect(unchanged.managerUserId).toBe(orgAUserId);
+    });
+
+    it('G8. Sau toàn bộ tấn công bị từ chối — User B/Warehouse B không bị đổi, không Branch nào của Org A tham chiếu chúng', async () => {
+      const userBUnchanged = await prisma.user.findUniqueOrThrow({
+        where: { id: userBId },
+      });
+      expect(userBUnchanged.organizationId).toBe(orgBId);
+
+      const warehouseBUnchanged = await prisma.warehouse.findUniqueOrThrow({
+        where: { id: warehouseBId },
+      });
+      expect(warehouseBUnchanged.organizationId).toBe(orgBId);
+
+      const foreignManagerBranches = await prisma.branch.findMany({
+        where: { organizationId: orgAId, managerUserId: userBId },
+      });
+      expect(foreignManagerBranches).toHaveLength(0);
+
+      const foreignDefaultWarehouseBranches = await prisma.branch.findMany({
+        where: { organizationId: orgAId, defaultWarehouseId: warehouseBId },
+      });
+      expect(foreignDefaultWarehouseBranches).toHaveLength(0);
+    });
+  });
+
+  // ============================================================
+  // Gate H — Product (categoryId / brandId / unitId) — T053.05C-2
+  // ============================================================
+  describe('Gate H — Product', () => {
+    let productHId: string;
+
+    // Fixture riêng cho các test update (H6-H10) — tách khỏi H5 (chỉ chứng minh create thành công
+    // qua request HTTP riêng), cùng mẫu Gate G ở trên / Gate E-F dùng beforeAll lồng nhau.
+    beforeAll(async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          type: 'STANDARD',
+          categoryId: categoryAId,
+          brandId: brandAId,
+          unitId: unitAId,
+          name: `Sản phẩm Gate H fixture ${Date.now()}`,
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(201);
+      productHId = res.body.data.id;
+    });
+
+    it('H1. create — categoryId của Org B — 404 CATEGORY_001, không tạo Product mang categoryId ngoại lai', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          type: 'STANDARD',
+          categoryId: categoryBId,
+          unitId: unitAId,
+          name: `Sản phẩm Gate H1 ${Date.now()}`,
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(404);
+      expect(res.body.code).toBe('CATEGORY_001');
+
+      const foreignCategoryProducts = await prisma.product.findMany({
+        where: { organizationId: orgAId, categoryId: categoryBId },
+      });
+      expect(foreignCategoryProducts).toHaveLength(0);
+    });
+
+    it('H2. create — categoryId không tồn tại — CÙNG 404 CATEGORY_001 như cross-tenant', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          type: 'STANDARD',
+          categoryId: '00000000-0000-0000-0000-000000000000',
+          unitId: unitAId,
+          name: `Sản phẩm Gate H2 ${Date.now()}`,
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(404);
+      expect(res.body.code).toBe('CATEGORY_001');
+    });
+
+    it('H3. create — brandId của Org B — 404 BRAND_001, không tạo Product mang brandId ngoại lai', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          type: 'STANDARD',
+          categoryId: categoryAId,
+          brandId: brandBId,
+          unitId: unitAId,
+          name: `Sản phẩm Gate H3 ${Date.now()}`,
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(404);
+      expect(res.body.code).toBe('BRAND_001');
+
+      const foreignBrandProducts = await prisma.product.findMany({
+        where: { organizationId: orgAId, brandId: brandBId },
+      });
+      expect(foreignBrandProducts).toHaveLength(0);
+    });
+
+    it('H4. create — unitId của Org B — 404 UNIT_001, không tạo Product mang unitId ngoại lai', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          type: 'STANDARD',
+          categoryId: categoryAId,
+          unitId: unitBId,
+          name: `Sản phẩm Gate H4 ${Date.now()}`,
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(404);
+      expect(res.body.code).toBe('UNIT_001');
+
+      const foreignUnitProducts = await prisma.product.findMany({
+        where: { organizationId: orgAId, unitId: unitBId },
+      });
+      expect(foreignUnitProducts).toHaveLength(0);
+    });
+
+    it('H5. create — categoryId/brandId/unitId của chính Org A — thành công (201)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/products')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          type: 'STANDARD',
+          categoryId: categoryAId,
+          brandId: brandAId,
+          unitId: unitAId,
+          name: `Sản phẩm Gate H5 ${Date.now()}`,
+          costPrice: 10000,
+          prices: [{ type: 'RETAIL', price: 20000 }],
+        })
+        .expect(201);
+      expect(res.body.data.categoryId).toBe(categoryAId);
+      expect(res.body.data.brandId).toBe(brandAId);
+      expect(res.body.data.unitId).toBe(unitAId);
+    });
+
+    it('H6. update — categoryId của Org B — 404 CATEGORY_001, Product không đổi', async () => {
+      const { version } = await prisma.product.findUniqueOrThrow({
+        where: { id: productHId },
+        select: { version: true },
+      });
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${productHId}`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ version, categoryId: categoryBId })
+        .expect(404);
+      expect(res.body.code).toBe('CATEGORY_001');
+
+      const unchanged = await prisma.product.findUniqueOrThrow({
+        where: { id: productHId },
+      });
+      expect(unchanged.categoryId).toBe(categoryAId);
+    });
+
+    it('H7. update — brandId của Org B — 404 BRAND_001, Product không đổi', async () => {
+      const { version } = await prisma.product.findUniqueOrThrow({
+        where: { id: productHId },
+        select: { version: true },
+      });
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${productHId}`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ version, brandId: brandBId })
+        .expect(404);
+      expect(res.body.code).toBe('BRAND_001');
+
+      const unchanged = await prisma.product.findUniqueOrThrow({
+        where: { id: productHId },
+      });
+      expect(unchanged.brandId).toBe(brandAId);
+    });
+
+    it('H8. update — unitId của Org B — 404 UNIT_001, Product không đổi', async () => {
+      const { version } = await prisma.product.findUniqueOrThrow({
+        where: { id: productHId },
+        select: { version: true },
+      });
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${productHId}`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ version, unitId: unitBId })
+        .expect(404);
+      expect(res.body.code).toBe('UNIT_001');
+
+      const unchanged = await prisma.product.findUniqueOrThrow({
+        where: { id: productHId },
+      });
+      expect(unchanged.unitId).toBe(unitAId);
+    });
+
+    it('H9. update — brandId: null — thành công (200), xoá brandId (chứng minh tri-state null=xoá hoạt động end-to-end)', async () => {
+      const { version } = await prisma.product.findUniqueOrThrow({
+        where: { id: productHId },
+        select: { version: true },
+      });
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${productHId}`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ version, brandId: null })
+        .expect(200);
+      expect(res.body.data.brandId).toBeNull();
+    });
+
+    it('H10. update — categoryId/unitId của chính Org A — thành công (200)', async () => {
+      const { version } = await prisma.product.findUniqueOrThrow({
+        where: { id: productHId },
+        select: { version: true },
+      });
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/products/${productHId}`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ version, categoryId: categoryAId, unitId: unitAId })
+        .expect(200);
+      expect(res.body.data.categoryId).toBe(categoryAId);
+      expect(res.body.data.unitId).toBe(unitAId);
+    });
+
+    it('H11. Sau toàn bộ tấn công bị từ chối — Category B/Brand B/Unit B không bị đổi, không Product nào của Org A tham chiếu chúng', async () => {
+      const categoryBUnchanged = await prisma.category.findUniqueOrThrow({
+        where: { id: categoryBId },
+      });
+      expect(categoryBUnchanged.organizationId).toBe(orgBId);
+
+      const brandBUnchanged = await prisma.brand.findUniqueOrThrow({
+        where: { id: brandBId },
+      });
+      expect(brandBUnchanged.organizationId).toBe(orgBId);
+
+      const unitBUnchanged = await prisma.unit.findUniqueOrThrow({
+        where: { id: unitBId },
+      });
+      expect(unitBUnchanged.organizationId).toBe(orgBId);
+
+      const foreignCategoryProducts = await prisma.product.findMany({
+        where: { organizationId: orgAId, categoryId: categoryBId },
+      });
+      expect(foreignCategoryProducts).toHaveLength(0);
+
+      const foreignBrandProducts = await prisma.product.findMany({
+        where: { organizationId: orgAId, brandId: brandBId },
+      });
+      expect(foreignBrandProducts).toHaveLength(0);
+
+      const foreignUnitProducts = await prisma.product.findMany({
+        where: { organizationId: orgAId, unitId: unitBId },
+      });
+      expect(foreignUnitProducts).toHaveLength(0);
+    });
+  });
+
+  it('FINAL. Sau toàn bộ 8 Gate (A-H) — không tồn tại quan hệ xuyên tổ chức bất khả thi nào, Inventory/SalesReturnItem/SupplierProduct/Branch/Product thật của Org B nguyên vẹn', async () => {
     await assertNoImpossibleRelations();
   });
 });
