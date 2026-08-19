@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { applyInventoryDelta } from '../../../../common/utils/average-cost.util';
@@ -122,6 +122,21 @@ export class PrismaInventoryRepository implements IInventoryRepository {
         },
       },
     });
+
+    // T053.05C-1 — Defense-in-depth (không thay cho việc validate warehouseId/productId THUỘC
+    // TENANT tại nguồn ở từng caller — xem SalesReturnService). `@@unique([warehouseId, productId])`
+    // KHÔNG bao gồm organizationId, nên lookup trên KHÔNG tự loại trừ 1 dòng Inventory thuộc tổ
+    // chức khác. Nếu 1 dòng Inventory đã tồn tại nhưng organizationId của nó KHÔNG khớp
+    // input.organizationId, đây là vi phạm bất biến hệ thống (dữ liệu tenant-inconsistent đã tồn
+    // tại từ trước, hoặc caller nào đó bỏ sót bước validate) — dừng NGAY, TRƯỚC updateMany/create,
+    // không mutate quantity/avgCost/lastCost, không ghi InventoryMovement. Cùng pattern
+    // `InternalServerErrorException` fail-closed đã dùng ở `UsageLimitService.getLimit()` — không
+    // lộ tổ chức nào đang bị tham chiếu chéo trong thông điệp.
+    if (existing && existing.organizationId !== input.organizationId) {
+      throw new InternalServerErrorException(
+        'Bất biến hệ thống bị vi phạm: Inventory hiện có không thuộc tổ chức đang thao tác',
+      );
+    }
 
     const delta = new Prisma.Decimal(input.quantity);
     const beforeQuantity = existing?.quantity ?? new Prisma.Decimal(0);
