@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { EntitlementModule } from '../entitlement/entitlement.module';
+import { ProductModule } from '../product/product.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { SupplierDomainService } from './application/supplier-domain.service';
 import { SupplierExcelService } from './application/supplier-excel.service';
@@ -20,9 +21,15 @@ import { SupplierController } from './presentation/supplier.controller';
  * T012 (Decision SR05/SR06, ADR-0010 — Repository Boundary) — `SUPPLIER_REPOSITORY` VÀ
  * `SUPPLIER_PRODUCT_REPOSITORY` KHÔNG còn export. `supplier-debt` phải phụ thuộc
  * `SupplierDomainService` (public application port), không phụ thuộc repository token trực tiếp.
+ *
+ * T053.05C-1 — bổ sung `ProductModule` để `SupplierProductService` xác minh `productId` (foreign
+ * id tenant-owned) thuộc `actor.organizationId` TRƯỚC khi ghi mapping (`ProductDomainService`,
+ * cùng cửa ngõ công khai category/brand/unit/barcode/cart đã dùng). Không tạo vòng lặp:
+ * `ProductModule` (imports: RbacModule, UsageLimitModule) không import lại SupplierModule, trực
+ * tiếp hay gián tiếp.
  */
 @Module({
-  imports: [RbacModule, EntitlementModule],
+  imports: [RbacModule, EntitlementModule, ProductModule],
   controllers: [SupplierController, SupplierProductController],
   providers: [
     SupplierService,

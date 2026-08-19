@@ -1,3 +1,4 @@
+import { InternalServerErrorException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
@@ -128,11 +129,19 @@ describe('PrismaInventoryRepository', () => {
       settingValue?: unknown;
       updateManyCount?: number;
     }) {
+      // T053.05C-1 — `existingInventory` mô phỏng 1 dòng Inventory CÙNG tổ chức với `baseInput`
+      // theo mặc định (tổ chức khác phải khai báo tường minh qua override, không phải qua thiếu
+      // sót) — recordMovement() giờ kiểm tra existing.organizationId === input.organizationId
+      // TRƯỚC updateMany/create (defense-in-depth), nên fixture thiếu organizationId sẽ vô tình
+      // trông giống dữ liệu tenant-inconsistent.
+      const existingInventory =
+        overrides.existingInventory &&
+        typeof overrides.existingInventory === 'object'
+          ? { organizationId: 'org-1', ...overrides.existingInventory }
+          : (overrides.existingInventory ?? null);
       return {
         inventory: {
-          findUnique: jest
-            .fn()
-            .mockResolvedValue(overrides.existingInventory ?? null),
+          findUnique: jest.fn().mockResolvedValue(existingInventory),
           updateMany: jest
             .fn()
             .mockResolvedValue({ count: overrides.updateManyCount ?? 1 }),
@@ -434,6 +443,126 @@ describe('PrismaInventoryRepository', () => {
           }),
         }),
       );
+    });
+
+    describe('T053.05C-1 — defense-in-depth: existing.organizationId phải khớp input.organizationId', () => {
+      it('INV-U1: existing Inventory CÙNG tổ chức — mutation diễn ra bình thường', async () => {
+        const client = makeClient({
+          existingInventory: {
+            organizationId: 'org-1',
+            quantity: new Prisma.Decimal(100),
+            avgCost: new Prisma.Decimal(50),
+          },
+        });
+
+        await repository.recordMovement(
+          client as unknown as Prisma.TransactionClient,
+          { ...baseInput, quantity: -30, checkNegativeStock: false },
+        );
+
+        expect(client.inventory.updateMany).toHaveBeenCalled();
+        expect(client.inventoryMovement.create).toHaveBeenCalled();
+      });
+
+      it('INV-U2: existing Inventory KHÁC tổ chức — ném lỗi bất biến TRƯỚC updateMany', async () => {
+        const client = makeClient({
+          existingInventory: {
+            organizationId: 'org-2',
+            quantity: new Prisma.Decimal(100),
+            avgCost: new Prisma.Decimal(50),
+          },
+        });
+
+        await expect(
+          repository.recordMovement(
+            client as unknown as Prisma.TransactionClient,
+            { ...baseInput, quantity: -30, checkNegativeStock: false },
+          ),
+        ).rejects.toThrow(InternalServerErrorException);
+        expect(client.inventory.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('INV-U3: mismatch — quantity của dòng Inventory hiện có không đổi (updateMany không được gọi nên không thể đổi)', async () => {
+        const client = makeClient({
+          existingInventory: {
+            organizationId: 'org-2',
+            quantity: new Prisma.Decimal(100),
+            avgCost: new Prisma.Decimal(50),
+          },
+        });
+
+        await expect(
+          repository.recordMovement(
+            client as unknown as Prisma.TransactionClient,
+            { ...baseInput, quantity: -30, checkNegativeStock: false },
+          ),
+        ).rejects.toThrow(InternalServerErrorException);
+        expect(client.inventory.updateMany).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ quantity: expect.anything() }),
+          }),
+        );
+      });
+
+      it('INV-U4: mismatch — avgCost/lastCost của dòng Inventory hiện có không đổi', async () => {
+        const client = makeClient({
+          existingInventory: {
+            organizationId: 'org-2',
+            quantity: new Prisma.Decimal(100),
+            avgCost: new Prisma.Decimal(50),
+            lastCost: new Prisma.Decimal(48),
+          },
+        });
+
+        await expect(
+          repository.recordMovement(
+            client as unknown as Prisma.TransactionClient,
+            {
+              ...baseInput,
+              quantity: 10,
+              unitCost: 60,
+              checkNegativeStock: false,
+            },
+          ),
+        ).rejects.toThrow(InternalServerErrorException);
+        expect(client.inventory.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('INV-U5: mismatch — InventoryMovement không được tạo', async () => {
+        const client = makeClient({
+          existingInventory: {
+            organizationId: 'org-2',
+            quantity: new Prisma.Decimal(100),
+          },
+        });
+
+        await expect(
+          repository.recordMovement(
+            client as unknown as Prisma.TransactionClient,
+            { ...baseInput, quantity: -30, checkNegativeStock: false },
+          ),
+        ).rejects.toThrow(InternalServerErrorException);
+        expect(client.inventoryMovement.create).not.toHaveBeenCalled();
+      });
+
+      it('INV-U6: caller cùng tổ chức bình thường không bị ảnh hưởng — khởi tạo dòng Inventory mới (existing=null) vẫn hoạt động như trước', async () => {
+        const client = makeClient({
+          existingInventory: null,
+          updateManyCount: 0,
+        });
+
+        const result = await repository.recordMovement(
+          client as unknown as Prisma.TransactionClient,
+          { ...baseInput, quantity: 50, checkNegativeStock: false },
+        );
+
+        expect(client.inventory.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ organizationId: 'org-1' }),
+          }),
+        );
+        expect(result.movement.id).toBe('mv-1');
+      });
     });
   });
 });

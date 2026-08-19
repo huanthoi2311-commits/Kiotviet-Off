@@ -116,6 +116,25 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
 
     // Org B's Inventory row bản thân không bị đổi bởi bất kỳ workflow nào của Org A.
     await assertOrgBInventoryUnchanged();
+
+    // T053.05C-1 (Gate E) — không SalesReturnItem nào của Org A tham chiếu Warehouse của Org B.
+    const salesReturnItems = await prisma.salesReturnItem.findMany({
+      where: {
+        warehouseId: warehouseBId,
+        salesReturn: { organizationId: orgAId },
+      },
+    });
+    expect(salesReturnItems).toHaveLength(0);
+
+    // T053.05C-1 (Gate F) — không SupplierProduct nào liên kết Supplier của Org A với Product
+    // của Org B.
+    const supplierProducts = await prisma.supplierProduct.findMany({
+      where: {
+        productId: productBId,
+        supplier: { organizationId: orgAId },
+      },
+    });
+    expect(supplierProducts).toHaveLength(0);
   }
 
   beforeAll(async () => {
@@ -141,10 +160,12 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
     });
     orgAId = orgA.id;
     // T053.05B - to chuc test fixture nay tao truc tiep, khong tu dong co OrganizationSubscription.
+    // T053.05C-1 (Gate F) - plan TRIAL (khong phai FREE mac dinh) vi POST /suppliers gan
+    // @RequireEntitlement('SUPPLIER'), FREE khong co feature nay (T053.03 PLAN_ENTITLEMENTS).
     await prisma.organizationSubscription.upsert({
       where: { organizationId: orgAId },
-      create: { organizationId: orgAId },
-      update: {},
+      create: { organizationId: orgAId, plan: 'TRIAL' },
+      update: { plan: 'TRIAL' },
     });
 
     const orgB = await prisma.organization.upsert({
@@ -182,6 +203,11 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
           { code: { startsWith: 'stock_count:' } },
           { code: { startsWith: 'inventory:' } },
           { code: { startsWith: 'product:' } },
+          // T053.05C-1 — Gate E (Sales Return) cần pos:access (Cart/Checkout dùng chung decorator)
+          // + sales_return:*; Gate F (Supplier Product) cần supplier:*.
+          { code: { startsWith: 'pos:' } },
+          { code: { startsWith: 'sales_return:' } },
+          { code: { startsWith: 'supplier:' } },
         ],
       },
     });
@@ -764,5 +790,248 @@ describe('Tenant-Owned Foreign-ID Hardening (e2e, T051.06B)', () => {
     it('D4. Sau toàn bộ tấn công bị từ chối ở cả 4 Gate — không tồn tại quan hệ xuyên tổ chức bất khả thi nào, Inventory thật của Org B nguyên vẹn', async () => {
       await assertNoImpossibleRelations();
     });
+  });
+
+  // ============================================================
+  // Gate E — Sales Return (T053.05C-1 — CONFIRMED-UNSAFE tại thời điểm phát hiện: warehouseId
+  // không được validate, dẫn tới khả năng ghi thật vào Inventory của tổ chức khác qua
+  // recordMovement() — xem T053.05C Discovery §9)
+  // ============================================================
+  describe('Gate E — Sales Return', () => {
+    let orgAInvoiceItemId: string;
+
+    beforeAll(async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/cart/add')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ productId: productAId, quantity: 2 })
+        .expect(201);
+
+      const checkoutRes = await request(app.getHttpServer())
+        .post('/api/v1/checkout')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .set('Idempotency-Key', `e2e-fk-hardening-sr-checkout-${Date.now()}`)
+        .send({
+          branchId: branchAId,
+          warehouseId: warehouseAId,
+          paymentMethod: 'CASH',
+        })
+        .expect(201);
+
+      orgAInvoiceItemId = checkoutRes.body.data.invoice.items[0].id;
+    });
+
+    it('E2/E4/E5/E6/E7. warehouseId của Org B — 404 WAREHOUSE_001, không tạo SalesReturnItem mang warehouseId ngoại lai, Inventory/InventoryMovement/Warehouse của Org B nguyên vẹn (quantity/avgCost/lastCost)', async () => {
+      const { invoiceId } = await prisma.invoiceItem.findUniqueOrThrow({
+        where: { id: orgAInvoiceItemId },
+        select: { invoiceId: true },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/sales-returns')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          invoiceId,
+          items: [
+            {
+              invoiceItemId: orgAInvoiceItemId,
+              quantity: 1,
+              reason: 'DAMAGED',
+              warehouseId: warehouseBId,
+            },
+          ],
+        })
+        .expect(404);
+      expect(res.body.code).toBe('WAREHOUSE_001');
+
+      // E4 — không SalesReturnItem nào (của bất kỳ SalesReturn nào vừa cố tạo) mang warehouseId
+      // của Org B.
+      const foreignItems = await prisma.salesReturnItem.findMany({
+        where: {
+          warehouseId: warehouseBId,
+          salesReturn: { organizationId: orgAId },
+        },
+      });
+      expect(foreignItems).toHaveLength(0);
+
+      // E5 — Inventory thật của Org B (đã seed sẵn ORG_B_KNOWN_QUANTITY/ORG_B_KNOWN_UNIT_COST)
+      // không bị đổi.
+      await assertOrgBInventoryUnchanged();
+
+      // E6 — không InventoryMovement nào được tạo cho warehouse của Org B bởi lần thử này.
+      const movements = await prisma.inventoryMovement.findMany({
+        where: { warehouseId: warehouseBId, referenceType: 'RETURN' },
+      });
+      expect(movements).toHaveLength(0);
+
+      // E7 — bản thân Warehouse của Org B không bị đổi chủ sở hữu/metadata.
+      const warehouseBUnchanged = await prisma.warehouse.findUniqueOrThrow({
+        where: { id: warehouseBId },
+      });
+      expect(warehouseBUnchanged.organizationId).toBe(orgBId);
+    });
+
+    it('E3. warehouseId không tồn tại (UUID hợp lệ nhưng không có Warehouse nào) — CÙNG 404 WAREHOUSE_001 như trường hợp cross-tenant (không phân biệt được)', async () => {
+      const { invoiceId } = await prisma.invoiceItem.findUniqueOrThrow({
+        where: { id: orgAInvoiceItemId },
+        select: { invoiceId: true },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/sales-returns')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          invoiceId,
+          items: [
+            {
+              invoiceItemId: orgAInvoiceItemId,
+              quantity: 1,
+              reason: 'DAMAGED',
+              warehouseId: '00000000-0000-0000-0000-000000000000',
+            },
+          ],
+        })
+        .expect(404);
+      expect(res.body.code).toBe('WAREHOUSE_001');
+    });
+
+    it('E1. warehouseId của chính Org A — thành công (201), SalesReturn được tạo bình thường', async () => {
+      const { invoiceId } = await prisma.invoiceItem.findUniqueOrThrow({
+        where: { id: orgAInvoiceItemId },
+        select: { invoiceId: true },
+      });
+
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/sales-returns')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({
+          invoiceId,
+          items: [
+            {
+              invoiceItemId: orgAInvoiceItemId,
+              quantity: 1,
+              reason: 'DAMAGED',
+              warehouseId: warehouseAId,
+            },
+          ],
+        })
+        .expect(201);
+      expect(res.body.data.status).toBe('DRAFT');
+    });
+
+    it('E8. Sau toàn bộ tấn công bị từ chối ở Gate E — Org B vẫn thao tác Inventory bình thường qua đúng production code path (recordMovement, bao gồm cùng nhánh defense-in-depth vừa thêm ở T053.05C-1 với organizationId khớp), không bị ảnh hưởng bởi các lần thử của Org A. Ghi +5 rồi -5 để không phá bất biến ORG_B_KNOWN_QUANTITY mà các assertion khác trong file dựa vào.', async () => {
+      const before = await prisma.inventory.findUniqueOrThrow({
+        where: {
+          warehouseId_productId: {
+            warehouseId: warehouseBId,
+            productId: productBId,
+          },
+        },
+      });
+
+      await prisma.$transaction((tx) =>
+        inventoryRepository.recordMovement(tx, {
+          organizationId: orgBId,
+          warehouseId: warehouseBId,
+          productId: productBId,
+          movementType: 'ADJUSTMENT',
+          referenceType: 'SYSTEM',
+          quantity: 5,
+          checkNegativeStock: false,
+          createdBy: orgAUserId,
+        }),
+      );
+      const afterIncrease = await prisma.inventory.findUniqueOrThrow({
+        where: {
+          warehouseId_productId: {
+            warehouseId: warehouseBId,
+            productId: productBId,
+          },
+        },
+      });
+      expect(Number(afterIncrease.quantity)).toBe(Number(before.quantity) + 5);
+      expect(afterIncrease.organizationId).toBe(orgBId);
+
+      await prisma.$transaction((tx) =>
+        inventoryRepository.recordMovement(tx, {
+          organizationId: orgBId,
+          warehouseId: warehouseBId,
+          productId: productBId,
+          movementType: 'ADJUSTMENT',
+          referenceType: 'SYSTEM',
+          quantity: -5,
+          checkNegativeStock: false,
+          createdBy: orgAUserId,
+        }),
+      );
+      await assertOrgBInventoryUnchanged();
+    });
+  });
+
+  // ============================================================
+  // Gate F — Supplier Product (T053.05C-1)
+  // ============================================================
+  describe('Gate F — Supplier Product', () => {
+    let supplierAForProductId: string;
+
+    beforeAll(async () => {
+      const supplierRes = await request(app.getHttpServer())
+        .post('/api/v1/suppliers')
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ companyName: `NCC Gate F ${Date.now()}` })
+        .expect(201);
+      supplierAForProductId = supplierRes.body.data.id;
+    });
+
+    it('F1. productId của Org B — 404 PRODUCT_001, không tạo SupplierProduct mapping', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/suppliers/${supplierAForProductId}/products`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ productId: productBId })
+        .expect(404);
+      expect(res.body.code).toBe('PRODUCT_001');
+
+      const mapping = await prisma.supplierProduct.findFirst({
+        where: { supplierId: supplierAForProductId, productId: productBId },
+      });
+      expect(mapping).toBeNull();
+    });
+
+    it('F2. productId không tồn tại — CÙNG 404 PRODUCT_001 như cross-tenant (không phân biệt được)', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/suppliers/${supplierAForProductId}/products`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ productId: '00000000-0000-0000-0000-000000000000' })
+        .expect(404);
+      expect(res.body.code).toBe('PRODUCT_001');
+    });
+
+    it('F3/F5. productId của chính Org A — thành công, Org B Product không bị đổi', async () => {
+      const productBBefore = await prisma.product.findUniqueOrThrow({
+        where: { id: productBId },
+      });
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/suppliers/${supplierAForProductId}/products`)
+        .set('Authorization', `Bearer ${orgAToken}`)
+        .send({ productId: productAId })
+        .expect(201);
+
+      const productBAfter = await prisma.product.findUniqueOrThrow({
+        where: { id: productBId },
+      });
+      expect(productBAfter.updatedAt).toEqual(productBBefore.updatedAt);
+    });
+
+    it('F4. Sau cả 2 lần thử bị từ chối — không tồn tại SupplierProduct nào liên kết Org A Supplier với Org B Product', async () => {
+      const foreignMappings = await prisma.supplierProduct.findMany({
+        where: { supplierId: supplierAForProductId, productId: productBId },
+      });
+      expect(foreignMappings).toHaveLength(0);
+    });
+  });
+
+  it('FINAL. Sau toàn bộ 6 Gate (A-F) — không tồn tại quan hệ xuyên tổ chức bất khả thi nào, Inventory/SalesReturnItem/SupplierProduct thật của Org B nguyên vẹn', async () => {
+    await assertNoImpossibleRelations();
   });
 });

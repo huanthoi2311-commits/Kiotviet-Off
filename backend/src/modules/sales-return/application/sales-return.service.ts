@@ -14,6 +14,7 @@ import { InvoiceService } from '../../invoice/application/invoice.service';
 import { InvoiceItemResponseDto } from '../../invoice/application/dto/invoice-response.dto';
 import { ProductDomainService } from '../../product/application/product-domain.service';
 import { InventoryDomainService } from '../../inventory/application/inventory-domain.service';
+import { WarehouseService } from '../../warehouse/application/warehouse.service';
 import {
   SalesReturnEntity,
   SalesReturnReason,
@@ -90,6 +91,7 @@ export class SalesReturnService {
     private readonly invoiceService: InvoiceService,
     private readonly productDomainService: ProductDomainService,
     private readonly inventoryDomainService: InventoryDomainService,
+    private readonly warehouseService: WarehouseService,
     private readonly auditLogService: AuditLogService,
     private readonly eventPublisher: DomainEventPublisher,
   ) {}
@@ -148,7 +150,11 @@ export class SalesReturnService {
       );
     }
 
-    const items = this.buildItemInputs(invoice, params.items);
+    const items = await this.buildItemInputs(
+      invoice,
+      params.items,
+      actor.organizationId,
+    );
 
     try {
       await this.eligibilityService.validateRequestedQuantities(
@@ -214,7 +220,11 @@ export class SalesReturnService {
         current.invoiceId,
         actor.organizationId,
       );
-      input.items = this.buildItemInputs(invoice, params.items);
+      input.items = await this.buildItemInputs(
+        invoice,
+        params.items,
+        actor.organizationId,
+      );
       try {
         await this.eligibilityService.validateRequestedQuantities(
           input.items.map((item) => ({
@@ -461,10 +471,34 @@ export class SalesReturnService {
     }
   }
 
-  private buildItemInputs(
+  /** T053.05C-1 — `warehouseId` là foreign id tenant-owned (Warehouse), FK Prisma chỉ đảm bảo
+   * hàng tồn tại, KHÔNG đảm bảo đúng tổ chức. Xác minh qua đúng port công khai đã duyệt
+   * (`WarehouseService.findOne(id, organizationId)`, cùng pattern Checkout/PurchaseOrder/
+   * InventoryAdjustment/Transfer/StockCount đã dùng cho warehouseId) TRƯỚC khi warehouseId được
+   * đưa vào input ghi — chặn ngay tại ngõ vào (ingress), không để lọt tới `receive()`. Distinct
+   * theo warehouseId để không lặp lại lookup cho nhiều dòng hàng cùng kho.
+   */
+  private async assertWarehouseIdsBelongToOrganization(
+    items: CreateSalesReturnItemParams[],
+    organizationId: string,
+  ): Promise<void> {
+    const distinctWarehouseIds = new Set(
+      items.map((item) => item.warehouseId).filter((id): id is string => !!id),
+    );
+    await Promise.all(
+      Array.from(distinctWarehouseIds).map((warehouseId) =>
+        this.warehouseService.findOne(warehouseId, organizationId),
+      ),
+    );
+  }
+
+  private async buildItemInputs(
     invoice: { items: InvoiceItemResponseDto[] },
     items: CreateSalesReturnItemParams[],
-  ): CreateSalesReturnItemInput[] {
+    organizationId: string,
+  ): Promise<CreateSalesReturnItemInput[]> {
+    await this.assertWarehouseIdsBelongToOrganization(items, organizationId);
+
     return items.map((item) => {
       const invoiceItem = invoice.items.find(
         (candidate) => candidate.id === item.invoiceItemId,

@@ -4,11 +4,14 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ErrorCode } from '../../../common/errors/error-codes';
+import { withCode } from '../../../common/errors/with-code';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
 import { DomainEventPublisher } from '../../platform/events/domain-event-publisher.service';
 import { InvoiceService } from '../../invoice/application/invoice.service';
 import { ProductDomainService } from '../../product/application/product-domain.service';
 import { InventoryDomainService } from '../../inventory/application/inventory-domain.service';
+import { WarehouseService } from '../../warehouse/application/warehouse.service';
 import {
   SalesReturnConcurrencyRetryError,
   SalesReturnInvalidTransitionError,
@@ -40,6 +43,7 @@ describe('SalesReturnService', () => {
   let inventoryDomainService: jest.Mocked<
     Pick<InventoryDomainService, 'increase'>
   >;
+  let warehouseService: jest.Mocked<Pick<WarehouseService, 'findOne'>>;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
   let eventPublisher: jest.Mocked<Pick<DomainEventPublisher, 'publish'>>;
 
@@ -150,6 +154,9 @@ describe('SalesReturnService', () => {
         .fn()
         .mockResolvedValue({ movement: {}, avgCostAfter: '0' }),
     };
+    warehouseService = {
+      findOne: jest.fn().mockResolvedValue({ id: 'wh-1' }),
+    };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
     eventPublisher = { publish: jest.fn() };
 
@@ -161,6 +168,7 @@ describe('SalesReturnService', () => {
       invoiceService as unknown as InvoiceService,
       productDomainService as unknown as ProductDomainService,
       inventoryDomainService as unknown as InventoryDomainService,
+      warehouseService as unknown as WarehouseService,
       auditLogService as unknown as AuditLogService,
       eventPublisher as unknown as DomainEventPublisher,
     );
@@ -320,6 +328,127 @@ describe('SalesReturnService', () => {
       await expect(
         service.updateDraft('sr-1', 1, { note: 'x' }, actor),
       ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('T053.05C-1 — warehouseId tenant validation (create/updateDraft)', () => {
+    const itemWithWarehouse = (warehouseId: string | undefined) => ({
+      invoiceItemId: 'invitem-1',
+      quantity: 1,
+      reason: 'DAMAGED' as const,
+      warehouseId,
+    });
+
+    it('SR-U1: same-tenant Warehouse được chấp nhận — findOne gọi đúng (warehouseId, organizationId)', async () => {
+      await service.create(
+        { invoiceId: 'inv-1', items: [itemWithWarehouse('wh-1')] },
+        actor,
+      );
+      expect(warehouseService.findOne).toHaveBeenCalledWith('wh-1', 'org-1');
+      expect(salesReturnRepository.create).toHaveBeenCalled();
+    });
+
+    it('SR-U2: Warehouse không tồn tại — WAREHOUSE_001, write không được gọi', async () => {
+      const notFound = new NotFoundException(
+        withCode(ErrorCode.WAREHOUSE_NOT_FOUND, 'Không tìm thấy kho'),
+      );
+      warehouseService.findOne.mockRejectedValueOnce(notFound);
+
+      await expect(
+        service.create(
+          { invoiceId: 'inv-1', items: [itemWithWarehouse('wh-nonexistent')] },
+          actor,
+        ),
+      ).rejects.toThrow(notFound);
+      expect(salesReturnRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('SR-U3: Warehouse thuộc tổ chức khác (cross-tenant) — WAREHOUSE_001, write không được gọi', async () => {
+      const notFound = new NotFoundException(
+        withCode(ErrorCode.WAREHOUSE_NOT_FOUND, 'Không tìm thấy kho'),
+      );
+      warehouseService.findOne.mockRejectedValueOnce(notFound);
+
+      await expect(
+        service.create(
+          { invoiceId: 'inv-1', items: [itemWithWarehouse('wh-other-org')] },
+          actor,
+        ),
+      ).rejects.toThrow(notFound);
+      expect(salesReturnRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('SR-U4: nonexistent và cross-tenant tạo ra CÙNG MỘT exception (không phân biệt được) — WarehouseService.findOne (đã kiểm chứng non-disclosing ở T053.05A) là nguồn duy nhất của hành vi này, service này chỉ cần propagate nguyên trạng', async () => {
+      const notFound = new NotFoundException(
+        withCode(ErrorCode.WAREHOUSE_NOT_FOUND, 'Không tìm thấy kho'),
+      );
+      warehouseService.findOne.mockRejectedValue(notFound);
+
+      const nonexistentAttempt = service
+        .create(
+          { invoiceId: 'inv-1', items: [itemWithWarehouse('wh-nonexistent')] },
+          actor,
+        )
+        .catch((error: unknown) => error);
+      const crossTenantAttempt = service
+        .create(
+          { invoiceId: 'inv-1', items: [itemWithWarehouse('wh-other-org')] },
+          actor,
+        )
+        .catch((error: unknown) => error);
+
+      const [errorA, errorB] = await Promise.all([
+        nonexistentAttempt,
+        crossTenantAttempt,
+      ]);
+      expect(errorA).toBe(notFound);
+      expect(errorB).toBe(notFound);
+    });
+
+    it('SR-U5: bỏ trống warehouseId (Product SERVICE tại thời điểm return) giữ nguyên hành vi cũ — không gọi WarehouseService', async () => {
+      await service.create(
+        { invoiceId: 'inv-1', items: [itemWithWarehouse(undefined)] },
+        actor,
+      );
+      expect(warehouseService.findOne).not.toHaveBeenCalled();
+      expect(salesReturnRepository.create).toHaveBeenCalled();
+    });
+
+    it('SR-U6: updateDraft() — same-tenant Warehouse được chấp nhận, findOne gọi đúng tham số', async () => {
+      salesReturnRepository.findById.mockResolvedValue(
+        salesReturnEntity as never,
+      );
+      salesReturnRepository.updateDraft.mockResolvedValue(
+        salesReturnEntity as never,
+      );
+      await service.updateDraft(
+        'sr-1',
+        1,
+        { items: [itemWithWarehouse('wh-1')] },
+        actor,
+      );
+      expect(warehouseService.findOne).toHaveBeenCalledWith('wh-1', 'org-1');
+      expect(salesReturnRepository.updateDraft).toHaveBeenCalled();
+    });
+
+    it('SR-U6: updateDraft() — cross-tenant/nonexistent Warehouse bị từ chối trước khi ghi, updateDraft không được gọi', async () => {
+      salesReturnRepository.findById.mockResolvedValue(
+        salesReturnEntity as never,
+      );
+      const notFound = new NotFoundException(
+        withCode(ErrorCode.WAREHOUSE_NOT_FOUND, 'Không tìm thấy kho'),
+      );
+      warehouseService.findOne.mockRejectedValueOnce(notFound);
+
+      await expect(
+        service.updateDraft(
+          'sr-1',
+          1,
+          { items: [itemWithWarehouse('wh-other-org')] },
+          actor,
+        ),
+      ).rejects.toThrow(notFound);
+      expect(salesReturnRepository.updateDraft).not.toHaveBeenCalled();
     });
   });
 
