@@ -1395,13 +1395,16 @@ describe('Usage Limit Enforcement (e2e, integration) — T053.05B', () => {
 
     it('G2/G3: TRIAL signup vẫn thành công (bootstrap KHÔNG bị quota chặn) và có đúng hạn mức chính tắc', async () => {
       const email = `g2-${uniqueSuffix()}@trial-e2e.local`;
+
+      // Spy PHẢI gắn TRƯỚC request-otp — MailProcessor xử lý job BullMQ bất đồng bộ, có thể log
+      // OTP trước khi dòng code sau `await request(...)` kịp chạy nếu gắn spy sau (cùng pattern
+      // `captureOtpFromConsole()` trong trial-signup.e2e-spec.ts).
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn');
       await request(app.getHttpServer())
         .post('/api/v1/trial-signup/request-otp')
         .send({ email })
         .expect(204);
 
-      // Đọc OTP qua Logger.warn (SMTP rỗng ở test env — cùng pattern trial-signup.e2e-spec.ts).
-      const warnSpy = jest.spyOn(Logger.prototype, 'warn');
       let otp: string | undefined;
       for (let attempt = 0; attempt < 30 && !otp; attempt += 1) {
         const match = warnSpy.mock.calls
