@@ -184,10 +184,11 @@ describe('SalesReturnController', () => {
     },
   );
 
-  it('createRefund ủy quyền cho refundDomainService.createRefund', async () => {
+  it('createRefund ủy quyền cho refundDomainService.createRefund kèm Idempotency-Key đã chuẩn hóa', async () => {
     await controller.createRefund(
       'sr-1',
       { amount: 50000, method: 'CASH' },
+      'idem-key-1',
       user,
     );
     expect(refundDomainService.createRefund).toHaveBeenCalledWith(
@@ -198,7 +199,32 @@ describe('SalesReturnController', () => {
         externalReference: null,
       },
       { userId: 'user-1', organizationId: 'org-1' },
+      'idem-key-1',
     );
+  });
+
+  it('createRefund ném BadRequestException khi thiếu header Idempotency-Key', async () => {
+    await expect(
+      controller.createRefund(
+        'sr-1',
+        { amount: 50000, method: 'CASH' },
+        undefined,
+        user,
+      ),
+    ).rejects.toThrow('Thiếu header Idempotency-Key');
+    expect(refundDomainService.createRefund).not.toHaveBeenCalled();
+  });
+
+  it('createRefund ném BadRequestException khi Idempotency-Key vượt quá 255 ký tự', async () => {
+    await expect(
+      controller.createRefund(
+        'sr-1',
+        { amount: 50000, method: 'CASH' },
+        'a'.repeat(256),
+        user,
+      ),
+    ).rejects.toThrow(/255/);
+    expect(refundDomainService.createRefund).not.toHaveBeenCalled();
   });
 
   it('processRefund/completeRefund/cancelRefund ủy quyền đúng method với version', async () => {

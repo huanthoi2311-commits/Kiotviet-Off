@@ -57,11 +57,18 @@ export interface SalesReturnSearchResult {
 }
 
 export interface CreateSalesReturnRefundInput {
+  organizationId: string;
   salesReturnId: string;
   amount: number;
   method: SalesReturnRefundMethod;
   externalReference: string | null;
   createdBy: string;
+  /**
+   * T053.06E — id của `SalesReturnRefundOperation` (đã `reserve()` thành công ở tầng Application,
+   * TRƯỚC khi gọi vào đây) — repository dùng để `markCompleted()` TRONG CÙNG transaction với
+   * `SalesReturnRefund.create()` (atomicity proof, mirror `PrismaSupplierDebtRepository.createPayment()`).
+   */
+  idempotencyOperationId: string;
 }
 
 /**
@@ -149,8 +156,18 @@ export interface ISalesReturnRepository {
     updatedBy: string,
   ): Promise<SalesReturnEntity>;
 
-  // --- Refund (lifecycle độc lập, KHÔNG lồng vào transaction của SalesReturn — SPEC §14/§15) ---
+  // --- Refund (lifecycle độc lập với SalesReturn.status — SPEC §14/§15/Decision AD43, KHÔNG đổi:
+  // SalesReturn COMPLETED KHÔNG phụ thuộc Refund tạo/hoàn tất) ---
 
+  /**
+   * T053.06E — TỰ mở `prisma.$transaction()` riêng (KHÔNG nhận `tx` từ caller — khác `receive()`
+   * ở trên, vì ở đây KHÔNG có nhu cầu chia sẻ transaction với module khác, mirror
+   * `PrismaSupplierDebtRepository.createPayment()`). Bên trong: khóa `SalesReturn` (`FOR UPDATE`,
+   * mirror AD44's InvoiceItem lock) TRƯỚC khi đọc lại trạng thái + tính `activeRefundTotal` — đóng
+   * race "different-key concurrency vượt cap" (T053.06E Discovery §14) mà riêng cơ chế Idempotency
+   * Key không tự đóng được. Cùng transaction: insert `SalesReturnRefund` + đánh dấu
+   * `SalesReturnRefundOperation` COMPLETED (atomicity proof).
+   */
   createRefund(
     input: CreateSalesReturnRefundInput,
   ): Promise<SalesReturnRefundEntity>;

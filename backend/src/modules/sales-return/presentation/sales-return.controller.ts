@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -11,6 +13,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiHeader,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -19,6 +22,8 @@ import {
   ApiCommonErrors,
   ApiWriteErrors,
 } from '../../../common/swagger/api-common-errors.decorator';
+import { ErrorCode } from '../../../common/errors/error-codes';
+import { withCode } from '../../../common/errors/with-code';
 import type { JwtAccessPayload } from '../../../common/types/jwt-payload.type';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../auth/presentation/guards/jwt-auth.guard';
@@ -46,6 +51,9 @@ import {
   SalesReturnResponseDto,
 } from '../application/dto/sales-return-response.dto';
 import { SalesReturnMapper } from '../application/mappers/sales-return.mapper';
+
+/** T053.06E — độ dài tối đa Idempotency-Key (sau khi trim), mirror Supplier Payment (T052.05B D2). */
+const IDEMPOTENCY_KEY_MAX_LENGTH = 255;
 
 /**
  * SPEC-T014-SALES-RETURN-EXCHANGE-001 §4 — route `/sales-returns/eligibility` (literal) PHẢI
@@ -250,15 +258,23 @@ export class SalesReturnController {
   @RequirePermissions('sales_return:refund')
   @ApiOperation({
     summary:
-      'Tạo hoàn tiền cho phiếu trả hàng (Decision AD37 — độc lập Payment)',
+      'Tạo hoàn tiền cho phiếu trả hàng (Decision AD37 — độc lập Payment). Bắt buộc header Idempotency-Key (T053.06E).',
+  })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    description:
+      'Do client tự sinh — cùng key + cùng payload sẽ trả lại đúng refund cũ, không tạo giao dịch mới. Sau khi trim: không rỗng, tối đa 255 ký tự. Không yêu cầu định dạng UUID (mirror T052.05B D2).',
   })
   @ApiResponse({ status: 201, type: SalesReturnRefundResponseDto })
   @ApiWriteErrors()
   async createRefund(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateSalesReturnRefundDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
     @CurrentUser() user: JwtAccessPayload,
   ): Promise<SalesReturnRefundResponseDto> {
+    const normalizedKey = this.normalizeIdempotencyKey(idempotencyKey);
     const created = await this.refundDomainService.createRefund(
       {
         salesReturnId: id,
@@ -267,6 +283,7 @@ export class SalesReturnController {
         externalReference: dto.externalReference ?? null,
       },
       this.toActor(user),
+      normalizedKey,
     );
     return SalesReturnMapper.toRefundResponseDto(created);
   }
@@ -348,5 +365,21 @@ export class SalesReturnController {
 
   private toActor(user: JwtAccessPayload): ActorContext {
     return { userId: user.sub, organizationId: user.organizationId };
+  }
+
+  /** T053.06E — mirror `SupplierPaymentController.normalizeIdempotencyKey()`, nhưng gộp
+   * missing+oversized vào CHUNG 1 mã lỗi (§5/§14 hướng dẫn Architect: ưu tiên gộp thay vì bịa
+   * thêm biến thể mã lỗi không cần thiết — khác Supplier Payment's 2-mã split). */
+  private normalizeIdempotencyKey(raw: string | undefined): string {
+    const trimmed = raw?.trim();
+    if (!trimmed || trimmed.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+      throw new BadRequestException(
+        withCode(
+          ErrorCode.SALES_RETURN_REFUND_IDEMPOTENCY_KEY_MISSING,
+          `Thiếu header Idempotency-Key hoặc vượt quá ${IDEMPOTENCY_KEY_MAX_LENGTH} ký tự`,
+        ),
+      );
+    }
+    return trimmed;
   }
 }

@@ -26,6 +26,7 @@ import {
 } from '../domain/events/sales-return.events';
 import { SALES_RETURN_REPOSITORY } from '../domain/repositories/sales-return.repository.interface';
 import type { ISalesReturnRepository } from '../domain/repositories/sales-return.repository.interface';
+import { SalesReturnRefundOperationService } from './sales-return-refund-operation.service';
 
 export interface CreateRefundParams {
   salesReturnId: string;
@@ -34,15 +35,18 @@ export interface CreateRefundParams {
   externalReference?: string | null;
 }
 
-const ACTIVE_REFUND_STATUSES = ['PENDING', 'PROCESSING', 'COMPLETED'];
-const RECEIVABLE_STATUSES_FOR_REFUND = ['RECEIVED', 'COMPLETED'];
-
 /**
  * T014 Phase 4 (RFC-T014 v1.1 §20/§23, SPEC §15, Decision AD37/AD43) — Refund là aggregate hoàn
  * toàn độc lập với SalesReturn.status, sở hữu bởi SalesReturn nhưng KHÔNG BAO GIỜ ghi vào bảng
  * `payments` (Decision AD32). Mỗi phương thức repository refund là 1 statement/transaction đơn
  * (không cần `$transaction()` tường minh — atomic tự nhiên), tách biệt hoàn toàn với transaction
  * `receive()` của SalesReturn (Phase 3).
+ *
+ * T053.06E — `createRefund()` giờ orchestrate reserve()/REPLAY/markFailed(), mirror
+ * `SupplierDebtService.createPayment()` (T052.05B) chính xác: status-gate + cap-check KHÔNG còn
+ * đọc/tính ở tầng Service — chuyển toàn bộ xuống `salesReturnRepository.createRefund()` (chạy
+ * dưới khóa `FOR UPDATE`, xem Discovery §14-16). Service chỉ còn orchestrate Idempotency +
+ * map lỗi domain → HTTP + audit/event.
  */
 @Injectable()
 export class RefundDomainService {
@@ -51,64 +55,76 @@ export class RefundDomainService {
     private readonly salesReturnRepository: ISalesReturnRepository,
     private readonly auditLogService: AuditLogService,
     private readonly eventPublisher: DomainEventPublisher,
+    private readonly refundOperationService: SalesReturnRefundOperationService,
   ) {}
 
   async createRefund(
     params: CreateRefundParams,
     actor: ActorContext,
+    idempotencyKey: string,
   ): Promise<SalesReturnRefundEntity> {
-    const salesReturn = await this.salesReturnRepository.findById(
-      params.salesReturnId,
-      actor.organizationId,
-    );
-    if (!salesReturn) {
-      throw this.mapError(new SalesReturnNotFoundError(params.salesReturnId));
-    }
-    if (!RECEIVABLE_STATUSES_FOR_REFUND.includes(salesReturn.status)) {
-      throw this.mapError(
-        new SalesReturnNotReceivedForRefundError(
-          salesReturn.id,
-          salesReturn.status,
-        ),
-      );
-    }
-    if (params.amount <= 0) {
-      throw this.mapError(
-        new SalesReturnRefundAmountInvalidError(params.amount.toString()),
-      );
-    }
-
-    const activeRefundTotal = salesReturn.refunds
-      .filter((refund) => ACTIVE_REFUND_STATUSES.includes(refund.status))
-      .reduce((sum, refund) => sum + Number(refund.amount), 0);
-    if (activeRefundTotal + params.amount > Number(salesReturn.totalAmount)) {
-      throw this.mapError(
-        new SalesReturnRefundAmountInvalidError(params.amount.toString()),
-      );
-    }
-
-    const created = await this.salesReturnRepository.createRefund({
-      salesReturnId: params.salesReturnId,
-      amount: params.amount,
-      method: params.method,
-      externalReference: params.externalReference ?? null,
-      createdBy: actor.userId,
-    });
-
-    await this.auditLogService.log({
+    const reserveOutcome = await this.refundOperationService.reserve({
       organizationId: actor.organizationId,
-      userId: actor.userId,
-      action: 'sales_return.refund.create',
-      entityType: 'SalesReturnRefund',
-      entityId: created.id,
-      newValue: this.toAuditSnapshot(created),
+      idempotencyKey,
+      payload: {
+        salesReturnId: params.salesReturnId,
+        amount: params.amount,
+        method: params.method,
+        externalReference: params.externalReference ?? null,
+      },
     });
-    this.eventPublisher.publish(
-      SALES_RETURN_REFUND_CREATED_EVENT,
-      this.toLifecycleEvent(created, params.salesReturnId, actor),
-    );
 
-    return created;
+    if (reserveOutcome.kind === 'REPLAY') {
+      const refund = await this.salesReturnRepository.findRefundById(
+        reserveOutcome.refundId,
+        actor.organizationId,
+      );
+      if (!refund) {
+        // Bất biến hạ tầng: markCompleted() ghi refundId TRONG CÙNG transaction với
+        // SalesReturnRefund.create() (T053.06E — mirror T052.05A.1 §3) — refund này PHẢI tồn tại
+        // qua đường thực thi bình thường. Nếu không, đây là vi phạm bất biến (không phải lỗi
+        // nghiệp vụ tự phục hồi được) — không tự bịa mã lỗi nghiệp vụ giả, để lộ ra như lỗi hệ
+        // thống chung (mirror SupplierDebtService.createPayment()'s exact pattern).
+        throw new Error(
+          `Sales return refund idempotency invariant violation: operation completed but refund ${reserveOutcome.refundId} not found for organization ${actor.organizationId}`,
+        );
+      }
+      return refund;
+    }
+
+    const operationId = reserveOutcome.operationId;
+    try {
+      const created = await this.salesReturnRepository.createRefund({
+        organizationId: actor.organizationId,
+        salesReturnId: params.salesReturnId,
+        amount: params.amount,
+        method: params.method,
+        externalReference: params.externalReference ?? null,
+        createdBy: actor.userId,
+        idempotencyOperationId: operationId,
+      });
+
+      await this.auditLogService.log({
+        organizationId: actor.organizationId,
+        userId: actor.userId,
+        action: 'sales_return.refund.create',
+        entityType: 'SalesReturnRefund',
+        entityId: created.id,
+        newValue: this.toAuditSnapshot(created),
+      });
+      this.eventPublisher.publish(
+        SALES_RETURN_REFUND_CREATED_EVENT,
+        this.toLifecycleEvent(created, params.salesReturnId, actor),
+      );
+
+      return created;
+    } catch (error) {
+      // T053.06E (mirror T052.05B/D9) — giải phóng Idempotency-Key ngay cho MỌI lỗi kể từ sau khi
+      // reserve() trả NEW — nhánh 409 (fingerprint khác/đang PROCESSING) đã ném ngay trong
+      // reserve(), TRƯỚC try-block này, không bao giờ tới đây.
+      await this.refundOperationService.markFailed(operationId);
+      throw this.mapError(error);
+    }
   }
 
   async process(

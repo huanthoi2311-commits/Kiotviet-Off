@@ -3,6 +3,7 @@ import {
   SalesReturnConcurrencyRetryError,
   SalesReturnInvalidTransitionError,
   SalesReturnQtyExceededError,
+  SalesReturnRefundAmountInvalidError,
   SalesReturnRefundInvalidTransitionError,
   SalesReturnVersionConflictError,
 } from '../../domain/errors/sales-return.errors';
@@ -13,6 +14,7 @@ const D = (v: string | number) => new Prisma.Decimal(v);
 describe('PrismaSalesReturnRepository', () => {
   let repository: PrismaSalesReturnRepository;
   let prisma: any;
+  let refundOperationRepository: any;
 
   const rawItem = {
     id: 'item-1',
@@ -95,7 +97,11 @@ describe('PrismaSalesReturnRepository', () => {
       $transaction: jest.fn(),
       $queryRaw: jest.fn(),
     };
-    repository = new PrismaSalesReturnRepository(prisma);
+    refundOperationRepository = { markCompleted: jest.fn() };
+    repository = new PrismaSalesReturnRepository(
+      prisma,
+      refundOperationRepository,
+    );
   });
 
   describe('create', () => {
@@ -536,16 +542,75 @@ describe('PrismaSalesReturnRepository', () => {
       version: 1,
     };
 
-    it('createRefund tạo đúng dữ liệu', async () => {
-      prisma.salesReturnRefund.create.mockResolvedValue(rawRefund);
+    it('createRefund khóa SalesReturn (FOR UPDATE), tạo refund, đánh dấu operation COMPLETED trong CÙNG tx', async () => {
+      const tx = {
+        $queryRaw: jest.fn().mockResolvedValue([{ id: 'sr-1' }]),
+        salesReturn: {
+          findFirst: jest.fn().mockResolvedValue({
+            ...rawSalesReturn,
+            status: 'RECEIVED',
+            totalAmount: D('220000.00'),
+            refunds: [],
+          }),
+        },
+        salesReturnRefund: {
+          create: jest.fn().mockResolvedValue(rawRefund),
+        },
+      };
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(tx),
+      );
+
       const result = await repository.createRefund({
+        organizationId: 'org-1',
         salesReturnId: 'sr-1',
         amount: 220000,
         method: 'CASH',
         externalReference: null,
         createdBy: 'user-1',
+        idempotencyOperationId: 'operation-1',
       });
+
+      expect(tx.$queryRaw).toHaveBeenCalled();
       expect(result.status).toBe('PENDING');
+      expect(refundOperationRepository.markCompleted).toHaveBeenCalledWith(
+        'operation-1',
+        'refund-1',
+        tx,
+      );
+    });
+
+    it('createRefund ném SalesReturnRefundAmountInvalidError khi vượt cap (dưới khóa)', async () => {
+      const tx = {
+        $queryRaw: jest.fn().mockResolvedValue([{ id: 'sr-1' }]),
+        salesReturn: {
+          findFirst: jest.fn().mockResolvedValue({
+            ...rawSalesReturn,
+            status: 'RECEIVED',
+            totalAmount: D('150000.00'),
+            refunds: [
+              { ...rawRefund, amount: D('100000.00'), status: 'COMPLETED' },
+            ],
+          }),
+        },
+        salesReturnRefund: { create: jest.fn() },
+      };
+      prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+        fn(tx),
+      );
+
+      await expect(
+        repository.createRefund({
+          organizationId: 'org-1',
+          salesReturnId: 'sr-1',
+          amount: 100000,
+          method: 'CASH',
+          externalReference: null,
+          createdBy: 'user-1',
+          idempotencyOperationId: 'operation-1',
+        }),
+      ).rejects.toThrow(SalesReturnRefundAmountInvalidError);
+      expect(tx.salesReturnRefund.create).not.toHaveBeenCalled();
     });
 
     it('processRefund PENDING → PROCESSING', async () => {
