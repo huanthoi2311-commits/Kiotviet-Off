@@ -81,12 +81,13 @@ describe('SupplierController', () => {
     });
   });
 
-  describe('entitlement metadata (T053.06C — đóng lỗ hổng import bỏ sót @RequireEntitlement)', () => {
+  describe('entitlement metadata (T053.06C/T053.06D — đóng lỗ hổng import/restore bỏ sót @RequireEntitlement)', () => {
     it.each([
       ['create', 'SUPPLIER'],
       ['import', 'SUPPLIER'],
+      ['restore', 'SUPPLIER'],
     ])(
-      'method %s yêu cầu CommercialFeature %s (import trước đây THIẾU metadata này, khiến EntitlementGuard mặc định cho qua)',
+      'method %s yêu cầu CommercialFeature %s (import/restore trước đây THIẾU metadata này, khiến EntitlementGuard mặc định cho qua)',
       (method, expectedFeature) => {
         const feature = reflector.get<string>(
           ENTITLEMENT_KEY,
@@ -104,9 +105,8 @@ describe('SupplierController', () => {
       'activate',
       'deactivate',
       'remove',
-      'restore',
     ])(
-      'method %s KHÔNG yêu cầu entitlement (chỉ create/import ghi Supplier mới, đúng phạm vi T053.06C — không mở rộng)',
+      'method %s KHÔNG yêu cầu entitlement (chỉ create/import/restore ghi lại 1 Supplier đang/sẽ active, đúng phạm vi T053.06C/D — không mở rộng)',
       (method) => {
         const feature = reflector.get<string>(
           ENTITLEMENT_KEY,

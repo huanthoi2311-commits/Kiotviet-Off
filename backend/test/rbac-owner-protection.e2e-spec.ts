@@ -109,6 +109,16 @@ describe('RBAC Owner-Lockout Protection (e2e, T052.03B)', () => {
       update: {},
     });
     organizationId = organization.id;
+    // T053.06D — POST /roles/:id/permissions giờ yêu cầu entitlement RBAC_MANAGEMENT (trước đây
+    // không có). File này kiểm thử owner-lockout protection, KHÔNG phải entitlement — cần
+    // provision subscription ENTERPRISE (toàn bộ feature) để cô lập đúng biến số đang test, cùng
+    // kỹ thuật đã dùng ở supplier.e2e-spec.ts khi Architect phát hiện fixture thiếu subscription
+    // vô tình che giấu 1 entitlement enforcement khác.
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId },
+      create: { organizationId, plan: 'ENTERPRISE' },
+      update: {},
+    });
 
     ownerRoleAId = await seedRole(organizationId, 'owner_role_a', [
       'role:update',
@@ -301,6 +311,15 @@ describe('RBAC Owner-Lockout Protection (e2e, T052.03B)', () => {
           // ownerUserId deliberately left null — simulates the invariant being violated.
         },
         update: { ownerUserId: null },
+      });
+      // T053.06D — cùng lý do với subscription ở beforeAll(): route dưới đây giờ yêu cầu
+      // RBAC_MANAGEMENT, test này đang kiểm thử nhánh lỗi "orphan owner" (500), không phải
+      // entitlement — cần ENTERPRISE để không bị chặn sớm ở entitlement (403) thay vì tới được
+      // nhánh 500 đang test.
+      await prisma.organizationSubscription.upsert({
+        where: { organizationId: orphanOrg.id },
+        create: { organizationId: orphanOrg.id, plan: 'ENTERPRISE' },
+        update: {},
       });
 
       for (const permission of PERMISSION_CATALOG) {

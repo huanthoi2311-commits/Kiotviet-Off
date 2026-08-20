@@ -74,6 +74,7 @@ export class RolesController {
   }
 
   @Post(':id/permissions')
+  @RequireEntitlement('RBAC_MANAGEMENT')
   @RequirePermissions('role:update')
   @ApiOperation({
     summary: 'Gán (thay thế toàn bộ) danh sách permission cho vai trò',
