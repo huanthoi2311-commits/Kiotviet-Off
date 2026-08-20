@@ -64,20 +64,30 @@ describe('Forgot Password OTP (e2e, integration) — T053.06B-1', () => {
   const THROTTLE_MAX_ATTEMPTS = 8;
   const THROTTLE_BACKOFF_MS = 15_000;
 
-  /** Retry-với-backoff CHỈ cho 429 (throttle IP thật) — KHÔNG né tránh/vô hiệu hóa throttle thật,
-   * chỉ xử lý như 1 client thật cần tôn trọng rate-limit. Đúng pattern đã dùng ở
-   * trial-signup.e2e-spec.ts, mở rộng cho MỌI route trong file này (forgot-password/verify-otp/
-   * reset-password/login) thay vì chỉ 2 route. */
+  /** Retry-với-backoff CHỈ cho 429 đến từ ThrottlerGuard theo IP (mã lỗi chung `HTTP_429`, xem
+   * `STATUS_FALLBACK_CODE` trong `http-exception.filter.ts` — ThrottlerException KHÔNG đi qua
+   * `withCode()` nên KHÔNG có errorCode nghiệp vụ cụ thể) — KHÔNG né tránh/vô hiệu hóa throttle
+   * thật, chỉ xử lý như 1 client thật cần tôn trọng rate-limit. Đúng pattern đã dùng ở
+   * trial-signup.e2e-spec.ts, mở rộng cho MỌI route trong file này.
+   *
+   * QUAN TRỌNG — 429 mang errorCode nghiệp vụ cụ thể (vd `OTP_008` từ throttle account-scoped §6)
+   * là KẾT QUẢ THẬT cần trả về NGAY, KHÔNG phải va chạm hạ tầng cần thử lại: nếu retry vào đó,
+   * mỗi lần gọi lại tự làm counter account-scoped tăng thêm (incrementVerifyAttemptWindowCount
+   * chạy TRƯỚC bất kỳ throttle-guard nào khác), nên sẽ ngày càng bị 429 chắc chắn hơn, không bao
+   * giờ "thử lại thành công" — khác hẳn 429 do IP throttle tạm thời rồi tự hết hạn.
+   */
   async function postWithThrottleRetry(
     path: string,
     body: Record<string, string>,
   ): Promise<{ status: number; body: { code?: string; data?: unknown } }> {
     for (let attempt = 1; attempt <= THROTTLE_MAX_ATTEMPTS; attempt += 1) {
       const res = await request(server()).post(path).send(body);
-      if (res.status === 429) {
+      const isGenericIpThrottle =
+        res.status === 429 && res.body?.code === 'HTTP_429';
+      if (isGenericIpThrottle) {
         if (attempt === THROTTLE_MAX_ATTEMPTS) {
           throw new Error(
-            `[postWithThrottleRetry] ${path} vẫn bị throttle (429) sau ${THROTTLE_MAX_ATTEMPTS} lần retry`,
+            `[postWithThrottleRetry] ${path} vẫn bị throttle IP (429/HTTP_429) sau ${THROTTLE_MAX_ATTEMPTS} lần retry`,
           );
         }
         await new Promise((resolve) =>
