@@ -17,6 +17,7 @@ import {
   FirstAdminInitializationInput,
   initializeFirstAdmin,
 } from '../src/modules/platform/bootstrap/first-admin-initializer';
+import { PRODUCTION_SECRET_PLACEHOLDERS } from '../src/config/env.validation';
 
 /**
  * T051.08D §10 — CHỨNG MINH THẬT trên Postgres THẬT, database RIÊNG BIỆT/cô lập (không dùng chung
@@ -102,6 +103,30 @@ describe('Bootstrap First-Admin — T051.08D (e2e, integration — Postgres th�
       await maintenanceClient.$disconnect();
     }
   }, 60_000);
+
+  // T053.06A — P1 hard-stop finding (T053.06 discovery): chứng minh trên Postgres THẬT rằng giá
+  // trị FIRST_ADMIN_PASSWORD đóng gói sẵn trong `.env.example` bị từ chối, và KHÔNG có bất kỳ record
+  // nào (Organization/Branch/User/Role) được tạo — chạy TRƯỚC [10a] để đảm bảo database vẫn thật
+  // sự trống (chưa có Organization nào), đúng nghĩa "genesis" — assertCredentialAllowed() không hề
+  // chạm DB nên không cần seedPermissionCatalog() trước bước này.
+  it('[T053.06A-1] từ chối giá trị FIRST_ADMIN_PASSWORD đóng gói sẵn trong .env.example — KHÔNG tạo bất kỳ Organization/Branch/User/Role nào', async () => {
+    const rejectedInput: FirstAdminInitializationInput = {
+      ...validInput,
+      administrator: {
+        ...validInput.administrator,
+        password: PRODUCTION_SECRET_PLACEHOLDERS.FIRST_ADMIN_PASSWORD,
+      },
+    };
+
+    await expect(
+      initializeFirstAdmin(freshPrisma, rejectedInput),
+    ).rejects.toThrow(/mặc định\/placeholder đã biết/i);
+
+    expect(await freshPrisma.organization.count()).toBe(0);
+    expect(await freshPrisma.branch.count()).toBe(0);
+    expect(await freshPrisma.user.count()).toBe(0);
+    expect(await freshPrisma.role.count()).toBe(0);
+  }, 30_000);
 
   it('[10a] fresh bootstrap: tạo đủ Organization+Settings+Subscription (đúng organizationId), xác thực → GET /organizations/current = 200', async () => {
     await seedPermissionCatalog(freshPrisma);
@@ -209,4 +234,23 @@ describe('Bootstrap First-Admin — T051.08D (e2e, integration — Postgres th�
       .expect(200);
     expect(res.body.data.id).toBe(createdOrganizationId);
   }, 60_000);
+
+  // T053.06A — §9 "resulting credential can authenticate through the real auth path": [10a]/[10b]
+  // ở trên chỉ chứng minh qua JWT tự ký (jwtService.sign trực tiếp, KHÔNG qua argon2 verify thật).
+  // Test này gọi ĐÚNG endpoint POST /auth/login thật với plaintext password đã dùng lúc tạo
+  // (validInput.administrator.password) — chứng minh mật khẩu được accept path chấp nhận thực sự
+  // hash+verify đúng qua toàn bộ chuỗi auth thật, không chỉ được lưu vào DB.
+  it('[T053.06A-2] mật khẩu hợp lệ đã dùng để bootstrap xác thực được qua POST /auth/login thật (không phải JWT tự ký)', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({
+        organizationSlug: validInput.organization.slug,
+        email: validInput.administrator.email,
+        password: validInput.administrator.password,
+      })
+      .expect(200);
+
+    expect(res.body.data.accessToken).toEqual(expect.any(String));
+    expect(res.body.data.accessToken.length).toBeGreaterThan(0);
+  }, 30_000);
 });
