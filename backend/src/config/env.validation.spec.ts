@@ -9,6 +9,7 @@ describe('validateEnv — SPEC-P001 Rev1 Item 3 (Production Secret Validation)',
     JWT_ACCESS_SECRET: 'a-real-non-placeholder-access-secret',
     JWT_REFRESH_SECRET: 'a-real-non-placeholder-refresh-secret',
     SIGNUP_SECRET: 'a-real-non-placeholder-signup-secret',
+    FORGOT_PASSWORD_OTP_SECRET: 'a-real-non-placeholder-forgot-password-secret',
   };
 
   it('[1] NODE_ENV=production + JWT_ACCESS_SECRET = placeholder → throw, message nêu đúng JWT_ACCESS_SECRET', () => {
@@ -117,6 +118,7 @@ describe('validateEnv — SPEC-T023 Finding 3 (Swagger production fail-closed)',
     JWT_ACCESS_SECRET: 'a-real-non-placeholder-access-secret',
     JWT_REFRESH_SECRET: 'a-real-non-placeholder-refresh-secret',
     SIGNUP_SECRET: 'a-real-non-placeholder-signup-secret',
+    FORGOT_PASSWORD_OTP_SECRET: 'a-real-non-placeholder-forgot-password-secret',
     CORS_ORIGIN: 'https://pos.example.com',
   };
 
@@ -159,6 +161,7 @@ describe('validateEnv — SPEC-T023 Finding 13 (CORS hard-block + SMTP warning)'
     JWT_ACCESS_SECRET: 'a-real-non-placeholder-access-secret',
     JWT_REFRESH_SECRET: 'a-real-non-placeholder-refresh-secret',
     SIGNUP_SECRET: 'a-real-non-placeholder-signup-secret',
+    FORGOT_PASSWORD_OTP_SECRET: 'a-real-non-placeholder-forgot-password-secret',
     SWAGGER_ENABLED: 'false',
   };
 
@@ -226,6 +229,7 @@ describe('validateEnv — T030.6 (CORS_ORIGIN shared REST/WebSocket contract, pr
     JWT_ACCESS_SECRET: 'a-real-non-placeholder-access-secret',
     JWT_REFRESH_SECRET: 'a-real-non-placeholder-refresh-secret',
     SIGNUP_SECRET: 'a-real-non-placeholder-signup-secret',
+    FORGOT_PASSWORD_OTP_SECRET: 'a-real-non-placeholder-forgot-password-secret',
     SWAGGER_ENABLED: 'false',
   };
 
@@ -300,6 +304,7 @@ describe('validateEnv — T030.7 (authoritative startup validation contract)', (
     JWT_ACCESS_SECRET: 'x'.repeat(32),
     JWT_REFRESH_SECRET: 'y'.repeat(32),
     SIGNUP_SECRET: 'z'.repeat(32),
+    FORGOT_PASSWORD_OTP_SECRET: 'w'.repeat(32),
     SWAGGER_ENABLED: 'false',
     CORS_ORIGIN: 'https://pos.example.com',
   };
@@ -603,6 +608,7 @@ describe('validateEnv — T030.11 (NODE_ENV contract, DISCOVERY-T030 F20)', () =
     JWT_ACCESS_SECRET: 'a-real-non-placeholder-access-secret',
     JWT_REFRESH_SECRET: 'a-real-non-placeholder-refresh-secret',
     SIGNUP_SECRET: 'a-real-non-placeholder-signup-secret',
+    FORGOT_PASSWORD_OTP_SECRET: 'a-real-non-placeholder-forgot-password-secret',
   };
 
   it('[1] NODE_ENV="development" → hợp lệ, KHÔNG throw', () => {
@@ -626,6 +632,7 @@ describe('validateEnv — T030.11 (NODE_ENV contract, DISCOVERY-T030 F20)', () =
         JWT_ACCESS_SECRET: 'x'.repeat(32),
         JWT_REFRESH_SECRET: 'y'.repeat(32),
         SIGNUP_SECRET: 'z'.repeat(32),
+        FORGOT_PASSWORD_OTP_SECRET: 'w'.repeat(32),
         SWAGGER_ENABLED: 'false',
         CORS_ORIGIN: 'https://pos.example.com',
       }),
@@ -668,6 +675,7 @@ describe('validateEnv — T030.11 (REDIS_PASSWORD host-sensitive production poli
     JWT_ACCESS_SECRET: 'x'.repeat(32),
     JWT_REFRESH_SECRET: 'y'.repeat(32),
     SIGNUP_SECRET: 'z'.repeat(32),
+    FORGOT_PASSWORD_OTP_SECRET: 'w'.repeat(32),
     SWAGGER_ENABLED: 'false',
     CORS_ORIGIN: 'https://pos.example.com',
   };
@@ -774,6 +782,8 @@ describe('validateEnv — T030.11 (REDIS_PASSWORD host-sensitive production poli
         JWT_ACCESS_SECRET: 'ci-docker-verify-access-secret-t030-7',
         JWT_REFRESH_SECRET: 'ci-docker-verify-refresh-secret-t030-7',
         SIGNUP_SECRET: 'ci-docker-verify-signup-secret-t053-04',
+        FORGOT_PASSWORD_OTP_SECRET:
+          'ci-docker-verify-forgot-password-secret-t053-06b1',
         SWAGGER_ENABLED: 'false',
         CORS_ORIGIN: 'https://ci-docker-verify.example.com',
         REDIS_HOST: 'redis',

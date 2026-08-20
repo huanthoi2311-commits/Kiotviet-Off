@@ -46,6 +46,10 @@ export const PRODUCTION_SECRET_PLACEHOLDERS = {
   JWT_REFRESH_SECRET: 'change-me-refresh-secret',
   SIGNUP_SECRET: 'change-me-signup-secret',
   FIRST_ADMIN_PASSWORD: 'change-me-strong-admin-password',
+  // T053.06B-1 — secret RIÊNG cho HMAC hash forgot-password OTP (Architect Decision — giữ nguyên
+  // nguyên tắc D2 "no purpose confusion": KHÔNG dùng chung JWT_ACCESS_SECRET/JWT_REFRESH_SECRET/
+  // SIGNUP_SECRET, mirror đúng SIGNUP_SECRET pattern nhưng là secret thứ 4 độc lập).
+  FORGOT_PASSWORD_OTP_SECRET: 'change-me-forgot-password-otp-secret',
 } as const;
 
 class EnvironmentVariables {
@@ -164,6 +168,14 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   SIGNUP_SECRET?: string;
+
+  // T053.06B-1 — secret riêng cho HMAC hash forgot-password OTP (Architect Decision — giữ nguyên
+  // D2 "no purpose confusion", KHÔNG dùng chung JWT_ACCESS_SECRET/JWT_REFRESH_SECRET/SIGNUP_SECRET).
+  // `@IsOptional()` cùng lý do với SIGNUP_SECRET ở trên — an toàn production đảm bảo riêng bởi
+  // `assertProductionForgotPasswordOtpSecretSet()` bên dưới, cùng ngưỡng MIN_JWT_SECRET_LENGTH.
+  @IsString()
+  @IsOptional()
+  FORGOT_PASSWORD_OTP_SECRET?: string;
 }
 
 /**
@@ -268,6 +280,44 @@ function assertProductionSignupSecretSet(config: EnvironmentVariables): void {
   if (config.SIGNUP_SECRET.length < MIN_JWT_SECRET_LENGTH) {
     throw new Error(
       `Production startup refused because unsafe SIGNUP_SECRET is in use: SIGNUP_SECRET (độ dài dưới mức tối thiểu ${MIN_JWT_SECRET_LENGTH} ký tự)`,
+    );
+  }
+}
+
+/**
+ * T053.06B-1 — cùng pattern `assertProductionSignupSecretSet` ở trên (secret riêng, độc lập, KHÔNG
+ * chạy ngoài production — thiếu FORGOT_PASSWORD_OTP_SECRET ở dev/test vẫn hợp lệ, chỉ optional ở
+ * class trên). Khác 1 điểm: bổ sung kiểm tra whitespace-only (Architect yêu cầu tường minh ở đây,
+ * mirror đúng bài học T053.06A/FIRST_ADMIN_PASSWORD — "   " qua được `!value` lẫn độ dài nếu đủ
+ * dài, nhưng không phải secret thật). KHÔNG BAO GIỜ in giá trị secret thật vào message.
+ */
+function assertProductionForgotPasswordOtpSecretSet(
+  config: EnvironmentVariables,
+): void {
+  if (config.NODE_ENV !== NodeEnv.Production) {
+    return;
+  }
+  if (!config.FORGOT_PASSWORD_OTP_SECRET) {
+    throw new Error(
+      'Production startup refused because FORGOT_PASSWORD_OTP_SECRET is required (forgot-password OTP HMAC hashing)',
+    );
+  }
+  if (config.FORGOT_PASSWORD_OTP_SECRET.trim().length === 0) {
+    throw new Error(
+      'Production startup refused because FORGOT_PASSWORD_OTP_SECRET is whitespace-only',
+    );
+  }
+  if (
+    config.FORGOT_PASSWORD_OTP_SECRET ===
+    PRODUCTION_SECRET_PLACEHOLDERS.FORGOT_PASSWORD_OTP_SECRET
+  ) {
+    throw new Error(
+      'Production startup refused because default secrets are still in use: FORGOT_PASSWORD_OTP_SECRET',
+    );
+  }
+  if (config.FORGOT_PASSWORD_OTP_SECRET.length < MIN_JWT_SECRET_LENGTH) {
+    throw new Error(
+      `Production startup refused because unsafe FORGOT_PASSWORD_OTP_SECRET is in use: FORGOT_PASSWORD_OTP_SECRET (độ dài dưới mức tối thiểu ${MIN_JWT_SECRET_LENGTH} ký tự)`,
     );
   }
 }
@@ -415,6 +465,7 @@ export function validateEnv(config: Record<string, unknown>) {
   assertProductionConfigSafe(validatedConfig);
   assertProductionRedisPasswordSet(validatedConfig);
   assertProductionSignupSecretSet(validatedConfig);
+  assertProductionForgotPasswordOtpSecretSet(validatedConfig);
   warnIfProductionSmtpIncomplete(validatedConfig);
 
   return validatedConfig;

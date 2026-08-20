@@ -77,6 +77,9 @@ jobs:
       # T053.04 — secret riêng cho Trial Signup OTP/proof token (optional ở NODE_ENV=test, đặt giá
       # trị thật để Unit test có thể ký/xác minh token thật, không phụ thuộc undefined).
       SIGNUP_SECRET: ci-signup-secret
+      # T053.06B-1 — secret riêng cho HMAC hash forgot-password OTP, cùng lý do với SIGNUP_SECRET
+      # ở trên (optional ở NODE_ENV=test, đặt giá trị thật để Unit test không phụ thuộc undefined).
+      FORGOT_PASSWORD_OTP_SECRET: ci-forgot-password-otp-secret
       # T043.05 — SPEC-PRODUCT-001 enforcement activation.
       PRODUCT_REFACTOR_ENABLED: "true"
     steps:
@@ -149,6 +152,9 @@ jobs:
       # T053.04 — secret riêng cho Trial Signup OTP/proof token (optional ở NODE_ENV=test, đặt giá
       # trị thật để E2E test có thể ký/xác minh token thật, không phụ thuộc undefined).
       SIGNUP_SECRET: ci-e2e-signup-secret
+      # T053.06B-1 — secret riêng cho HMAC hash forgot-password OTP, cùng lý do với SIGNUP_SECRET
+      # ở trên (E2E test thật cần giá trị thật để hash/verify OTP qua đúng luồng HTTP thật).
+      FORGOT_PASSWORD_OTP_SECRET: ci-e2e-forgot-password-otp-secret
       # T043.05 — SPEC-PRODUCT-001 enforcement activation.
       PRODUCT_REFACTOR_ENABLED: "true"
     steps:
