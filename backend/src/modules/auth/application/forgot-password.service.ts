@@ -7,6 +7,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { withCode } from '../../../common/errors/with-code';
 import { AUTH_USER_REPOSITORY } from '../domain/repositories/auth-user.repository.interface';
@@ -35,6 +36,7 @@ export class ForgotPasswordService {
     private readonly tokenService: TokenService,
     private readonly mailService: MailService,
     private readonly auditLogService: AuditLogService,
+    private readonly prisma: PrismaService,
   ) {}
 
   private key(organizationSlug: string, email: string): string {
@@ -149,8 +151,16 @@ export class ForgotPasswordService {
     newPassword: string,
   ): Promise<void> {
     const identifier = this.key(organizationSlug, email);
-    const verified = await this.otpRepository.isVerified(identifier);
-    if (!verified) {
+
+    // T053.06B-2 (D1/D3) — thay thế hoàn toàn `isVerified()` (GET đơn thuần, KHÔNG tiêu thụ — đúng
+    // lỗ hổng double-finalization race đã xác nhận ở Discovery §2/§3: 2 request reset đồng thời
+    // CÙNG đọc được verified=true trước khi bất kỳ request nào xoá cờ, cả 2 đều cập nhật mật khẩu
+    // thành công, cả 2 đều trả 204). `consumeVerified()` là GETDEL nguyên tử (RedisOtpRepository) —
+    // CHỈ ĐÚNG 1 lệnh gọi đồng thời có thể tiêu thụ thành công; mọi lệnh gọi khác — kể cả gọi lại
+    // sau khi đã tiêu thụ — nhận `false`, bị từ chối bằng CHÍNH error code cũ (OTP_005), không đổi
+    // hợp đồng public (D2 — không có proof/token mới nào lộ ra ngoài).
+    const consumed = await this.otpRepository.consumeVerified(identifier);
+    if (!consumed) {
       throw new BadRequestException(
         withCode(
           ErrorCode.OTP_NOT_VERIFIED,
@@ -170,11 +180,34 @@ export class ForgotPasswordService {
     }
 
     const passwordHash = await this.passwordHasher.hash(newPassword);
-    await this.userRepository.updatePasswordHash(user.id, passwordHash);
-    await this.otpRepository.delete(identifier);
-    // Buộc đăng xuất toàn bộ thiết bị sau khi đổi mật khẩu.
-    await this.sessionRepository.revokeAllForUser(user.id);
 
+    // T053.06B-2 (D5) — passwordHash mutation + thu hồi TOÀN BỘ session PHẢI atomic xuyên bảng
+    // User/Session (CODING_RULES.md §27 — trước đây 2 lệnh Prisma độc lập, vi phạm quy tắc này,
+    // phát hiện ở Discovery §8). Cùng đúng mẫu hình `tx?: Prisma.TransactionClient` đã được duyệt
+    // và đang chạy thật ở `CheckoutService`/`IVoucherRepository.incrementUsage()` — không phát
+    // minh cơ chế mới, không đổi ranh giới repository (Clean Architecture giữ nguyên: interface
+    // vẫn trừu tượng hoá Prisma, `tx?` chỉ là tham số tuỳ chọn).
+    //
+    // KHÔNG có 2-phase-commit giữa Redis và Postgres (D6) — nếu transaction này thất bại SAU KHI
+    // `consumeVerified()` đã tiêu thụ thành công, authorization KHÔNG được khôi phục/tái tạo lại:
+    // người dùng phải yêu cầu OTP mới (request → verify → reset lại từ đầu). Đây là hành vi fail-safe
+    // được CHẤP NHẬN LÀ CUỐI CÙNG (không phải tạm thời) — ưu tiên đúng đắn/bảo mật hơn tiện lợi
+    // retry, và KHÔNG BAO GIỜ để lại 1 authorization có thể dùng lại được.
+    await this.prisma.$transaction(async (tx) => {
+      await this.userRepository.updatePasswordHash(user.id, passwordHash, tx);
+      await this.sessionRepository.revokeAllForUser(user.id, tx);
+    });
+
+    // Audit log VẪN nằm NGOÀI transaction Postgres — KHÔNG đổi vị trí tương đối so với trước (trước
+    // đây cũng chạy SAU 2 lệnh mutation, ngoài bất kỳ transaction nào vì chưa hề có transaction).
+    // `AuditLogService` là service dùng chung TOÀN HỆ THỐNG, best-effort theo thiết kế (tự bắt lỗi,
+    // chỉ log warning, KHÔNG BAO GIỜ throw — xem chính doc-comment của nó) và KHÔNG nhận `tx` — mở
+    // rộng nó để tham gia transaction của 1 module là thay đổi cross-cutting vượt xa phạm vi B-2,
+    // KHÔNG được authorize ở đây. Hệ quả: nếu transaction ở trên thất bại, không có audit row nào
+    // được ghi (giống hệt trước đây — audit luôn chạy SAU khi 2 mutation đã thành công); nếu
+    // transaction thành công nhưng chính lệnh ghi audit sau đó thất bại, việc đặt lại mật khẩu ĐÃ
+    // hoàn tất đầy đủ (khớp hành vi trước T053.06B-2), lỗi audit chỉ log warning theo thiết kế sẵn
+    // có của `AuditLogService`.
     await this.auditLogService.log({
       organizationId: user.organizationId,
       userId: user.id,

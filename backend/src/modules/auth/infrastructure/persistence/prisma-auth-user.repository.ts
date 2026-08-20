@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { AuthUserEntity } from '../../domain/entities/auth-user.entity';
 import { IAuthUserRepository } from '../../domain/repositories/auth-user.repository.interface';
@@ -31,8 +32,10 @@ export class PrismaAuthUserRepository implements IAuthUserRepository {
   async updatePasswordHash(
     userId: string,
     passwordHash: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    await this.prisma.user.update({
+    const client = tx ?? this.prisma;
+    await client.user.update({
       where: { id: userId },
       data: { passwordHash },
     });

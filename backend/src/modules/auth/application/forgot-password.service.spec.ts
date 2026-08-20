@@ -18,6 +18,9 @@ describe('ForgotPasswordService', () => {
   let tokenService: jest.Mocked<Pick<TokenService, 'hashOtp'>>;
   let mailService: jest.Mocked<Pick<MailService, 'sendOtpEmail'>>;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
+  // T053.06B-2 (D5) — cùng mẫu hình mock `$transaction` đã dùng ở `checkout.service.spec.ts`: gọi
+  // ngay callback với 1 `tx` giả (đối tượng rỗng) để mô phỏng hành vi thật của Prisma.
+  let prisma: { $transaction: jest.Mock };
 
   const organizationSlug = 'kiotviet-off';
   const email = 'owner@kiotviet-off.vn';
@@ -52,11 +55,9 @@ describe('ForgotPasswordService', () => {
     };
     otpRepository = {
       save: jest.fn(),
-      get: jest.fn(),
       verifyAndConsume: jest.fn(),
-      delete: jest.fn(),
       incrementSendCount: jest.fn(),
-      isVerified: jest.fn(),
+      consumeVerified: jest.fn(),
       getCooldownRemainingSeconds: jest.fn().mockResolvedValue(0),
       startCooldown: jest.fn(),
       // T053.06B-1 — mặc định trả 1 (dưới ngưỡng throttle account-scoped mới) để không ảnh hưởng
@@ -67,6 +68,9 @@ describe('ForgotPasswordService', () => {
     tokenService = { hashOtp: jest.fn().mockReturnValue('hashed-otp') };
     mailService = { sendOtpEmail: jest.fn().mockResolvedValue(undefined) };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+    prisma = {
+      $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({})),
+    };
 
     service = new ForgotPasswordService(
       userRepository,
@@ -76,6 +80,7 @@ describe('ForgotPasswordService', () => {
       tokenService as unknown as TokenService,
       mailService as unknown as MailService,
       auditLogService as unknown as AuditLogService,
+      prisma as never,
     );
   });
 
@@ -175,8 +180,6 @@ describe('ForgotPasswordService', () => {
       await expect(promise).rejects.toMatchObject({
         response: { errorCode: 'OTP_004' },
       });
-      // Lua script tự DEL bên trong Redis — service KHÔNG gọi delete() riêng nữa.
-      expect(otpRepository.delete).not.toHaveBeenCalled();
     });
 
     it('T053.06B-1 (§6) — throttle account-scoped: từ chối OTP_VERIFY_RATE_LIMIT_EXCEEDED khi vượt ngưỡng, KHÔNG gọi verifyAndConsume()', async () => {
@@ -213,30 +216,98 @@ describe('ForgotPasswordService', () => {
     });
   });
 
-  describe('resetPassword', () => {
-    it('đặt lại mật khẩu thành công khi OTP đã verified, thu hồi mọi session', async () => {
-      otpRepository.isVerified.mockResolvedValue(true);
+  describe('resetPassword — T053.06B-2 (D1/D3/D5)', () => {
+    it('U5/U6 — đặt lại mật khẩu thành công khi consumeVerified() trả true: gọi tiêu thụ đúng 1 lần, thu hồi mọi session, ghi audit', async () => {
+      otpRepository.consumeVerified.mockResolvedValue(true);
       userRepository.findByOrganizationSlugAndEmail.mockResolvedValue(user);
       passwordHasher.hash.mockResolvedValue('new-hash');
 
       await service.resetPassword(organizationSlug, email, 'NewP@ssw0rd123');
 
+      expect(otpRepository.consumeVerified).toHaveBeenCalledWith(identifier);
+      expect(otpRepository.consumeVerified).toHaveBeenCalledTimes(1);
       expect(userRepository.updatePasswordHash).toHaveBeenCalledWith(
         user.id,
         'new-hash',
+        {},
       );
-      expect(otpRepository.delete).toHaveBeenCalledWith(identifier);
-      expect(sessionRepository.revokeAllForUser).toHaveBeenCalledWith(user.id);
+      expect(sessionRepository.revokeAllForUser).toHaveBeenCalledWith(
+        user.id,
+        {},
+      );
       expect(auditLogService.log).toHaveBeenCalled();
     });
 
-    it('từ chối nếu chưa xác thực OTP', async () => {
-      otpRepository.isVerified.mockResolvedValue(false);
+    it('U5 — từ chối OTP_005 nếu consumeVerified() trả false (chưa xác thực hoặc đã bị tiêu thụ trước đó)', async () => {
+      otpRepository.consumeVerified.mockResolvedValue(false);
+
+      const promise = service.resetPassword(
+        organizationSlug,
+        email,
+        'NewP@ssw0rd123',
+      );
+      await expect(promise).rejects.toThrow(BadRequestException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'OTP_005' },
+      });
+      expect(userRepository.updatePasswordHash).not.toHaveBeenCalled();
+    });
+
+    it('U7 — consumeVerified() trả false PHẢI ngăn TOÀN BỘ mutation DB (không tra user, không hash mật khẩu, không mở transaction)', async () => {
+      otpRepository.consumeVerified.mockResolvedValue(false);
 
       await expect(
         service.resetPassword(organizationSlug, email, 'NewP@ssw0rd123'),
       ).rejects.toThrow(BadRequestException);
-      expect(userRepository.updatePasswordHash).not.toHaveBeenCalled();
+
+      expect(
+        userRepository.findByOrganizationSlugAndEmail,
+      ).not.toHaveBeenCalled();
+      expect(passwordHasher.hash).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(sessionRepository.revokeAllForUser).not.toHaveBeenCalled();
+      expect(auditLogService.log).not.toHaveBeenCalled();
+    });
+
+    it('U8 — passwordHash update và revokeAllForUser chạy CÙNG 1 lệnh $transaction, nhận CÙNG 1 tx (không phải 2 transaction độc lập)', async () => {
+      otpRepository.consumeVerified.mockResolvedValue(true);
+      userRepository.findByOrganizationSlugAndEmail.mockResolvedValue(user);
+      passwordHasher.hash.mockResolvedValue('new-hash');
+      const fakeTx = { marker: 'single-shared-tx' };
+      prisma.$transaction.mockImplementationOnce(
+        (fn: (tx: unknown) => unknown) => fn(fakeTx),
+      );
+
+      await service.resetPassword(organizationSlug, email, 'NewP@ssw0rd123');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(userRepository.updatePasswordHash).toHaveBeenCalledWith(
+        user.id,
+        'new-hash',
+        fakeTx,
+      );
+      expect(sessionRepository.revokeAllForUser).toHaveBeenCalledWith(
+        user.id,
+        fakeTx,
+      );
+    });
+
+    it('U9 — $transaction() thất bại (lỗi Postgres) PHẢI ném ra nguyên vẹn, KHÔNG âm thầm khôi phục/tái tạo lại authorization đã tiêu thụ ở Redis', async () => {
+      otpRepository.consumeVerified.mockResolvedValue(true);
+      userRepository.findByOrganizationSlugAndEmail.mockResolvedValue(user);
+      passwordHasher.hash.mockResolvedValue('new-hash');
+      const dbError = new Error('connection terminated unexpectedly');
+      prisma.$transaction.mockRejectedValueOnce(dbError);
+
+      await expect(
+        service.resetPassword(organizationSlug, email, 'NewP@ssw0rd123'),
+      ).rejects.toBe(dbError);
+
+      // KHÔNG có bất kỳ lệnh Redis nào được gọi để "khôi phục" verified — service không sở hữu
+      // cơ chế đó (D6, không phát minh 2PC). consumeVerified() đã được gọi đúng 1 lần trước đó,
+      // KHÔNG gọi lại/không có thao tác bù trừ nào.
+      expect(otpRepository.consumeVerified).toHaveBeenCalledTimes(1);
+      expect(auditLogService.log).not.toHaveBeenCalled();
     });
   });
 });
