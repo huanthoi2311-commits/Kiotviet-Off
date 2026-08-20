@@ -313,50 +313,51 @@ model Organization {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  organizationSettings      OrganizationSettings?
-  subscription              OrganizationSubscription?
-  branches                  Branch[]
-  warehouses                Warehouse[]
-  users                     User[]
-  roles                     Role[]
-  settings                  Setting[]
-  categories                Category[]
-  brands                    Brand[]
-  units                     Unit[]
-  taxes                     Tax[]
-  products                  Product[]
-  barcodes                  Barcode[]
-  suppliers                 Supplier[]
-  purchaseOrders            PurchaseOrder[]
-  purchaseReturns           PurchaseReturn[]
-  orders                    Order[]
-  invoices                  Invoice[]
-  returns                   Return[]
-  customerGroups            CustomerGroup[]
-  customers                 Customer[]
-  debts                     Debt[]
-  pointLedgers              CustomerPointLedger[]
-  payments                  Payment[]
-  cashBooks                 CashBook[]
-  expenseCategories         ExpenseCategory[]
-  expenses                  Expense[]
-  promotions                Promotion[]
-  vouchers                  Voucher[]
-  deliveries                Delivery[]
-  notifications             Notification[]
-  files                     File[]
-  webhooks                  Webhook[]
-  apiKeys                   ApiKey[]
-  auditLogs                 AuditLog[]
-  inventories               Inventory[]
-  inventoryMovements        InventoryMovement[]
-  transfers                 Transfer[]
-  stockCounts               StockCount[]
-  inventoryAdjustments      InventoryAdjustment[]
-  sequences                 Sequence[]
-  checkoutOperations        CheckoutOperation[]
-  salesReturns              SalesReturn[]
-  supplierPaymentOperations SupplierPaymentOperation[]
+  organizationSettings        OrganizationSettings?
+  subscription                OrganizationSubscription?
+  branches                    Branch[]
+  warehouses                  Warehouse[]
+  users                       User[]
+  roles                       Role[]
+  settings                    Setting[]
+  categories                  Category[]
+  brands                      Brand[]
+  units                       Unit[]
+  taxes                       Tax[]
+  products                    Product[]
+  barcodes                    Barcode[]
+  suppliers                   Supplier[]
+  purchaseOrders              PurchaseOrder[]
+  purchaseReturns             PurchaseReturn[]
+  orders                      Order[]
+  invoices                    Invoice[]
+  returns                     Return[]
+  customerGroups              CustomerGroup[]
+  customers                   Customer[]
+  debts                       Debt[]
+  pointLedgers                CustomerPointLedger[]
+  payments                    Payment[]
+  cashBooks                   CashBook[]
+  expenseCategories           ExpenseCategory[]
+  expenses                    Expense[]
+  promotions                  Promotion[]
+  vouchers                    Voucher[]
+  deliveries                  Delivery[]
+  notifications               Notification[]
+  files                       File[]
+  webhooks                    Webhook[]
+  apiKeys                     ApiKey[]
+  auditLogs                   AuditLog[]
+  inventories                 Inventory[]
+  inventoryMovements          InventoryMovement[]
+  transfers                   Transfer[]
+  stockCounts                 StockCount[]
+  inventoryAdjustments        InventoryAdjustment[]
+  sequences                   Sequence[]
+  checkoutOperations          CheckoutOperation[]
+  salesReturns                SalesReturn[]
+  supplierPaymentOperations   SupplierPaymentOperation[]
+  salesReturnRefundOperations SalesReturnRefundOperation[]
 
   @@map("organizations")
 }
@@ -393,16 +394,16 @@ model OrganizationSubscription {
   organizationId String       @unique @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  plan           OrganizationPlan               @default(FREE)
-  status         OrganizationSubscriptionStatus @default(ACTIVE)
-  startedAt      DateTime                       @default(now())
-  expiredAt      DateTime?
-  maxBranch      Int?
-  maxUser        Int?
-  maxWarehouse   Int?
-  maxProduct     Int?
-  maxCustomer    Int?
-  storageLimitGB Int?
+  plan                 OrganizationPlan               @default(FREE)
+  status               OrganizationSubscriptionStatus @default(ACTIVE)
+  startedAt            DateTime                       @default(now())
+  expiredAt            DateTime?
+  maxBranch            Int?
+  maxUser              Int?
+  maxWarehouse         Int?
+  maxProduct           Int?
+  maxCustomer          Int?
+  storageLimitGB       Int?
   /// T053.03 — Ghi đè entitlement theo từng Organization, dạng `Record<CommercialFeature, boolean>`.
   /// null = dùng nguyên default của Plan (PLAN_ENTITLEMENTS). Không public mutation endpoint nào
   /// trong T053.03 — chỉ hỗ trợ cấu trúc dữ liệu, resolution logic đọc/validate ở EntitlementService.
@@ -1845,8 +1846,49 @@ model SalesReturnRefund {
   /// Optimistic Lock riêng cho Refund transition, độc lập với SalesReturn.version.
   version   Int      @default(1)
 
+  /// Back-relation cho SalesReturnRefundOperation.refundId (T053.06E) — FK trỏ tới đây.
+  refundOperations SalesReturnRefundOperation[]
+
   @@index([salesReturnId])
   @@map("sales_return_refunds")
+}
+
+enum SalesReturnRefundOperationStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+/// T053.06E — Idempotency cho POST /sales-returns/:id/refunds, mirror SupplierPaymentOperation
+/// (T052.05B): requestFingerprint BẤT BIẾN sau khi tạo (dữ liệu tài chính cần khả năng đối soát
+/// ổn định — cùng lý do đã áp dụng cho Supplier Payment, KHÔNG kế thừa hành vi ghi-đè-âm-thầm
+/// của CheckoutOperation). Tách biệt hoàn toàn khỏi SalesReturnRefund's status (2 state machine
+/// độc lập: 1 theo dõi "yêu cầu tạo đã được ghi nhận bền vững chưa", 1 theo dõi "khoản hoàn tiền
+/// đã thực sự chi trả chưa" qua PENDING/PROCESSING/COMPLETED/FAILED/CANCELLED của chính nó).
+model SalesReturnRefundOperation {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  idempotencyKey     String
+  requestFingerprint String
+  status             SalesReturnRefundOperationStatus @default(PROCESSING)
+  /// NULL khi PROCESSING/FAILED — chỉ có giá trị sau khi chuyển COMPLETED.
+  refundId           String?                          @db.Uuid
+  refund             SalesReturnRefund?               @relation(fields: [refundId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  /// Set khi chuyển sang COMPLETED hoặc FAILED — NULL khi còn PROCESSING.
+  completedAt DateTime?
+
+  // T053.06E — tên constraint mặc định (`<table>_organizationId_idempotencyKey_key`) dài 64 ký tự,
+  // VƯỢT giới hạn identifier 63 byte của Postgres (NAMEDATALEN) — chỉ định `map` ngắn tường minh,
+  // tránh phụ thuộc vào truncation ngầm của Postgres/Prisma (không xảy ra ở bất kỳ bảng nào khác
+  // trong schema này — bảng này có tên dài hơn `supplier_payment_operations` 3 ký tự, đủ để vượt).
+  @@unique([organizationId, idempotencyKey], map: "sales_return_refund_ops_org_idem_key")
+  @@index([status, createdAt])
+  @@map("sales_return_refund_operations")
 }
 
 model Return {
@@ -2185,14 +2227,14 @@ enum TrialSignupFinalizationStatus {
 /// signup bat bien. Khong phai aggregate nghiep vu, chi la bang ho tro ky thuat — KHONG BAO GIO
 /// luu password/OTP/token tho (chi luu hash cua token).
 model TrialSignupFinalization {
-  id                 String                         @id @default(uuid()) @db.Uuid
-  proofTokenHash     String                         @unique
+  id                 String                        @id @default(uuid()) @db.Uuid
+  proofTokenHash     String                        @unique
   normalizedEmail    String
   requestFingerprint String
-  status             TrialSignupFinalizationStatus  @default(PROCESSING)
+  status             TrialSignupFinalizationStatus @default(PROCESSING)
   /// NULL khi PROCESSING/FAILED — chi co gia tri sau khi chuyen COMPLETED.
-  organizationId     String?                        @db.Uuid
-  userId             String?                        @db.Uuid
+  organizationId     String?                       @db.Uuid
+  userId             String?                       @db.Uuid
 
   createdAt   DateTime  @default(now())
   /// Set khi chuyen sang COMPLETED hoac FAILED — NULL khi con PROCESSING.
