@@ -453,6 +453,147 @@ describe('Entitlement Module (e2e, integration) — T053.03 CASE 1-10', () => {
     expect(importedRow).not.toBeNull();
   });
 
+  // T053.06D — POST /suppliers/:id/restore trước đây KHÔNG mang @RequireEntitlement('SUPPLIER')
+  // (create()/import() có, restore() thì không) — cùng lớp lỗi T053.06C, phát hiện qua narrow
+  // completeness sweep T053.06D §4. CASE 15/16 chứng minh đã đóng lỗ hổng, dùng ĐÚNG helper đã có.
+  it('CASE 15: FREE tenant KHÔNG có SUPPLIER → POST /suppliers/:id/restore bị từ chối 403 ENTITLEMENT_001, Supplier VẪN còn ARCHIVED, KHÔNG ghi audit "supplier.restore"', async () => {
+    const { ownerToken, orgId } = await createOrgWithPlan(
+      'FREE',
+      'case15-free-restore',
+    );
+    // Seed thẳng 1 Supplier ĐÃ ARCHIVED qua Prisma (không qua API — org FREE sẽ bị chặn ngay ở
+    // create()/import() nếu đi qua API, đúng ý đồ CASE 11/13 — archived fixture cần tồn tại TRƯỚC
+    // để restore() có gì để thử khôi phục).
+    const archivedSupplier = await prisma.supplier.create({
+      data: {
+        organizationId: orgId,
+        code: `CASE15-${Date.now()}`,
+        companyName: 'Case 15 Archived Supplier',
+        status: 'ARCHIVED',
+        deletedAt: new Date(),
+      },
+    });
+
+    const beforeAuditCount = await prisma.auditLog.count({
+      where: { organizationId: orgId, action: 'supplier.restore' },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/suppliers/${archivedSupplier.id}/restore`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ version: archivedSupplier.version })
+      .expect(403);
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+
+    const afterSupplier = await prisma.supplier.findUniqueOrThrow({
+      where: { id: archivedSupplier.id },
+    });
+    expect(afterSupplier.status).toBe('ARCHIVED');
+    expect(afterSupplier.deletedAt).not.toBeNull();
+    expect(afterSupplier.version).toBe(archivedSupplier.version);
+
+    const afterAuditCount = await prisma.auditLog.count({
+      where: { organizationId: orgId, action: 'supplier.restore' },
+    });
+    expect(afterAuditCount).toBe(beforeAuditCount);
+  });
+
+  it('CASE 16: BASIC tenant CÓ SUPPLIER → POST /suppliers/:id/restore vẫn thành công (đường vào entitled không bị ảnh hưởng)', async () => {
+    const { ownerToken, orgId } = await createOrgWithPlan(
+      'BASIC',
+      'case16-basic-restore',
+    );
+    const archivedSupplier = await prisma.supplier.create({
+      data: {
+        organizationId: orgId,
+        code: `CASE16-${Date.now()}`,
+        companyName: 'Case 16 Archived Supplier',
+        status: 'ARCHIVED',
+        deletedAt: new Date(),
+      },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/suppliers/${archivedSupplier.id}/restore`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ version: archivedSupplier.version })
+      .expect(201);
+    expect(res.body.data.status).toBe('INACTIVE');
+
+    const afterSupplier = await prisma.supplier.findUniqueOrThrow({
+      where: { id: archivedSupplier.id },
+    });
+    expect(afterSupplier.deletedAt).toBeNull();
+    expect(afterSupplier.status).toBe('INACTIVE');
+  });
+
+  // T053.06D — POST /roles/:id/permissions trước đây KHÔNG mang @RequireEntitlement('RBAC_MANAGEMENT')
+  // (create() có, assignPermissions() thì không) — cùng lớp lỗi T053.06C. CASE 17/18 chứng minh đã
+  // đóng lỗ hổng. Actor dùng ownerToken (allPermissionCodes — LUÔN có role:update thật) để chứng
+  // minh 403 đến từ ENTITLEMENT, không phải thiếu RBAC permission.
+  it('CASE 17: FREE tenant KHÔNG có RBAC_MANAGEMENT (actor CÓ role:update thật) → POST /roles/:id/permissions bị từ chối 403 ENTITLEMENT_001, RolePermission KHÔNG đổi', async () => {
+    const { ownerToken, orgId } = await createOrgWithPlan(
+      'FREE',
+      'case17-free-rbac',
+    );
+    // Seed thẳng 1 Role qua Prisma (không qua API — create() cũng bị chặn entitlement ở org FREE).
+    const role = await prisma.role.create({
+      data: {
+        organizationId: orgId,
+        code: `case17_role_${Date.now()}`,
+        name: 'Case 17 Role',
+      },
+    });
+
+    const beforeRolePermissions = await prisma.rolePermission.findMany({
+      where: { roleId: role.id },
+      select: { permissionId: true },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/roles/${role.id}/permissions`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ permissionCodes: ['supplier:view'] })
+      .expect(403);
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+
+    const afterRolePermissions = await prisma.rolePermission.findMany({
+      where: { roleId: role.id },
+      select: { permissionId: true },
+    });
+    // RolePermission byte/row-equivalent trước vs sau — 403 đến từ ENTITLEMENT (đứng TRƯỚC
+    // RbacService.assignPermissions() trong chuỗi guard), KHÔNG có bất kỳ ghi nào lọt qua.
+    expect(afterRolePermissions).toEqual(beforeRolePermissions);
+  });
+
+  it('CASE 18: PRO tenant CÓ RBAC_MANAGEMENT → POST /roles/:id/permissions vẫn thành công (đường vào entitled không bị ảnh hưởng)', async () => {
+    const { ownerToken, orgId } = await createOrgWithPlan(
+      'PRO',
+      'case18-pro-rbac',
+    );
+    const role = await prisma.role.create({
+      data: {
+        organizationId: orgId,
+        code: `case18_role_${Date.now()}`,
+        name: 'Case 18 Role',
+      },
+    });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/roles/${role.id}/permissions`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ permissionCodes: ['supplier:view'] })
+      .expect(201);
+
+    const permission = await prisma.permission.findUniqueOrThrow({
+      where: { code: 'supplier:view' },
+    });
+    const rolePermission = await prisma.rolePermission.findFirst({
+      where: { roleId: role.id, permissionId: permission.id },
+    });
+    expect(rolePermission).not.toBeNull();
+  });
+
   // ============================================================
   // Architect Decision (Current Entitlement Context Defect) — GET /entitlements/current: hợp đồng
   // đọc HẸP, KHÔNG yêu cầu organization:view hay bất kỳ permission nào — chỉ cần đăng nhập.
