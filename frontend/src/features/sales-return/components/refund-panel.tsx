@@ -28,6 +28,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { NormalizedError } from '@/services/api-client';
+import { useSalesReturnRefundIdempotencyKey } from '../use-sales-return-refund-idempotency-key';
 import { RefundActionDialog, type RefundActionDialogMode } from './refund-action-dialog';
 
 const REFUND_METHOD_OPTIONS = [
@@ -78,6 +79,7 @@ export function RefundPanel({
     version: number;
     mode: RefundActionDialogMode;
   } | null>(null);
+  const { prepareSubmit, retire } = useSalesReturnRefundIdempotencyKey();
 
   const createRefundMutation = useSalesReturnControllerCreateRefund<NormalizedError>({
     mutation: {
@@ -90,6 +92,7 @@ export function RefundPanel({
         setAmount('');
         setExternalReference('');
         setCreateError(null);
+        retire();
       },
       onError: (error) => {
         setCreateError(error.kind === 'api-error' ? error.message : 'Đã xảy ra lỗi không xác định');
@@ -104,9 +107,17 @@ export function RefundPanel({
       return;
     }
     setCreateError(null);
+    const resolvedExternalReference = externalReference || undefined;
+    const key = prepareSubmit({
+      salesReturnId,
+      amount: parsedAmount,
+      method,
+      externalReference: resolvedExternalReference,
+    });
     createRefundMutation.mutate({
       id: salesReturnId,
-      data: { amount: parsedAmount, method, externalReference: externalReference || undefined },
+      data: { amount: parsedAmount, method, externalReference: resolvedExternalReference },
+      headers: { 'Idempotency-Key': key },
     });
   };
 
