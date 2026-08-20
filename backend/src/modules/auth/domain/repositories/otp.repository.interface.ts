@@ -18,7 +18,6 @@ export type OtpVerifyResult =
 export interface IOtpRepository {
   /** Lưu OTP đã hash theo key, TTL cố định (5 phút — Prompt 014). Ghi đè OTP cũ nếu có. */
   save(identifier: string, otpHash: string): Promise<void>;
-  get(identifier: string): Promise<OtpRecord | null>;
   /**
    * T053.06B-1 — thay thế hoàn toàn chuỗi `get()` → so khớp ở application code → `incrementAttempts()`
    * HOẶC `markVerified()` (đã bị xoá khỏi interface này — không còn caller nào khác ngoài chuỗi cũ
@@ -32,10 +31,19 @@ export interface IOtpRepository {
     otpHash: string,
     maxAttempts: number,
   ): Promise<OtpVerifyResult>;
-  delete(identifier: string): Promise<void>;
   /** Đếm số lần gửi OTP trong cửa sổ 1 giờ, dùng cho rate-limit (5 lần/giờ). */
   incrementSendCount(identifier: string): Promise<number>;
-  isVerified(identifier: string): Promise<boolean>;
+  /**
+   * T053.06B-2 (D1/D3) — thay thế hoàn toàn `isVerified()` (GET đơn thuần, KHÔNG tiêu thụ — đúng
+   * lỗ hổng double-finalization race đã xác nhận ở Discovery §2/§3: 2 request reset đồng thời CÙNG
+   * đọc được `verified=true` trước khi bất kỳ request nào xoá cờ). Đây là 1 lệnh Redis nguyên tử
+   * DUY NHẤT (GETDEL — KHÔNG phải GET rồi DEL riêng biệt ở tầng application, đúng lớp lỗi B-1 đã
+   * sửa 1 lần cho `verifyAndConsume`, không lặp lại ở đây): trả `true` CHỈ cho ĐÚNG 1 lệnh gọi đầu
+   * tiên trong N lệnh gọi đồng thời trên cùng `identifier`; mọi lệnh gọi sau đó — kể cả từ chính
+   * request đã tiêu thụ thành công nếu gọi lại — đều nhận `false`. `save()` (yêu cầu OTP mới) vẫn
+   * xoá cờ `verified` cũ như trước (D7 — không đổi).
+   */
+  consumeVerified(identifier: string): Promise<boolean>;
   /** Giây còn lại trước khi được gửi OTP tiếp theo; 0 nếu không trong cooldown. */
   getCooldownRemainingSeconds(identifier: string): Promise<number>;
   startCooldown(identifier: string): Promise<void>;

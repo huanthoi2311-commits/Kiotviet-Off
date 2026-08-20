@@ -25,10 +25,11 @@ const VERIFY_ATTEMPT_WINDOW_TTL_SECONDS = 60 * 60;
  * lại) — chỉ tái hiện lại đúng SHAPE của Lua script đã được duyệt, KHÔNG dùng chung code/module.
  *
  * Khác `VERIFY_AND_CONSUME_SCRIPT` của signup ở đúng 1 điểm cấu trúc: signup xoá OTP ngay khi đúng
- * (không có bước "verified, chờ dùng sau"); forgot-password vẫn cần giữ nguyên kiến trúc
- * `verified`-flag hiện có (public API `resetPassword()` đọc riêng, KHÔNG đổi ở gói này — xem
- * T053.06B-2, phạm vi VẫN CHƯA được authorize) — nên nhánh đúng ở đây SET verified key (giữ
- * nguyên TTL 5 phút đã có) THAY VÌ chỉ xoá OTP suông.
+ * (không có bước "verified, chờ dùng sau"); forgot-password vẫn giữ kiến trúc `verified`-flag
+ * riêng biệt (khác thời điểm với lúc verify — `resetPassword()` gọi sau, không phải ngay lập tức)
+ * — nên nhánh đúng ở đây SET verified key (giữ nguyên TTL 5 phút đã có) THAY VÌ chỉ xoá OTP suông.
+ * T053.06B-2 — `resetPassword()` giờ TIÊU THỤ atomic cờ này qua `consumeVerified()`/`GETDEL` (xem
+ * bên dưới), không còn đọc suông (`isVerified()`) như trước.
  *
  * KQ trả về: {"OK"} | {"NOT_FOUND"} | {"INCORRECT", attempts} | {"MAX_ATTEMPTS"}
  */
@@ -92,11 +93,6 @@ export class RedisOtpRepository implements IOtpRepository {
     await this.redis.del(this.verifiedKey(identifier));
   }
 
-  async get(identifier: string): Promise<OtpRecord | null> {
-    const raw = await this.redis.get(this.otpKey(identifier));
-    return raw ? (JSON.parse(raw) as OtpRecord) : null;
-  }
-
   async verifyAndConsume(
     identifier: string,
     otpHash: string,
@@ -134,10 +130,6 @@ export class RedisOtpRepository implements IOtpRepository {
     );
   }
 
-  async delete(identifier: string): Promise<void> {
-    await this.redis.del(this.otpKey(identifier), this.verifiedKey(identifier));
-  }
-
   async incrementSendCount(identifier: string): Promise<number> {
     const key = this.sendCountKey(identifier);
     const count = await this.redis.incr(key);
@@ -147,8 +139,17 @@ export class RedisOtpRepository implements IOtpRepository {
     return count;
   }
 
-  async isVerified(identifier: string): Promise<boolean> {
-    const value = await this.redis.get(this.verifiedKey(identifier));
+  /**
+   * T053.06B-2 (D1/D3/§6) — `GETDEL` là 1 lệnh Redis nguyên tử DUY NHẤT (native command, Redis
+   * >= 6.2 — dự án chạy `redis:7-alpine`), KHÔNG phải `GET` rồi `DEL` riêng biệt ở tầng
+   * application (đúng lớp lỗi race condition B-1 đã sửa 1 lần cho `verifyAndConsume`, không lặp
+   * lại ở đây). Lỗi Redis (mất kết nối...) PHẢI ném ra nguyên vẹn — KHÔNG được diễn giải thành
+   * `false` một cách âm thầm (AD-5/T030.9 "Redis failure does not bypass security" — ở đây nghĩa
+   * là lỗi Redis không được vô tình cho phép MỘT reset nào đi qua, cũng không được vô tình chặn
+   * một reset hợp lệ mà không báo lỗi rõ ràng).
+   */
+  async consumeVerified(identifier: string): Promise<boolean> {
+    const value = await this.redis.getdel(this.verifiedKey(identifier));
     return value === '1';
   }
 

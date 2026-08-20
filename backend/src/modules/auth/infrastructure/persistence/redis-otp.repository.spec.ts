@@ -19,6 +19,7 @@ describe('RedisOtpRepository — T030.9 / T053.06B-1', () => {
     incr: jest.Mock;
     expire: jest.Mock;
     eval: jest.Mock;
+    getdel: jest.Mock;
   };
 
   beforeEach(() => {
@@ -30,6 +31,7 @@ describe('RedisOtpRepository — T030.9 / T053.06B-1', () => {
       incr: jest.fn(),
       expire: jest.fn(),
       eval: jest.fn(),
+      getdel: jest.fn(),
     };
     repository = new RedisOtpRepository(redis as unknown as Redis);
   });
@@ -46,21 +48,6 @@ describe('RedisOtpRepository — T030.9 / T053.06B-1', () => {
         300,
       );
       expect(redis.del).toHaveBeenCalledWith('auth:otp:verified:org:a@b.com');
-    });
-
-    it('get() trả về null khi không có bản ghi', async () => {
-      redis.get.mockResolvedValue(null);
-      await expect(repository.get('org:a@b.com')).resolves.toBeNull();
-    });
-
-    it('isVerified() trả true chỉ khi giá trị đúng "1"', async () => {
-      redis.get.mockResolvedValue('1');
-      await expect(repository.isVerified('org:a@b.com')).resolves.toBe(true);
-    });
-
-    it('isVerified() trả false khi key không tồn tại (get trả null)', async () => {
-      redis.get.mockResolvedValue(null);
-      await expect(repository.isVerified('org:a@b.com')).resolves.toBe(false);
     });
 
     it('incrementSendCount() set TTL 3600s CHỈ ở lần đầu (count === 1)', async () => {
@@ -158,19 +145,52 @@ describe('RedisOtpRepository — T030.9 / T053.06B-1', () => {
     });
   });
 
-  describe('Redis lỗi/không khả dụng — KHÔNG được bypass bảo mật (T030.9, AD-5)', () => {
-    const redisDownError = new Error('connect ECONNREFUSED 127.0.0.1:6379');
-
-    it('isVerified() reject nguyên vẹn khi Redis lỗi — KHÔNG âm thầm trả về false/true', async () => {
-      redis.get.mockRejectedValue(redisDownError);
-      await expect(repository.isVerified('org:a@b.com')).rejects.toBe(
-        redisDownError,
+  describe('consumeVerified() — T053.06B-2 (D1/D3, GETDEL atomic single-use)', () => {
+    it('U1 — trạng thái verified tồn tại ("1") → tiêu thụ thành công, trả true', async () => {
+      redis.getdel.mockResolvedValue('1');
+      await expect(repository.consumeVerified('org:a@b.com')).resolves.toBe(
+        true,
+      );
+      expect(redis.getdel).toHaveBeenCalledWith(
+        'auth:otp:verified:org:a@b.com',
       );
     });
 
-    it('get() (đọc OTP hash để so khớp verifyOtp) reject nguyên vẹn khi Redis lỗi', async () => {
-      redis.get.mockRejectedValue(redisDownError);
-      await expect(repository.get('org:a@b.com')).rejects.toBe(redisDownError);
+    it('U2 — trạng thái verified KHÔNG tồn tại (chưa từng verify) → trả false', async () => {
+      redis.getdel.mockResolvedValue(null);
+      await expect(repository.consumeVerified('org:a@b.com')).resolves.toBe(
+        false,
+      );
+    });
+
+    it('U3 — lệnh gọi THỨ HAI sau khi đã tiêu thụ thành công lần đầu → trả false (GETDEL đã xoá key ở lần đầu, mock phản ánh đúng: lần 2 GETDEL trả null)', async () => {
+      redis.getdel.mockResolvedValueOnce('1').mockResolvedValueOnce(null);
+
+      await expect(repository.consumeVerified('org:a@b.com')).resolves.toBe(
+        true,
+      );
+      await expect(repository.consumeVerified('org:a@b.com')).resolves.toBe(
+        false,
+      );
+      expect(redis.getdel).toHaveBeenCalledTimes(2);
+    });
+
+    it('giá trị lạ (khác "1") → trả false (fail closed theo giá trị, không coi bất kỳ chuỗi non-null nào là verified)', async () => {
+      redis.getdel.mockResolvedValue('unexpected-value');
+      await expect(repository.consumeVerified('org:a@b.com')).resolves.toBe(
+        false,
+      );
+    });
+  });
+
+  describe('Redis lỗi/không khả dụng — KHÔNG được bypass bảo mật (T030.9, AD-5)', () => {
+    const redisDownError = new Error('connect ECONNREFUSED 127.0.0.1:6379');
+
+    it('U4 — consumeVerified() reject nguyên vẹn khi Redis lỗi (GETDEL thất bại) — KHÔNG âm thầm coi là true HAY false, không cho phép 1 reset nào đi qua khi không rõ trạng thái thật', async () => {
+      redis.getdel.mockRejectedValue(redisDownError);
+      await expect(repository.consumeVerified('org:a@b.com')).rejects.toBe(
+        redisDownError,
+      );
     });
 
     it('save() reject nguyên vẹn khi Redis lỗi — không báo "đã gửi OTP" giả', async () => {
@@ -211,13 +231,6 @@ describe('RedisOtpRepository — T030.9 / T053.06B-1', () => {
     it('startCooldown() reject nguyên vẹn khi Redis lỗi', async () => {
       redis.set.mockRejectedValue(redisDownError);
       await expect(repository.startCooldown('org:a@b.com')).rejects.toBe(
-        redisDownError,
-      );
-    });
-
-    it('delete() reject nguyên vẹn khi Redis lỗi', async () => {
-      redis.del.mockRejectedValue(redisDownError);
-      await expect(repository.delete('org:a@b.com')).rejects.toBe(
         redisDownError,
       );
     });
