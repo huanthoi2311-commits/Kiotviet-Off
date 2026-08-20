@@ -3,11 +3,24 @@ import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
+import ExcelJS from 'exceljs';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { createE2eApp } from './helpers/create-e2e-app';
 import { AppModule } from '../src/app.module';
 import { PERMISSION_CATALOG } from '../src/modules/rbac/infrastructure/permission-catalog';
+
+/** Mirrors backend's ExceljsSupplierExcelAdapter's expected columns (Mã NCC/Tên công ty). */
+async function buildValidSupplierImportWorkbook(code: string): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Suppliers');
+  worksheet.columns = [
+    { header: 'Mã NCC', key: 'code' },
+    { header: 'Tên công ty', key: 'companyName' },
+  ];
+  worksheet.addRow({ code, companyName: `Nhà cung cấp ${code}` });
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
 
 /**
  * Integration Test — T053.03 Feature Entitlements Foundation (real Postgres, CASE 1-10 theo Architect
@@ -372,6 +385,72 @@ describe('Entitlement Module (e2e, integration) — T053.03 CASE 1-10', () => {
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ companyName: 'Case 12 Basic Allowed' })
       .expect(201);
+  });
+
+  // T053.06C — POST /suppliers/import trước đây KHÔNG mang @RequireEntitlement('SUPPLIER')
+  // (SupplierController.create() có, import() thì không) — EntitlementGuard mặc định cho qua khi
+  // thiếu metadata (hành vi ĐÚNG cho route không cần entitlement, nhưng import Supplier THÌ CẦN,
+  // giống hệt create()) — kết quả: tenant FREE (không có SUPPLIER) từng tạo được Supplier không
+  // giới hạn qua đường Import dù bị chặn đúng ở đường Create. CASE 13/14 chứng minh đã đóng lỗ hổng
+  // này, dùng ĐÚNG các helper/fixture đã có (createOrgWithPlan), không dựng hạ tầng test mới.
+  it('CASE 13: FREE tenant KHÔNG có SUPPLIER → POST /suppliers/import bị từ chối 403 ENTITLEMENT_001, KHÔNG ghi Supplier nào, KHÔNG ghi audit "supplier.import"', async () => {
+    const { ownerToken, orgId } = await createOrgWithPlan(
+      'FREE',
+      'case13-free-import',
+    );
+    const importCode = `CASE13-${Date.now()}`;
+    const workbook = await buildValidSupplierImportWorkbook(importCode);
+
+    const beforeSupplierCount = await prisma.supplier.count({
+      where: { organizationId: orgId },
+    });
+    const beforeAuditCount = await prisma.auditLog.count({
+      where: { organizationId: orgId, action: 'supplier.import' },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/suppliers/import')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .attach('file', workbook, 'suppliers.xlsx')
+      .expect(403);
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+
+    const afterSupplierCount = await prisma.supplier.count({
+      where: { organizationId: orgId },
+    });
+    expect(afterSupplierCount).toBe(beforeSupplierCount);
+
+    const afterAuditCount = await prisma.auditLog.count({
+      where: { organizationId: orgId, action: 'supplier.import' },
+    });
+    expect(afterAuditCount).toBe(beforeAuditCount);
+
+    // Bằng chứng trực tiếp: không có Supplier nào mang đúng mã vừa cố nhập.
+    const importedRow = await prisma.supplier.findFirst({
+      where: { organizationId: orgId, code: importCode },
+    });
+    expect(importedRow).toBeNull();
+  });
+
+  it('CASE 14: BASIC tenant CÓ SUPPLIER → POST /suppliers/import vẫn thành công (đường vào entitled không bị ảnh hưởng)', async () => {
+    const { ownerToken, orgId } = await createOrgWithPlan(
+      'BASIC',
+      'case14-basic-import',
+    );
+    const importCode = `CASE14-${Date.now()}`;
+    const workbook = await buildValidSupplierImportWorkbook(importCode);
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/suppliers/import')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .attach('file', workbook, 'suppliers.xlsx')
+      .expect(201);
+    expect(res.body.data.createdCount).toBe(1);
+
+    const importedRow = await prisma.supplier.findFirst({
+      where: { organizationId: orgId, code: importCode },
+    });
+    expect(importedRow).not.toBeNull();
   });
 
   // ============================================================

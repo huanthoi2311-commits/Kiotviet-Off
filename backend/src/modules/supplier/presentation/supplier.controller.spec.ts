@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
+import { ENTITLEMENT_KEY } from '../../entitlement/presentation/entitlement.decorator';
 import { PERMISSIONS_KEY } from '../../rbac/presentation/permissions.decorator';
 import { SupplierExcelService } from '../application/supplier-excel.service';
 import { ActorContext, SupplierService } from '../application/supplier.service';
@@ -78,6 +79,42 @@ describe('SupplierController', () => {
       );
       expect(permissions).toEqual([expectedPermission]);
     });
+  });
+
+  describe('entitlement metadata (T053.06C — đóng lỗ hổng import bỏ sót @RequireEntitlement)', () => {
+    it.each([
+      ['create', 'SUPPLIER'],
+      ['import', 'SUPPLIER'],
+    ])(
+      'method %s yêu cầu CommercialFeature %s (import trước đây THIẾU metadata này, khiến EntitlementGuard mặc định cho qua)',
+      (method, expectedFeature) => {
+        const feature = reflector.get<string>(
+          ENTITLEMENT_KEY,
+          (controller as unknown as Record<string, () => void>)[method],
+        );
+        expect(feature).toBe(expectedFeature);
+      },
+    );
+
+    it.each([
+      'export',
+      'search',
+      'findOne',
+      'update',
+      'activate',
+      'deactivate',
+      'remove',
+      'restore',
+    ])(
+      'method %s KHÔNG yêu cầu entitlement (chỉ create/import ghi Supplier mới, đúng phạm vi T053.06C — không mở rộng)',
+      (method) => {
+        const feature = reflector.get<string>(
+          ENTITLEMENT_KEY,
+          (controller as unknown as Record<string, () => void>)[method],
+        );
+        expect(feature).toBeUndefined();
+      },
+    );
   });
 
   it('create ủy quyền cho service kèm actor context', async () => {

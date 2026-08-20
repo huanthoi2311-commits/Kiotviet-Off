@@ -82,6 +82,7 @@ export class SupplierController {
   }
 
   @Post('import')
+  @RequireEntitlement('SUPPLIER')
   @RequirePermissions('supplier:import')
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
