@@ -44,6 +44,16 @@ describe('RBAC Cross-Tenant Isolation (e2e, T051.00)', () => {
       create: { code, displayName: `${code} Org`, slug },
       update: {},
     });
+    // T053.06D — POST /roles/:id/permissions giờ yêu cầu entitlement RBAC_MANAGEMENT (trước đây
+    // không có). File này kiểm thử cross-tenant isolation, KHÔNG phải entitlement — cần
+    // provision subscription ENTERPRISE để không bị chặn sớm ở entitlement (403) che giấu mất
+    // nhánh isolation (404 RBAC_001) đang thực sự được test, cùng kỹ thuật đã dùng ở
+    // supplier.e2e-spec.ts/rbac-owner-protection.e2e-spec.ts.
+    await prisma.organizationSubscription.upsert({
+      where: { organizationId: organization.id },
+      create: { organizationId: organization.id, plan: 'ENTERPRISE' },
+      update: {},
+    });
     return organization.id;
   }
 
