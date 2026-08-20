@@ -10,9 +10,10 @@ import { AppModule } from '../src/app.module';
 import { REDIS_CLIENT } from '../src/redis/redis.constants';
 
 /**
- * Integration Test — T053.06B-1 (Forgot-Password OTP atomicity + throttling hardening). Bao phủ
- * §10 (real-Redis concurrency proof A-D) và §11 (full HTTP flow) của Architect Authorization.
- * Cùng giới hạn với các *.e2e-spec.ts khác: KHÔNG tự chạy được trong sandbox này (thiếu Docker).
+ * Integration Test — T053.06B-1 (Forgot-Password OTP atomicity + throttling hardening) +
+ * T053.06B-2 (reset finalization hardening). Bao phủ §10 (real-Redis concurrency proof A-D) và
+ * §11 (full HTTP flow) của T053.06B-1, và E1-E9 + audit-exactly-once của T053.06B-2. Cùng giới
+ * hạn với các *.e2e-spec.ts khác: KHÔNG tự chạy được trong sandbox này (thiếu Docker).
  *   npm run test:e2e -- forgot-password.e2e-spec.ts
  *
  * Trước T053.06B-1, module này KHÔNG có e2e-spec riêng nào (xác nhận qua Mandatory Source
@@ -319,16 +320,102 @@ describe('Forgot Password OTP (e2e, integration) — T053.06B-1', () => {
     await callVerifyOtp(email, otp);
     await callResetPassword(email, 'NewPass@456');
 
-    // otpRepository.delete() trong resetPassword() xoá CẢ 2 key (otp + verified) — verify lại
-    // KHÔNG còn record nào để so khớp.
+    // Lua script (verify-otp) đã DEL key otp:{id} ngay khi đúng; consumeVerified() (GETDEL, reset
+    // thành công ở trên) đã DEL nốt key verified:{id} — verify lại KHÔNG còn record nào để so khớp.
     const replayVerify = await callVerifyOtp(email, otp);
     expect(replayVerify.status).toBe(400);
     expect(replayVerify.body.code).toBe('OTP_002');
 
-    // reset lại mà không re-verify → cờ verified đã bị xoá → OTP_NOT_VERIFIED, KHÔNG cho phép reset lần 2.
+    // T053.06B-2 — reset lại mà không re-verify → consumeVerified() trả false (cờ đã bị GETDEL
+    // tiêu thụ ở lần reset thành công phía trên) → OTP_NOT_VERIFIED, KHÔNG cho phép reset lần 2.
     const replayReset = await callResetPassword(email, 'AnotherPass@789');
     expect(replayReset.status).toBe(400);
     expect(replayReset.body.code).toBe('OTP_005');
+  });
+
+  it('E4 (T053.06B-2, D7): yêu cầu OTP MỚI vô hiệu hoá trạng thái verified CŨ — reset bằng phiên xác thực trước đó bị từ chối', async () => {
+    const email = uniqueEmail('case-e4-new-otp-invalidates');
+    await createUser(email, 'SomePass@123');
+    const firstOtp = await requestAndCaptureOtp(email);
+    const verifyFirst = await callVerifyOtp(email, firstOtp);
+    expect(verifyFirst.status).toBe(204);
+
+    // Yêu cầu OTP MỚI (không dùng phiên vừa verify để reset) — save() xoá cờ verified cũ (D7,
+    // hành vi đã có TỪ TRƯỚC T053.06B-1, không đổi qua B-2).
+    await redis.del(`auth:otp:cooldown:${organizationSlug}:${email}`);
+    await requestAndCaptureOtp(email);
+
+    const resetWithStaleAuthorization = await callResetPassword(
+      email,
+      'ShouldBeRejected@789',
+    );
+    expect(resetWithStaleAuthorization.status).toBe(400);
+    expect(resetWithStaleAuthorization.body.code).toBe('OTP_005');
+  });
+
+  it('E8 (T053.06B-2, D4 — HARD CONCURRENCY PROOF): 1 verify thành công + 2 reset-password đồng thời → CHỈ 1 thắng, mật khẩu cuối cùng khớp người thắng, mật khẩu người thua KHÔNG đăng nhập được, ĐÚNG 1 audit event', async () => {
+    const email = uniqueEmail('case-e8-concurrent-reset');
+    const originalPassword = 'OriginalPass@123';
+    const userId = await createUser(email, originalPassword);
+
+    // 2 session THẬT đã tồn tại TRƯỚC reset — cần thiết để bằng chứng "thu hồi session" bên dưới
+    // có ý nghĩa (nếu không có session nào từ trước, "0 session còn active" sẽ đúng 1 cách tầm
+    // thường bất kể revokeAllForUser() có thật sự chạy hay không).
+    const loginBefore1 = await callLogin(email, originalPassword);
+    expect(loginBefore1.status).toBe(200);
+    const loginBefore2 = await callLogin(email, originalPassword);
+    expect(loginBefore2.status).toBe(200);
+    const preExistingActiveSessions = await prisma.session.count({
+      where: { userId, revokedAt: null },
+    });
+    expect(preExistingActiveSessions).toBeGreaterThanOrEqual(2);
+
+    const otp = await requestAndCaptureOtp(email);
+    const verifyRes = await callVerifyOtp(email, otp);
+    expect(verifyRes.status).toBe(204);
+
+    const passwordA = 'WinnerCandidateA@111';
+    const passwordB = 'WinnerCandidateB@222';
+
+    // KHÔNG serialize — 2 request thật, đồng thời, cùng 1 authorization đã verify.
+    const [resA, resB] = await Promise.all([
+      request(server())
+        .post('/api/v1/auth/reset-password')
+        .send({ organizationSlug, email, newPassword: passwordA }),
+      request(server())
+        .post('/api/v1/auth/reset-password')
+        .send({ organizationSlug, email, newPassword: passwordB }),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort((a, b) => a - b);
+    expect(statuses).toEqual([204, 400]);
+    const winnerPassword = resA.status === 204 ? passwordA : passwordB;
+    const loserPassword = resA.status === 400 ? passwordA : passwordB;
+    const loserRes = resA.status === 400 ? resA : resB;
+    expect(loserRes.body.code).toBe('OTP_005');
+
+    // ĐÚNG 1 audit event "auth.password.reset" cho lần verify này — request thua KHÔNG BAO GIỜ chạm
+    // tới bước ghi audit (bị chặn ngay ở consumeVerified() === false, trước cả bước tra user/mở
+    // transaction) — kiểm tra TRƯỚC khi gọi thêm bất kỳ login nào (login không tự ghi audit
+    // "auth.password.reset" nên thứ tự ở đây không ảnh hưởng, nhưng giữ ngay sau reset để rõ ràng).
+    const auditCount = await prisma.auditLog.count({
+      where: { userId, action: 'auth.password.reset' },
+    });
+    expect(auditCount).toBe(1);
+
+    // Toàn bộ session TỪ TRƯỚC reset đã bị thu hồi bởi CHÍNH request thắng (transaction chung với
+    // passwordHash update, D5) — kiểm tra TRƯỚC khi gọi login bên dưới (login sẽ tạo session MỚI,
+    // làm assertion "0 active" không còn đúng nếu kiểm tra sau).
+    const activeSessionsAfterReset = await prisma.session.count({
+      where: { userId, revokedAt: null },
+    });
+    expect(activeSessionsAfterReset).toBe(0);
+
+    // Mật khẩu cuối cùng khớp ĐÚNG người thắng — người thua KHÔNG đăng nhập được bằng mật khẩu của họ.
+    const loginWinner = await callLogin(email, winnerPassword);
+    expect(loginWinner.status).toBe(200);
+    const loginLoser = await callLogin(email, loserPassword);
+    expect(loginLoser.status).toBe(401);
   });
 
   it('CASE 8: throttle account-scoped (§6) — 25 lần thử/giờ được phép, lần thứ 26 bị chặn 429 OTP_008, tính cả với identifier CHƯA từng yêu cầu OTP nào (không tạo oracle)', async () => {
