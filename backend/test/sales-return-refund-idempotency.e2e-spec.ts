@@ -255,21 +255,24 @@ describe('SalesReturn Refund Idempotency (e2e, integration — Postgres thật)'
     const salesReturnId = created.body.data.id as string;
     const totalAmount = Number(created.body.data.totalAmount);
 
+    // submit/approve/receive là @Post() không có @HttpCode() tường minh — mặc định NestJS trả 201
+    // (Swagger doc của controller ghi 200 nhưng đó là tài liệu SAI CÓ SẴN, không thuộc phạm vi
+    // T053.06E — test này khớp theo hành vi HTTP THẬT, không theo doc).
     await request(app.getHttpServer())
       .post(`/api/v1/sales-returns/${salesReturnId}/submit`)
       .set('Authorization', `Bearer ${fixture.accessToken}`)
       .send({ version: 1 })
-      .expect(200);
+      .expect(201);
     await request(app.getHttpServer())
       .post(`/api/v1/sales-returns/${salesReturnId}/approve`)
       .set('Authorization', `Bearer ${fixture.accessToken}`)
       .send({ version: 2 })
-      .expect(200);
+      .expect(201);
     await request(app.getHttpServer())
       .post(`/api/v1/sales-returns/${salesReturnId}/receive`)
       .set('Authorization', `Bearer ${fixture.accessToken}`)
       .send({ version: 3 })
-      .expect(200);
+      .expect(201);
 
     return { salesReturnId, totalAmount };
   }
@@ -459,7 +462,7 @@ describe('SalesReturn Refund Idempotency (e2e, integration — Postgres thật)'
       .post(`/api/v1/sales-returns/refunds/${blockerRefundId}/cancel`)
       .set('Authorization', `Bearer ${orgA.accessToken}`)
       .send({ version: 1 })
-      .expect(200);
+      .expect(201);
 
     const retry = await refundRequest(orgA, salesReturnId, 5_000, key); // ĐÚNG key, ĐÚNG payload
     expect(retry.status).toBe(201);
