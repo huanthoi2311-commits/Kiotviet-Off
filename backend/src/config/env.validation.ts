@@ -29,14 +29,23 @@ enum NodeEnv {
 }
 
 /**
- * SPEC-P001 Rev1, Item 3 — nguồn sự thật DUY NHẤT cho 2 giá trị placeholder JWT secret đã đóng
+ * SPEC-P001 Rev1, Item 3 — nguồn sự thật DUY NHẤT cho các giá trị placeholder secret đã đóng
  * gói sẵn trong `.env.example`. Không được chép lại literal string này ở bất kỳ nơi nào khác
  * (kể cả test) — mọi chỗ cần biết giá trị placeholder phải tham chiếu object này.
+ *
+ * T053.06A — bổ sung `FIRST_ADMIN_PASSWORD` (DISCOVERY-T030 F36, xác nhận lại qua T053.06 hard-stop
+ * P1): `.env.example` đóng gói `change-me-strong-admin-password` (32 ký tự, đủ qua
+ * `MIN_PASSWORD_LENGTH`) nhưng giá trị này CHƯA từng có trong `KNOWN_WEAK_ADMIN_PASSWORDS`
+ * (`first-admin-initializer.ts`) — một deployment production làm đúng theo tài liệu (`copy
+ * .env.example .env`) nhưng quên đổi biến này trước đây sẽ bootstrap Organization Owner thành công
+ * với mật khẩu đã biết công khai. Đặt ở đây (không phải literal riêng trong
+ * `first-admin-initializer.ts`) để cùng 1 nguồn sự thật duy nhất, không thể lệch nhau lần nữa.
  */
 export const PRODUCTION_SECRET_PLACEHOLDERS = {
   JWT_ACCESS_SECRET: 'change-me-access-secret',
   JWT_REFRESH_SECRET: 'change-me-refresh-secret',
   SIGNUP_SECRET: 'change-me-signup-secret',
+  FIRST_ADMIN_PASSWORD: 'change-me-strong-admin-password',
 } as const;
 
 class EnvironmentVariables {

@@ -1,4 +1,7 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import type { PrismaClient } from '@prisma/client';
+import { PRODUCTION_SECRET_PLACEHOLDERS } from '../../../config/env.validation';
 import {
   FirstAdminInitializationInput,
   initializeFirstAdmin,
@@ -374,8 +377,16 @@ describe('initializeFirstAdmin — SPEC-T022B1 (First Administrator / Tenant Ini
       expect(tx.organization.create).not.toHaveBeenCalled();
     });
 
-    // T030.11 (DISCOVERY-T030 F36) — mở rộng ngoài đúng 1 literal demo password.
-    it.each(['password', 'Password123', 'admin123', 'changeme'])(
+    // T030.11 (DISCOVERY-T030 F36) — mở rộng ngoài đúng 1 literal demo password. T053.06A — thêm
+    // PRODUCTION_SECRET_PLACEHOLDERS.FIRST_ADMIN_PASSWORD (giá trị đóng gói sẵn trong
+    // `.env.example`, trước đây KHÔNG nằm trong danh sách này — chính là P1 T053.06 phát hiện).
+    it.each([
+      'password',
+      'Password123',
+      'admin123',
+      'changeme',
+      PRODUCTION_SECRET_PLACEHOLDERS.FIRST_ADMIN_PASSWORD,
+    ])(
       'từ chối khi mật khẩu là giá trị mặc định/placeholder đã biết khác: "%s"',
       async (weakPassword) => {
         const tx = createMockTx();
@@ -463,6 +474,140 @@ describe('initializeFirstAdmin — SPEC-T022B1 (First Administrator / Tenant Ini
       ).rejects.toThrow();
 
       expect(tx.organization.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  // T053.06A — P1 hard-stop finding (T053.06 discovery): `.env.example` đóng gói
+  // FIRST_ADMIN_PASSWORD=change-me-strong-admin-password, một deployment production copy
+  // `.env.example` xong quên đổi biến này TRƯỚC ĐÂY sẽ bootstrap thành công (32 ký tự, qua
+  // MIN_PASSWORD_LENGTH, không nằm trong KNOWN_WEAK_ADMIN_PASSWORDS). Nhóm test này chứng minh:
+  // (A3) whitespace-only bị chặn, (A4) placeholder đóng gói sẵn bị chặn + không thể lệch khỏi
+  // `.env.example` thật (drift-proof), (A9) đường update/idempotent-rerun vẫn được bảo vệ như
+  // đường tạo mới, (A10) hành vi không phụ thuộc NODE_ENV — áp dụng ở MỌI môi trường.
+  describe('[T053.06A] FIRST_ADMIN_PASSWORD hardening — placeholder/whitespace/environment', () => {
+    it('A3 — từ chối khi mật khẩu chỉ toàn khoảng trắng (whitespace-only)', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+      const input: FirstAdminInitializationInput = {
+        ...validInput,
+        administrator: { ...validInput.administrator, password: '        ' },
+      };
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), input),
+      ).rejects.toThrow(/khoảng trắng/i);
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.organization.create).not.toHaveBeenCalled();
+    });
+
+    it('A3 — lỗi whitespace-only KHÔNG in giá trị password thật vào message', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+      const input: FirstAdminInitializationInput = {
+        ...validInput,
+        administrator: { ...validInput.administrator, password: '   ' },
+      };
+
+      let message = '';
+      try {
+        await initializeFirstAdmin(asPrismaPick(prisma), input);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).not.toContain('   ');
+    });
+
+    it('A4 — mật khẩu thật (không rỗng, không toàn khoảng trắng) vẫn được chấp nhận bình thường, không bị whitespace-check chặn nhầm', async () => {
+      const tx = createMockTx();
+      tx.organization.findFirst.mockResolvedValue(null);
+      const prisma = createMockPrisma(tx);
+      const input: FirstAdminInitializationInput = {
+        ...validInput,
+        administrator: {
+          ...validInput.administrator,
+          password: '  a-real-password-with-padding-2026  ',
+        },
+      };
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), input),
+      ).resolves.toMatchObject({ outcome: 'CREATED' });
+    });
+
+    // Drift-proof — giá trị literal trong `.env.example` PHẢI luôn khớp
+    // `PRODUCTION_SECRET_PLACEHOLDERS.FIRST_ADMIN_PASSWORD` (nguồn sự thật duy nhất). Nếu ai đó đổi
+    // 1 trong 2 nơi mà quên đổi nơi còn lại, test này bắt ngay — đây chính xác là cách F36 tái phát
+    // trước đây (giá trị `.env.example` và blocklist code lệch nhau âm thầm, không ai phát hiện).
+    it('A4 — giá trị FIRST_ADMIN_PASSWORD thật trong .env.example khớp CHÍNH XÁC với PRODUCTION_SECRET_PLACEHOLDERS (drift-proof)', () => {
+      const envExamplePath = join(__dirname, '../../../../.env.example');
+      const envExampleContent = readFileSync(envExamplePath, 'utf-8');
+      const match = envExampleContent.match(/^FIRST_ADMIN_PASSWORD=(.*)$/m);
+      expect(match).not.toBeNull();
+      expect(match![1].trim()).toBe(
+        PRODUCTION_SECRET_PLACEHOLDERS.FIRST_ADMIN_PASSWORD,
+      );
+    });
+
+    it('A9 — rerun với Organization đã tồn tại (ALREADY_INITIALIZED) VẪN từ chối giá trị placeholder mới bổ sung, KHÔNG chạm tới bước kiểm tra idempotency (giữ nguyên hành vi đã có: credential validation luôn chạy trước, mọi lần gọi)', async () => {
+      const tx = createMockTx();
+      // Cố ý KHÔNG mock organization.findFirst trả về gì — nếu code vô tình gọi tới, test sẽ lộ ra
+      // (mock mặc định trả undefined, không phải hành vi mong muốn nếu bị gọi).
+      const prisma = createMockPrisma(tx);
+      const input: FirstAdminInitializationInput = {
+        ...validInput,
+        administrator: {
+          ...validInput.administrator,
+          password: PRODUCTION_SECRET_PLACEHOLDERS.FIRST_ADMIN_PASSWORD,
+        },
+      };
+
+      await expect(
+        initializeFirstAdmin(asPrismaPick(prisma), input),
+      ).rejects.toThrow(/mặc định\/placeholder đã biết/i);
+
+      expect(tx.organization.findFirst).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('A10 — hành vi chặn KHÔNG phụ thuộc NODE_ENV (áp dụng ở mọi môi trường, không có nhánh bypass cho dev/test)', async () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      try {
+        // Thử với NODE_ENV rỗng, 'development', và 'test' — cả 3 đều phải bị chặn giống hệt nhau,
+        // vì assertCredentialAllowed() không hề đọc process.env — chứng minh không có đường tắt
+        // dev/test nào có thể vô tình rò rỉ giá trị bị chặn vào production.
+        for (const nodeEnv of [undefined, 'development', 'test']) {
+          if (nodeEnv === undefined) {
+            delete process.env.NODE_ENV;
+          } else {
+            process.env.NODE_ENV = nodeEnv;
+          }
+
+          const tx = createMockTx();
+          tx.organization.findFirst.mockResolvedValue(null);
+          const prisma = createMockPrisma(tx);
+          const input: FirstAdminInitializationInput = {
+            ...validInput,
+            administrator: {
+              ...validInput.administrator,
+              password: PRODUCTION_SECRET_PLACEHOLDERS.FIRST_ADMIN_PASSWORD,
+            },
+          };
+
+          await expect(
+            initializeFirstAdmin(asPrismaPick(prisma), input),
+          ).rejects.toThrow(/mặc định\/placeholder đã biết/i);
+          expect(tx.organization.create).not.toHaveBeenCalled();
+        }
+      } finally {
+        if (originalNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = originalNodeEnv;
+        }
+      }
     });
   });
 

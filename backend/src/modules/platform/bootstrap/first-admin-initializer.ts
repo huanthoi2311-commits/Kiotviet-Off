@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { PRODUCTION_SECRET_PLACEHOLDERS } from '../../../config/env.validation';
 
 /**
  * SPEC-T022B1, Item Phase 1 — First Administrator / Tenant Initialization. Cơ chế bootstrap
@@ -52,6 +53,16 @@ const KNOWN_DEMO_PASSWORD = 'Admin@123';
  * qua được `MIN_PASSWORD_LENGTH` nhưng rõ ràng không phải mật khẩu thật do người vận hành tự chọn
  * — cùng tinh thần với `WEAK_PRODUCTION_PASSWORDS` (`database-url.util.ts`, T030.7), một danh
  * sách literal nhỏ, tường minh, KHÔNG phải bộ máy chấm điểm phức tạp.
+ *
+ * T053.06A (F36 re-confirmed, T053.06 hard-stop P1) — bổ sung
+ * `PRODUCTION_SECRET_PLACEHOLDERS.FIRST_ADMIN_PASSWORD` (giá trị đóng gói sẵn trong `.env.example`,
+ * trước đây KHÔNG nằm trong danh sách này — một deployment production copy `.env.example` xong
+ * quên đổi biến này sẽ bootstrap thành công với mật khẩu đã biết công khai). Đọc từ nguồn sự thật
+ * duy nhất (`env.validation.ts`) thay vì lặp lại literal — không thể lệch nhau lần nữa. Danh sách
+ * này áp dụng ở MỌI môi trường (không chỉ production, giống 5 giá trị đã có từ trước) — đã xác
+ * nhận cả `deployment-smoke.yml`/`release-e2e.yml` đều tự sinh mật khẩu ngẫu nhiên thật
+ * (`openssl rand -hex 12`), không phụ thuộc giá trị `.env.example`, nên chặn tuyệt đối ở đây không
+ * phá bất kỳ luồng CI/deployment hợp pháp nào.
  */
 const KNOWN_WEAK_ADMIN_PASSWORDS: ReadonlySet<string> = new Set([
   KNOWN_DEMO_PASSWORD,
@@ -59,6 +70,7 @@ const KNOWN_WEAK_ADMIN_PASSWORDS: ReadonlySet<string> = new Set([
   'Password123',
   'admin123',
   'changeme',
+  PRODUCTION_SECRET_PLACEHOLDERS.FIRST_ADMIN_PASSWORD,
 ]);
 
 export interface FirstAdminOrganizationInput {
@@ -122,6 +134,15 @@ type FirstAdminPrismaClient = Pick<
  * mô tả LOẠI lỗi, không lặp lại giá trị đã nhập).
  */
 function assertCredentialAllowed(password: string): void {
+  // T053.06A — "whitespace-only" (vd toàn dấu cách) trước đây lọt qua `readRequiredEnv()` (chuỗi
+  // không rỗng, `!value` là false) và có thể lọt qua cả `MIN_PASSWORD_LENGTH` nếu đủ dài — kiểm tra
+  // riêng ở đây, KHÔNG trim rồi dùng lại giá trị đã trim cho các bước sau (một mật khẩu thật có
+  // khoảng trắng đầu/cuối vẫn hợp lệ, chỉ chặn đúng trường hợp TOÀN BỘ là khoảng trắng).
+  if (password.trim().length === 0) {
+    throw new Error(
+      'Mật khẩu quản trị viên không được để trống hoặc chỉ gồm khoảng trắng',
+    );
+  }
   if (password === KNOWN_DEMO_PASSWORD) {
     throw new Error(
       'Mật khẩu quản trị viên không được trùng với mật khẩu demo đã biết công khai của prisma/seed.ts',
