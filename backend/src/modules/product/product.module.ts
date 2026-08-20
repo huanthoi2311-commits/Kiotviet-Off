@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { RbacModule } from '../rbac/rbac.module';
 import { UsageLimitModule } from '../usage-limit/usage-limit.module';
+import { CategoryReferenceModule } from '../category/category-reference.module';
+import { BrandReferenceModule } from '../brand/brand-reference.module';
+import { UnitReferenceModule } from '../unit/unit-reference.module';
 import { ProductService } from './application/product.service';
 import { ProductDomainService } from './application/product-domain.service';
 import { PRODUCT_REPOSITORY } from './domain/repositories/product.repository.interface';
@@ -11,8 +14,19 @@ import { SlugifySlugGenerator } from './infrastructure/generators/slugify-slug.g
 import { PrismaProductRepository } from './infrastructure/persistence/prisma-product.repository';
 import { ProductController } from './presentation/product.controller';
 
+// T053.05C-2 — CategoryReferenceModule/BrandReferenceModule/UnitReferenceModule (module lá, chỉ
+// export *ReferenceService/UnitDomainService, KHÔNG import ProductModule) để ProductService xác
+// minh categoryId/brandId/unitId (foreign id tenant-owned) thuộc actor.organizationId TRƯỚC khi
+// ghi. KHÔNG import CategoryModule/BrandModule/UnitModule đầy đủ (cả 3 đều đã import ProductModule
+// — import ngược lại sẽ tạo circular dependency Product→Category→Product/tương tự).
 @Module({
-  imports: [RbacModule, UsageLimitModule],
+  imports: [
+    RbacModule,
+    UsageLimitModule,
+    CategoryReferenceModule,
+    BrandReferenceModule,
+    UnitReferenceModule,
+  ],
   controllers: [ProductController],
   providers: [
     ProductService,

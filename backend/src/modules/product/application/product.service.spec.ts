@@ -4,6 +4,9 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AuditLogService } from '../../platform/audit-log/audit-log.service';
+import { CategoryReferenceService } from '../../category/application/category-reference.service';
+import { BrandReferenceService } from '../../brand/application/brand-reference.service';
+import { UnitDomainService } from '../../unit/application/unit-domain.service';
 import { ProductEntity } from '../domain/entities/product.entity';
 import { ProductConcurrencyConflictError } from '../domain/errors/product.errors';
 import { IProductRepository } from '../domain/repositories/product.repository.interface';
@@ -19,6 +22,15 @@ describe('ProductService', () => {
   let skuGenerator: jest.Mocked<ISkuGenerator>;
   let slugGenerator: jest.Mocked<ISlugGenerator>;
   let auditLogService: jest.Mocked<Pick<AuditLogService, 'log'>>;
+  let categoryReferenceService: jest.Mocked<
+    Pick<CategoryReferenceService, 'findById'>
+  >;
+  let brandReferenceService: jest.Mocked<
+    Pick<BrandReferenceService, 'findById'>
+  >;
+  let unitDomainService: jest.Mocked<
+    Pick<UnitDomainService, 'findByIdForReference'>
+  >;
 
   const actor: ActorContext = {
     userId: 'user-1',
@@ -104,12 +116,33 @@ describe('ProductService', () => {
       generateUnique: jest.fn().mockResolvedValue('ao-thun-nam'),
     };
     auditLogService = { log: jest.fn().mockResolvedValue(undefined) };
+    // T053.05C-2 — mặc định resolve về tồn tại (cùng tổ chức) để mọi test hiện có (không quan tâm
+    // tenant-isolation của categoryId/brandId/unitId) không bị breaking; các test P-C/P-B/P-U riêng
+    // sẽ override sang null khi cần kiểm tra rejection.
+    categoryReferenceService = {
+      findById: jest
+        .fn()
+        .mockResolvedValue({ id: 'category-1', organizationId: 'org-1' }),
+    };
+    brandReferenceService = {
+      findById: jest
+        .fn()
+        .mockResolvedValue({ id: 'brand-1', organizationId: 'org-1' }),
+    };
+    unitDomainService = {
+      findByIdForReference: jest
+        .fn()
+        .mockResolvedValue({ id: 'unit-1', organizationId: 'org-1' }),
+    };
 
     service = new ProductService(
       productRepository,
       skuGenerator,
       slugGenerator,
       auditLogService as unknown as AuditLogService,
+      categoryReferenceService as unknown as CategoryReferenceService,
+      brandReferenceService as unknown as BrandReferenceService,
+      unitDomainService as unknown as UnitDomainService,
     );
   });
 
@@ -625,6 +658,193 @@ describe('ProductService', () => {
         UnprocessableEntityException,
       );
       expect(productRepository.restore).not.toHaveBeenCalled();
+    });
+  });
+
+  // T053.05C-2 — P-C/P-B/P-U: categoryId/unitId (bắt buộc ở create, optional-không-null ở update)
+  // và brandId (optional VÀ nullable ở cả 2) là foreign id tenant-owned (Category/Brand/Unit). Mọi
+  // rejection phải chứng minh: (a) đúng canonical error contract (CATEGORY_001/BRAND_001/UNIT_001
+  // — không mã lỗi mới, không 403), (b) productRepository.create()/update() KHÔNG được gọi.
+  describe('T053.05C-2 — categoryId / brandId / unitId tenant-isolation', () => {
+    beforeEach(() => {
+      productRepository.create.mockResolvedValue(baseProduct);
+      productRepository.findById.mockResolvedValue(baseProduct);
+      productRepository.update.mockResolvedValue(baseProduct);
+    });
+
+    it('P-C1: create — categoryId cùng tổ chức → tra Category, tạo thành công', async () => {
+      await service.create(createDto, actor);
+      expect(categoryReferenceService.findById).toHaveBeenCalledWith(
+        'category-1',
+        'org-1',
+      );
+      expect(productRepository.create).toHaveBeenCalled();
+    });
+
+    it('P-C2: create — categoryId khác tổ chức/không tồn tại → NotFoundException(CATEGORY_NOT_FOUND), KHÔNG gọi create()', async () => {
+      categoryReferenceService.findById.mockResolvedValue(null);
+      const promise = service.create(createDto, actor);
+      await expect(promise).rejects.toThrow(NotFoundException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'CATEGORY_001' },
+      });
+      expect(productRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('P-C3: update — categoryId undefined → KHÔNG tra Category, giữ nguyên giá trị hiện có', async () => {
+      await service.update('product-1', updateDto({ costPrice: 1 }), actor);
+      expect(categoryReferenceService.findById).not.toHaveBeenCalled();
+      expect(productRepository.update).toHaveBeenCalled();
+      // ProductService.update() truyền object literal với key categoryId tường minh (khác Branch
+      // dùng spread) — undefined vẫn là key hiện diện với giá trị undefined, Prisma vẫn coi là
+      // "không đổi" (hành vi đã có từ trước, không phải T053.05C-2 thay đổi).
+      const updateInput = productRepository.update.mock.calls[0][2];
+      expect(updateInput.categoryId).toBeUndefined();
+    });
+
+    it('P-C4: update — categoryId cùng tổ chức → tra Category, cập nhật thành công; khác tổ chức/không tồn tại → NotFoundException(CATEGORY_NOT_FOUND), KHÔNG gọi update()', async () => {
+      await service.update(
+        'product-1',
+        updateDto({ categoryId: 'category-9' }),
+        actor,
+      );
+      expect(categoryReferenceService.findById).toHaveBeenCalledWith(
+        'category-9',
+        'org-1',
+      );
+      expect(productRepository.update).toHaveBeenCalled();
+
+      productRepository.update.mockClear();
+      categoryReferenceService.findById.mockResolvedValue(null);
+      const promise = service.update(
+        'product-1',
+        updateDto({ categoryId: 'category-x' }),
+        actor,
+      );
+      await expect(promise).rejects.toThrow(NotFoundException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'CATEGORY_001' },
+      });
+      expect(productRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('P-B1: create — brandId undefined → KHÔNG tra Brand, tạo thành công', async () => {
+      const dto = { ...createDto, brandId: undefined };
+      await service.create(dto, actor);
+      expect(brandReferenceService.findById).not.toHaveBeenCalled();
+      expect(productRepository.create).toHaveBeenCalled();
+    });
+
+    it('P-B2: create — brandId cùng tổ chức → tra Brand, tạo thành công', async () => {
+      await service.create(createDto, actor);
+      expect(brandReferenceService.findById).toHaveBeenCalledWith(
+        'brand-1',
+        'org-1',
+      );
+      expect(productRepository.create).toHaveBeenCalled();
+    });
+
+    it('P-B3: create — brandId khác tổ chức/không tồn tại → NotFoundException(BRAND_NOT_FOUND), KHÔNG gọi create()', async () => {
+      brandReferenceService.findById.mockResolvedValue(null);
+      const promise = service.create(createDto, actor);
+      await expect(promise).rejects.toThrow(NotFoundException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'BRAND_001' },
+      });
+      expect(productRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('P-B4: update — brandId undefined → KHÔNG tra Brand, giữ nguyên giá trị hiện có', async () => {
+      await service.update('product-1', updateDto({ costPrice: 1 }), actor);
+      expect(brandReferenceService.findById).not.toHaveBeenCalled();
+      expect(productRepository.update).toHaveBeenCalled();
+      const updateInput = productRepository.update.mock.calls[0][2];
+      expect(updateInput.brandId).toBeUndefined();
+    });
+
+    it('P-B5: update — brandId null → KHÔNG tra Brand, xoá giá trị (repository nhận null)', async () => {
+      await service.update('product-1', updateDto({ brandId: null }), actor);
+      expect(brandReferenceService.findById).not.toHaveBeenCalled();
+      expect(productRepository.update).toHaveBeenCalledWith(
+        'product-1',
+        baseProduct.version,
+        expect.objectContaining({ brandId: null }),
+      );
+    });
+
+    it('P-B6: update — brandId cùng tổ chức → tra Brand, cập nhật thành công; khác tổ chức/không tồn tại → NotFoundException(BRAND_NOT_FOUND), KHÔNG gọi update()', async () => {
+      await service.update(
+        'product-1',
+        updateDto({ brandId: 'brand-9' }),
+        actor,
+      );
+      expect(brandReferenceService.findById).toHaveBeenCalledWith(
+        'brand-9',
+        'org-1',
+      );
+      expect(productRepository.update).toHaveBeenCalled();
+
+      productRepository.update.mockClear();
+      brandReferenceService.findById.mockResolvedValue(null);
+      const promise = service.update(
+        'product-1',
+        updateDto({ brandId: 'brand-x' }),
+        actor,
+      );
+      await expect(promise).rejects.toThrow(NotFoundException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'BRAND_001' },
+      });
+      expect(productRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('P-U1: create — unitId cùng tổ chức → tra Unit (đúng thứ tự tham số organizationId, unitId), tạo thành công', async () => {
+      await service.create(createDto, actor);
+      expect(unitDomainService.findByIdForReference).toHaveBeenCalledWith(
+        'org-1',
+        'unit-1',
+      );
+      expect(productRepository.create).toHaveBeenCalled();
+    });
+
+    it('P-U2: create — unitId khác tổ chức/không tồn tại → NotFoundException(UNIT_NOT_FOUND), KHÔNG gọi create()', async () => {
+      unitDomainService.findByIdForReference.mockResolvedValue(null);
+      const promise = service.create(createDto, actor);
+      await expect(promise).rejects.toThrow(NotFoundException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'UNIT_001' },
+      });
+      expect(productRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('P-U3: update — unitId undefined → KHÔNG tra Unit, giữ nguyên giá trị hiện có', async () => {
+      await service.update('product-1', updateDto({ costPrice: 1 }), actor);
+      expect(unitDomainService.findByIdForReference).not.toHaveBeenCalled();
+      expect(productRepository.update).toHaveBeenCalled();
+      const updateInput = productRepository.update.mock.calls[0][2];
+      expect(updateInput.unitId).toBeUndefined();
+    });
+
+    it('P-U4: update — unitId cùng tổ chức → tra Unit, cập nhật thành công; khác tổ chức/không tồn tại → NotFoundException(UNIT_NOT_FOUND), KHÔNG gọi update()', async () => {
+      await service.update('product-1', updateDto({ unitId: 'unit-9' }), actor);
+      expect(unitDomainService.findByIdForReference).toHaveBeenCalledWith(
+        'org-1',
+        'unit-9',
+      );
+      expect(productRepository.update).toHaveBeenCalled();
+
+      productRepository.update.mockClear();
+      unitDomainService.findByIdForReference.mockResolvedValue(null);
+      const promise = service.update(
+        'product-1',
+        updateDto({ unitId: 'unit-x' }),
+        actor,
+      );
+      await expect(promise).rejects.toThrow(NotFoundException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'UNIT_001' },
+      });
+      expect(productRepository.update).not.toHaveBeenCalled();
     });
   });
 });

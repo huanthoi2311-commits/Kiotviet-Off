@@ -4,11 +4,16 @@ import {
   findInventoryWarehouseMismatches,
   findSalesReturnItemWarehouseMismatches,
   findSupplierProductMismatches,
+  findBranchManagerUserMismatches,
+  findBranchDefaultWarehouseMismatches,
+  findProductCategoryMismatches,
+  findProductBrandMismatches,
+  findProductUnitMismatches,
   runTenantForeignIdIntegrityAudit,
   totalMismatchCount,
 } from './tenant-foreign-id-integrity-auditor';
 
-describe('tenant-foreign-id-integrity-auditor — T053.05C-1 (chỉ đọc)', () => {
+describe('tenant-foreign-id-integrity-auditor — T053.05C-1/T053.05C-2 (chỉ đọc)', () => {
   function mockPrisma(rows: unknown) {
     return {
       $queryRaw: jest.fn().mockResolvedValue(rows),
@@ -114,8 +119,115 @@ describe('tenant-foreign-id-integrity-auditor — T053.05C-1 (chỉ đọc)', ()
     });
   });
 
+  describe('findBranchManagerUserMismatches', () => {
+    it('trả về mismatch khi có', async () => {
+      const prisma = mockPrisma([
+        {
+          branch_id: 'branch-1',
+          branch_organization_id: 'org-a',
+          manager_user_id: 'user-1',
+          manager_organization_id: 'org-b',
+        },
+      ]);
+      await expect(findBranchManagerUserMismatches(prisma)).resolves.toEqual([
+        {
+          branchId: 'branch-1',
+          branchOrganizationId: 'org-a',
+          managerUserId: 'user-1',
+          managerOrganizationId: 'org-b',
+        },
+      ]);
+    });
+  });
+
+  describe('findBranchDefaultWarehouseMismatches', () => {
+    it('trả về mismatch khi có', async () => {
+      const prisma = mockPrisma([
+        {
+          branch_id: 'branch-1',
+          branch_organization_id: 'org-a',
+          default_warehouse_id: 'wh-1',
+          warehouse_organization_id: 'org-b',
+        },
+      ]);
+      await expect(
+        findBranchDefaultWarehouseMismatches(prisma),
+      ).resolves.toEqual([
+        {
+          branchId: 'branch-1',
+          branchOrganizationId: 'org-a',
+          defaultWarehouseId: 'wh-1',
+          warehouseOrganizationId: 'org-b',
+        },
+      ]);
+    });
+  });
+
+  describe('findProductCategoryMismatches', () => {
+    it('trả về mismatch khi có', async () => {
+      const prisma = mockPrisma([
+        {
+          product_id: 'product-1',
+          product_organization_id: 'org-a',
+          category_id: 'category-1',
+          category_organization_id: 'org-b',
+        },
+      ]);
+      await expect(findProductCategoryMismatches(prisma)).resolves.toEqual([
+        {
+          productId: 'product-1',
+          productOrganizationId: 'org-a',
+          categoryId: 'category-1',
+          categoryOrganizationId: 'org-b',
+        },
+      ]);
+    });
+  });
+
+  describe('findProductBrandMismatches', () => {
+    it('trả về mismatch khi có', async () => {
+      const prisma = mockPrisma([
+        {
+          product_id: 'product-1',
+          product_organization_id: 'org-a',
+          brand_id: 'brand-1',
+          brand_organization_id: 'org-b',
+        },
+      ]);
+      await expect(findProductBrandMismatches(prisma)).resolves.toEqual([
+        {
+          productId: 'product-1',
+          productOrganizationId: 'org-a',
+          brandId: 'brand-1',
+          brandOrganizationId: 'org-b',
+        },
+      ]);
+    });
+  });
+
+  describe('findProductUnitMismatches', () => {
+    it('trả về mismatch khi có', async () => {
+      const prisma = mockPrisma([
+        {
+          product_id: 'product-1',
+          product_organization_id: 'org-a',
+          unit_id: 'unit-1',
+          unit_organization_id: 'org-b',
+        },
+      ]);
+      await expect(findProductUnitMismatches(prisma)).resolves.toEqual([
+        {
+          productId: 'product-1',
+          productOrganizationId: 'org-a',
+          unitId: 'unit-1',
+          unitOrganizationId: 'org-b',
+        },
+      ]);
+    });
+  });
+
   describe('runTenantForeignIdIntegrityAudit / totalMismatchCount', () => {
-    it('gộp cả 4 báo cáo, tổng đúng bằng tổng độ dài từng mảng', async () => {
+    it('gộp cả 9 báo cáo, tổng đúng bằng tổng độ dài từng mảng', async () => {
       const queryRaw = jest
         .fn()
         .mockResolvedValueOnce([
@@ -136,6 +248,25 @@ describe('tenant-foreign-id-integrity-auditor — T053.05C-1 (chỉ đọc)', ()
             warehouse_organization_id: 'org-b',
           },
         ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            branch_id: 'branch-1',
+            branch_organization_id: 'org-a',
+            manager_user_id: 'user-1',
+            manager_organization_id: 'org-b',
+          },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            product_id: 'product-1',
+            product_organization_id: 'org-a',
+            category_id: 'category-1',
+            category_organization_id: 'org-b',
+          },
+        ])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
       const prisma = { $queryRaw: queryRaw } as unknown as Pick<
         PrismaClient,
@@ -148,7 +279,12 @@ describe('tenant-foreign-id-integrity-auditor — T053.05C-1 (chỉ đọc)', ()
       expect(report.supplierProductMismatches).toHaveLength(0);
       expect(report.inventoryWarehouseMismatches).toHaveLength(1);
       expect(report.inventoryMovementWarehouseMismatches).toHaveLength(0);
-      expect(totalMismatchCount(report)).toBe(2);
+      expect(report.branchManagerUserMismatches).toHaveLength(1);
+      expect(report.branchDefaultWarehouseMismatches).toHaveLength(0);
+      expect(report.productCategoryMismatches).toHaveLength(1);
+      expect(report.productBrandMismatches).toHaveLength(0);
+      expect(report.productUnitMismatches).toHaveLength(0);
+      expect(totalMismatchCount(report)).toBe(4);
     });
 
     it('không có mismatch nào -> tổng = 0', async () => {
@@ -168,7 +304,7 @@ describe('tenant-foreign-id-integrity-auditor — T053.05C-1 (chỉ đọc)', ()
 
       await runTenantForeignIdIntegrityAudit(prisma);
 
-      expect(queryRaw).toHaveBeenCalledTimes(4);
+      expect(queryRaw).toHaveBeenCalledTimes(9);
       expect(Object.keys(prisma)).toEqual(['$queryRaw']);
     });
   });
