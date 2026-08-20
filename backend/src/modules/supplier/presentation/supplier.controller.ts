@@ -232,6 +232,7 @@ export class SupplierController {
   }
 
   @Post(':id/restore')
+  @RequireEntitlement('SUPPLIER')
   @RequirePermissions('supplier:restore')
   @ApiOperation({
     summary:
