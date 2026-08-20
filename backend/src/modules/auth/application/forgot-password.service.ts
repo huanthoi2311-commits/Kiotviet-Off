@@ -89,8 +89,36 @@ export class ForgotPasswordService {
     otp: string,
   ): Promise<void> {
     const identifier = this.key(organizationSlug, email);
-    const record = await this.otpRepository.get(identifier);
-    if (!record) {
+
+    // T053.06B-1 (§6) — throttle account-scoped, ĐỘC LẬP IP throttle hiện có (@Throttle route-level
+    // chỉ theo IP). Tính TRƯỚC bất kỳ bước nào khác (kể cả trước khi biết OTP có tồn tại hay không)
+    // — cùng nguyên tắc `requestOtp()` đã áp dụng cho cooldown/sendCount ở trên: không tạo oracle
+    // mới (identifier không tồn tại thật vẫn bị tính, không phân biệt được với identifier có thật).
+    const verifyWindowCount =
+      await this.otpRepository.incrementVerifyAttemptWindowCount(identifier);
+    if (verifyWindowCount > MAX_OTP_SEND_PER_HOUR * MAX_OTP_VERIFY_ATTEMPTS) {
+      throw new HttpException(
+        withCode(
+          ErrorCode.OTP_VERIFY_RATE_LIMIT_EXCEEDED,
+          'Bạn đã thử xác thực OTP quá nhiều lần, vui lòng thử lại sau',
+        ),
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    // T053.06B-1 (§2) — trước đây get() → so khớp ở application code → incrementAttempts()/
+    // markVerified() (2-3 lệnh Redis riêng biệt, đúng lỗ hổng race condition đã phát hiện). Nay
+    // TOÀN BỘ nằm trong 1 lệnh Lua EVAL nguyên tử duy nhất — không còn GET→SET race nào ở tầng
+    // application. Giữ NGUYÊN VẸN error code/message/HTTP status cho từng outcome (§3 — không đổi
+    // hợp đồng public).
+    const otpHash = this.tokenService.hashOtp(otp);
+    const result = await this.otpRepository.verifyAndConsume(
+      identifier,
+      otpHash,
+      MAX_OTP_VERIFY_ATTEMPTS,
+    );
+
+    if (result.outcome === 'NOT_FOUND') {
       throw new BadRequestException(
         withCode(
           ErrorCode.OTP_INVALID_OR_EXPIRED,
@@ -98,9 +126,7 @@ export class ForgotPasswordService {
         ),
       );
     }
-
-    if (record.attempts >= MAX_OTP_VERIFY_ATTEMPTS) {
-      await this.otpRepository.delete(identifier);
+    if (result.outcome === 'MAX_ATTEMPTS') {
       throw new BadRequestException(
         withCode(
           ErrorCode.OTP_MAX_ATTEMPTS_EXCEEDED,
@@ -108,16 +134,13 @@ export class ForgotPasswordService {
         ),
       );
     }
-
-    const otpHash = this.tokenService.hashOtp(otp);
-    if (otpHash !== record.otpHash) {
-      await this.otpRepository.incrementAttempts(identifier);
+    if (result.outcome === 'INCORRECT') {
       throw new BadRequestException(
         withCode(ErrorCode.OTP_INCORRECT, 'OTP không đúng'),
       );
     }
-
-    await this.otpRepository.markVerified(identifier);
+    // result.outcome === 'OK' — verified flag đã được Lua script tạo atomic, không còn bước
+    // markVerified() riêng nào cần gọi ở đây nữa.
   }
 
   async resetPassword(

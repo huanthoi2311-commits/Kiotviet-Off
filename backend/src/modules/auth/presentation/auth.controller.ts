@@ -209,6 +209,9 @@ export class AuthController {
 
   @Post('reset-password')
   @HttpCode(HttpStatus.NO_CONTENT)
+  // T053.06B-1 (§7) — trước đây không có throttle route-level, chỉ dựa vào global default
+  // (100/60s) — lỏng hơn hẳn forgot-password/verify-otp (10/60s). Thống nhất cùng ngưỡng.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Đặt lại mật khẩu sau khi OTP đã được xác thực' })
   @ApiCommonErrors()
   async resetPassword(@Body() dto: ResetPasswordDto): Promise<void> {

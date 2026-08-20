@@ -53,13 +53,15 @@ describe('ForgotPasswordService', () => {
     otpRepository = {
       save: jest.fn(),
       get: jest.fn(),
-      incrementAttempts: jest.fn(),
+      verifyAndConsume: jest.fn(),
       delete: jest.fn(),
       incrementSendCount: jest.fn(),
-      markVerified: jest.fn(),
       isVerified: jest.fn(),
       getCooldownRemainingSeconds: jest.fn().mockResolvedValue(0),
       startCooldown: jest.fn(),
+      // T053.06B-1 — mặc định trả 1 (dưới ngưỡng throttle account-scoped mới) để không ảnh hưởng
+      // các test verifyOtp/resetPassword hiện có không liên quan tới throttle này.
+      incrementVerifyAttemptWindowCount: jest.fn().mockResolvedValue(1),
     };
     passwordHasher = { hash: jest.fn(), verify: jest.fn() };
     tokenService = { hashOtp: jest.fn().mockReturnValue('hashed-otp') };
@@ -124,48 +126,90 @@ describe('ForgotPasswordService', () => {
   });
 
   describe('verifyOtp', () => {
-    it('đánh dấu verified khi OTP đúng', async () => {
-      otpRepository.get.mockResolvedValue({
-        otpHash: 'hashed-otp',
-        attempts: 0,
-      });
-
-      await service.verifyOtp(organizationSlug, email, '123456');
-
-      expect(otpRepository.markVerified).toHaveBeenCalledWith(identifier);
-    });
-
-    it('ném lỗi khi OTP đã hết hạn / không tồn tại', async () => {
-      otpRepository.get.mockResolvedValue(null);
+    it('đánh dấu verified khi OTP đúng (outcome OK) — không còn gọi markVerified() riêng, Lua script tự xử lý', async () => {
+      otpRepository.verifyAndConsume.mockResolvedValue({ outcome: 'OK' });
 
       await expect(
         service.verifyOtp(organizationSlug, email, '123456'),
-      ).rejects.toThrow(BadRequestException);
+      ).resolves.toBeUndefined();
+
+      expect(otpRepository.verifyAndConsume).toHaveBeenCalledWith(
+        identifier,
+        'hashed-otp',
+        5,
+      );
     });
 
-    it('ném lỗi và tăng attempts khi OTP sai', async () => {
-      otpRepository.get.mockResolvedValue({
-        otpHash: 'other-hash',
-        attempts: 0,
+    it('ném lỗi OTP_INVALID_OR_EXPIRED khi outcome NOT_FOUND (OTP đã hết hạn / không tồn tại)', async () => {
+      otpRepository.verifyAndConsume.mockResolvedValue({
+        outcome: 'NOT_FOUND',
       });
 
-      await expect(
-        service.verifyOtp(organizationSlug, email, '000000'),
-      ).rejects.toThrow(BadRequestException);
-      expect(otpRepository.incrementAttempts).toHaveBeenCalledWith(identifier);
-      expect(otpRepository.markVerified).not.toHaveBeenCalled();
+      const promise = service.verifyOtp(organizationSlug, email, '123456');
+      await expect(promise).rejects.toThrow(BadRequestException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'OTP_002' },
+      });
     });
 
-    it('xóa OTP và từ chối khi vượt quá số lần thử', async () => {
-      otpRepository.get.mockResolvedValue({
-        otpHash: 'hashed-otp',
-        attempts: 5,
+    it('ném lỗi OTP_INCORRECT khi outcome INCORRECT (OTP sai)', async () => {
+      otpRepository.verifyAndConsume.mockResolvedValue({
+        outcome: 'INCORRECT',
+        attempts: 1,
       });
+
+      const promise = service.verifyOtp(organizationSlug, email, '000000');
+      await expect(promise).rejects.toThrow(BadRequestException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'OTP_003' },
+      });
+    });
+
+    it('ném lỗi OTP_MAX_ATTEMPTS_EXCEEDED khi outcome MAX_ATTEMPTS (vượt quá số lần thử — Lua script đã tự xoá record)', async () => {
+      otpRepository.verifyAndConsume.mockResolvedValue({
+        outcome: 'MAX_ATTEMPTS',
+      });
+
+      const promise = service.verifyOtp(organizationSlug, email, '123456');
+      await expect(promise).rejects.toThrow(BadRequestException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'OTP_004' },
+      });
+      // Lua script tự DEL bên trong Redis — service KHÔNG gọi delete() riêng nữa.
+      expect(otpRepository.delete).not.toHaveBeenCalled();
+    });
+
+    it('T053.06B-1 (§6) — throttle account-scoped: từ chối OTP_VERIFY_RATE_LIMIT_EXCEEDED khi vượt ngưỡng, KHÔNG gọi verifyAndConsume()', async () => {
+      // Ngưỡng = MAX_OTP_SEND_PER_HOUR(5) * MAX_OTP_VERIFY_ATTEMPTS(5) = 25 — request thứ 26 bị chặn.
+      otpRepository.incrementVerifyAttemptWindowCount.mockResolvedValue(26);
+
+      const promise = service.verifyOtp(organizationSlug, email, '123456');
+      await expect(promise).rejects.toThrow(HttpException);
+      await expect(promise).rejects.toMatchObject({
+        response: { errorCode: 'OTP_008' },
+      });
+      expect(otpRepository.verifyAndConsume).not.toHaveBeenCalled();
+    });
+
+    it('T053.06B-1 (§6) — throttle account-scoped: ĐÚNG ngưỡng (25) vẫn cho qua, không throttle', async () => {
+      otpRepository.incrementVerifyAttemptWindowCount.mockResolvedValue(25);
+      otpRepository.verifyAndConsume.mockResolvedValue({ outcome: 'OK' });
 
       await expect(
         service.verifyOtp(organizationSlug, email, '123456'),
-      ).rejects.toThrow(BadRequestException);
-      expect(otpRepository.delete).toHaveBeenCalledWith(identifier);
+      ).resolves.toBeUndefined();
+      expect(otpRepository.verifyAndConsume).toHaveBeenCalled();
+    });
+
+    it('T053.06B-1 (§6) — throttle account-scoped tính TRƯỚC bất kỳ bước nào khác, kể cả khi identifier chưa từng có OTP nào (không tạo oracle mới)', async () => {
+      otpRepository.incrementVerifyAttemptWindowCount.mockResolvedValue(26);
+
+      await expect(
+        service.verifyOtp(organizationSlug, 'never-requested@x.com', '123456'),
+      ).rejects.toThrow(HttpException);
+      expect(
+        otpRepository.incrementVerifyAttemptWindowCount,
+      ).toHaveBeenCalledWith(`${organizationSlug}:never-requested@x.com`);
     });
   });
 

@@ -55,9 +55,14 @@ export default () => ({
   // T053.04 — secret RIÊNG cho toàn bộ vòng đời Trial Signup (hash OTP, ký/xác minh signup proof
   // token, hash proof token để tra `trial_signup_finalizations`) — KHÔNG dùng chung với
   // JWT_ACCESS_SECRET/JWT_REFRESH_SECRET (Architect Decision D2 "no purpose confusion") và KHÔNG
-  // dùng chung với OTP forgot-password (vốn không có secret riêng, chỉ SHA-256 trần — D13, không
-  // sửa luồng đó).
+  // dùng chung với OTP forgot-password.
   signup: {
     secret: process.env.SIGNUP_SECRET,
+  },
+  // T053.06B-1 — secret RIÊNG cho HMAC hash forgot-password OTP (D13 xác nhận là quyết định hoãn
+  // phạm vi gói T053.04, KHÔNG phải cấm vĩnh viễn — T053.06B-1 là phần tiếp nối). Giữ nguyên D2
+  // "no purpose confusion": KHÔNG dùng chung JWT_ACCESS_SECRET/JWT_REFRESH_SECRET/SIGNUP_SECRET.
+  forgotPasswordOtp: {
+    secret: process.env.FORGOT_PASSWORD_OTP_SECRET,
   },
 });
