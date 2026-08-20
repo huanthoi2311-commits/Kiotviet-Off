@@ -1,5 +1,5 @@
-import { createHash, createHmac, randomBytes } from 'crypto';
-import { Injectable } from '@nestjs/common';
+import { createHmac, randomBytes } from 'crypto';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import ms from 'ms';
@@ -29,7 +29,25 @@ export class TokenService {
     return createHmac('sha256', secret).update(raw).digest('hex');
   }
 
+  /**
+   * T053.06B-1 (Architect Decision — secret riêng, giữ nguyên D2 "no purpose confusion") — trước
+   * đây là SHA-256 trần (không khoá), nay là HMAC-SHA256 khoá bởi `FORGOT_PASSWORD_OTP_SECRET`
+   * — secret ĐỘC LẬP, KHÔNG dùng chung `jwt.refreshSecret`/`jwt.accessSecret`/`signup.secret`
+   * (xem `env.validation.ts`'s `PRODUCTION_SECRET_PLACEHOLDERS`/`assertProductionForgotPasswordOtpSecretSet`).
+   * Ném lỗi rõ ràng nếu secret chưa cấu hình (khác `hashRefreshToken` ở trên dùng `!` — vì
+   * `jwt.refreshSecret` BẮT BUỘC ở MỌI môi trường qua `env.validation.ts`'s `@IsNotEmpty()`, còn
+   * `forgotPasswordOtp.secret` CHỈ optional ở dev/test giống hệt `signup.secret` — mirror ĐÚNG cách
+   * `SignupProofService.secret()` xử lý, không phải cách `hashRefreshToken` xử lý, vì cùng shape
+   * optional/required). KHÔNG thêm salt/random — verify phải tái tạo lại ĐÚNG digest để so khớp
+   * bên trong Lua script (`RedisOtpRepository.VERIFY_AND_CONSUME_SCRIPT`).
+   */
   hashOtp(otp: string): string {
-    return createHash('sha256').update(otp).digest('hex');
+    const secret = this.config.get<string>('forgotPasswordOtp.secret');
+    if (!secret) {
+      throw new InternalServerErrorException(
+        'FORGOT_PASSWORD_OTP_SECRET chưa được cấu hình — không thể xử lý forgot-password OTP',
+      );
+    }
+    return createHmac('sha256', secret).update(otp).digest('hex');
   }
 }

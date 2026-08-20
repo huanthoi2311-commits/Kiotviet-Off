@@ -57,6 +57,8 @@ export const ErrorCode = {
   OTP_NOT_VERIFIED: 'OTP_005',
   OTP_COOLDOWN_ACTIVE: 'OTP_006',
   OTP_ACCOUNT_NOT_FOUND: 'OTP_007',
+  // T053.06B-1 (§6) — throttle account-scoped cho verify-otp, độc lập IP throttle hiện có.
+  OTP_VERIFY_RATE_LIMIT_EXCEEDED: 'OTP_008',
 
   // Trial Signup (SIGNUP_xxx) — T053.04. Tái dùng OTP_xxx ở trên cho request/verify-otp (cùng ý
   // nghĩa hệt forgot-password: invalid/expired, sai OTP, vượt số lần thử, đang cooldown, vượt rate

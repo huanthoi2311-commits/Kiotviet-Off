@@ -9,7 +9,7 @@ import { RedisOtpRepository } from './redis-otp.repository';
  * reject (không bao giờ âm thầm trả về 1 giá trị "an toàn giả" như false/0/null mà lẽ ra phải là
  * lỗi thật, vì điều đó có thể bị hiểu nhầm thành "chưa verify"/"chưa gửi" thay vì "không biết").
  */
-describe('RedisOtpRepository — T030.9', () => {
+describe('RedisOtpRepository — T030.9 / T053.06B-1', () => {
   let repository: RedisOtpRepository;
   let redis: {
     get: jest.Mock;
@@ -18,6 +18,7 @@ describe('RedisOtpRepository — T030.9', () => {
     ttl: jest.Mock;
     incr: jest.Mock;
     expire: jest.Mock;
+    eval: jest.Mock;
   };
 
   beforeEach(() => {
@@ -28,6 +29,7 @@ describe('RedisOtpRepository — T030.9', () => {
       ttl: jest.fn(),
       incr: jest.fn(),
       expire: jest.fn(),
+      eval: jest.fn(),
     };
     repository = new RedisOtpRepository(redis as unknown as Redis);
   });
@@ -84,6 +86,76 @@ describe('RedisOtpRepository — T030.9', () => {
         repository.getCooldownRemainingSeconds('org:a@b.com'),
       ).resolves.toBe(0);
     });
+
+    it('incrementVerifyAttemptWindowCount() set TTL 3600s CHỈ ở lần đầu (count === 1), cùng mẫu incrementSendCount()', async () => {
+      redis.incr.mockResolvedValue(1);
+      redis.expire.mockResolvedValue(1);
+      const count =
+        await repository.incrementVerifyAttemptWindowCount('org:a@b.com');
+      expect(count).toBe(1);
+      expect(redis.expire).toHaveBeenCalledWith(
+        'auth:otp:verifywindow:org:a@b.com',
+        3600,
+      );
+    });
+
+    it('incrementVerifyAttemptWindowCount() KHÔNG set lại TTL ở các lần sau (count > 1)', async () => {
+      redis.incr.mockResolvedValue(2);
+      await repository.incrementVerifyAttemptWindowCount('org:a@b.com');
+      expect(redis.expire).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('verifyAndConsume() — T053.06B-1 (typed outcome + EVAL call shape)', () => {
+    it('gọi EVAL với đúng script/keys/args', async () => {
+      redis.eval.mockResolvedValue(['OK']);
+      await repository.verifyAndConsume('org:a@b.com', 'hash123', 5);
+      expect(redis.eval).toHaveBeenCalledWith(
+        expect.any(String),
+        2,
+        'auth:otp:org:a@b.com',
+        'auth:otp:verified:org:a@b.com',
+        'hash123',
+        '5',
+        '300',
+        '300',
+      );
+    });
+
+    it('parse outcome OK', async () => {
+      redis.eval.mockResolvedValue(['OK']);
+      await expect(
+        repository.verifyAndConsume('org:a@b.com', 'hash123', 5),
+      ).resolves.toEqual({ outcome: 'OK' });
+    });
+
+    it('parse outcome NOT_FOUND', async () => {
+      redis.eval.mockResolvedValue(['NOT_FOUND']);
+      await expect(
+        repository.verifyAndConsume('org:a@b.com', 'hash123', 5),
+      ).resolves.toEqual({ outcome: 'NOT_FOUND' });
+    });
+
+    it('parse outcome MAX_ATTEMPTS', async () => {
+      redis.eval.mockResolvedValue(['MAX_ATTEMPTS']);
+      await expect(
+        repository.verifyAndConsume('org:a@b.com', 'hash123', 5),
+      ).resolves.toEqual({ outcome: 'MAX_ATTEMPTS' });
+    });
+
+    it('parse outcome INCORRECT kèm attempts (chuyển từ string sang number)', async () => {
+      redis.eval.mockResolvedValue(['INCORRECT', '3']);
+      await expect(
+        repository.verifyAndConsume('org:a@b.com', 'hash123', 5),
+      ).resolves.toEqual({ outcome: 'INCORRECT', attempts: 3 });
+    });
+
+    it('T053.06B-1 (§12) — outcome KHÔNG xác định từ Lua PHẢI fail closed (ném lỗi, không âm thầm coi là bất kỳ outcome nào)', async () => {
+      redis.eval.mockResolvedValue(['SOMETHING_UNEXPECTED']);
+      await expect(
+        repository.verifyAndConsume('org:a@b.com', 'hash123', 5),
+      ).rejects.toThrow(/kết quả Lua không xác định/);
+    });
   });
 
   describe('Redis lỗi/không khả dụng — KHÔNG được bypass bảo mật (T030.9, AD-5)', () => {
@@ -108,21 +180,18 @@ describe('RedisOtpRepository — T030.9', () => {
       );
     });
 
-    it('markVerified() reject nguyên vẹn khi Redis lỗi — không thể âm thầm coi như đã verify', async () => {
-      redis.set.mockRejectedValue(redisDownError);
-      await expect(repository.markVerified('org:a@b.com')).rejects.toBe(
-        redisDownError,
-      );
+    it('verifyAndConsume() reject nguyên vẹn khi Redis lỗi (EVAL thất bại — không nuốt lỗi thành bất kỳ outcome nào)', async () => {
+      redis.eval.mockRejectedValue(redisDownError);
+      await expect(
+        repository.verifyAndConsume('org:a@b.com', 'hash123', 5),
+      ).rejects.toBe(redisDownError);
     });
 
-    it('incrementAttempts() reject nguyên vẹn khi Redis lỗi (không nuốt lỗi thành "còn lượt thử")', async () => {
-      redis.get.mockResolvedValue(
-        JSON.stringify({ otpHash: 'h', attempts: 0 }),
-      );
-      redis.ttl.mockRejectedValue(redisDownError);
-      await expect(repository.incrementAttempts('org:a@b.com')).rejects.toBe(
-        redisDownError,
-      );
+    it('incrementVerifyAttemptWindowCount() reject nguyên vẹn khi Redis lỗi — không âm thầm cho phép verify không giới hạn', async () => {
+      redis.incr.mockRejectedValue(redisDownError);
+      await expect(
+        repository.incrementVerifyAttemptWindowCount('org:a@b.com'),
+      ).rejects.toBe(redisDownError);
     });
 
     it('incrementSendCount() reject nguyên vẹn khi Redis lỗi — không âm thầm cho phép gửi không giới hạn', async () => {
