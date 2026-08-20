@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { SessionEntity } from '../entities/session.entity';
 import { DeviceContext } from '../value-objects/device-context';
 
@@ -17,7 +18,11 @@ export interface ISessionRepository {
   findById(id: string): Promise<SessionEntity | null>;
   listActiveForUser(userId: string): Promise<SessionEntity[]>;
   revokeById(id: string): Promise<void>;
-  revokeAllForUser(userId: string): Promise<void>;
+  /** T053.06B-2 (D5) — `tx?` optional, xem chú thích ở `IAuthUserRepository.updatePasswordHash()`. */
+  revokeAllForUser(
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void>;
   touchActivity(id: string): Promise<void>;
 }
 

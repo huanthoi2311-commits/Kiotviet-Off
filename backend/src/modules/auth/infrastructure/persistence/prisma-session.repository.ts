@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SessionEntity } from '../../domain/entities/session.entity';
 import {
@@ -57,8 +58,12 @@ export class PrismaSessionRepository implements ISessionRepository {
     });
   }
 
-  async revokeAllForUser(userId: string): Promise<void> {
-    await this.prisma.session.updateMany({
+  async revokeAllForUser(
+    userId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx ?? this.prisma;
+    await client.session.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
