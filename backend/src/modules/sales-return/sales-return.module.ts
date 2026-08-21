@@ -7,10 +7,13 @@ import { WarehouseModule } from '../warehouse/warehouse.module';
 import { RefundDomainService } from './application/refund-domain.service';
 import { ReturnEligibilityService } from './application/return-eligibility.service';
 import { SalesReturnService } from './application/sales-return.service';
+import { SalesReturnRefundOperationService } from './application/sales-return-refund-operation.service';
 import { SALES_RETURN_REPOSITORY } from './domain/repositories/sales-return.repository.interface';
+import { SALES_RETURN_REFUND_OPERATION_REPOSITORY } from './domain/repositories/sales-return-refund-operation.repository.interface';
 import { SALES_RETURN_CODE_GENERATOR } from './domain/services/sales-return-code-generator.interface';
 import { SequenceSalesReturnCodeGenerator } from './infrastructure/generators/sequence-sales-return-code.generator';
 import { PrismaSalesReturnRepository } from './infrastructure/persistence/prisma-sales-return.repository';
+import { PrismaSalesReturnRefundOperationRepository } from './infrastructure/persistence/prisma-sales-return-refund-operation.repository';
 import { SalesReturnController } from './presentation/sales-return.controller';
 
 /**
@@ -35,6 +38,10 @@ import { SalesReturnController } from './presentation/sales-return.controller';
  * toàn bộ transitive import của `WarehouseModule` (RbacModule, BranchModule, UserModule,
  * UsageLimitModule, và cấp tiếp theo AuthModule/EntitlementModule/OrganizationModule) — không có
  * module nào trong tập đó import lại SalesReturnModule/InventoryModule/InvoiceModule/ProductModule.
+ *
+ * T053.06E — bổ sung `SalesReturnRefundOperationService` + `SALES_RETURN_REFUND_OPERATION_REPOSITORY`
+ * (Idempotency cho `createRefund()`, bảng riêng `sales_return_refund_operations`, KHÔNG tái dùng/mở
+ * rộng `checkout_operations` — mirror Supplier Payment T052.05B, KHÔNG import module nào mới).
  */
 @Module({
   imports: [
@@ -49,9 +56,14 @@ import { SalesReturnController } from './presentation/sales-return.controller';
     SalesReturnService,
     ReturnEligibilityService,
     RefundDomainService,
+    SalesReturnRefundOperationService,
     {
       provide: SALES_RETURN_REPOSITORY,
       useClass: PrismaSalesReturnRepository,
+    },
+    {
+      provide: SALES_RETURN_REFUND_OPERATION_REPOSITORY,
+      useClass: PrismaSalesReturnRefundOperationRepository,
     },
     {
       provide: SALES_RETURN_CODE_GENERATOR,

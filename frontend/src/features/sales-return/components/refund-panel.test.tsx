@@ -95,7 +95,7 @@ describe('RefundPanel (T047 §9)', () => {
     expect(screen.getByLabelText('Số tiền hoàn')).toBeInTheDocument();
   });
 
-  it('submits the expected payload when creating a refund', async () => {
+  it('submits the expected payload (kèm header Idempotency-Key) khi tạo hoàn tiền', async () => {
     const token = buildAccessToken({
       sub: 'user-1',
       organizationId: 'org-1',
@@ -103,9 +103,11 @@ describe('RefundPanel (T047 §9)', () => {
     });
     useAuthStore.getState().setAccessToken(token);
     let capturedBody: Record<string, unknown> | undefined;
+    let capturedKey: string | null = null;
     server.use(
       http.post(`${API_BASE_URL}/sales-returns/${RETURN_ID}/refunds`, async ({ request }) => {
         capturedBody = (await request.json()) as Record<string, unknown>;
+        capturedKey = request.headers.get('idempotency-key');
         return HttpResponse.json(envelope(buildRefund()), { status: 201 });
       }),
     );
@@ -116,6 +118,53 @@ describe('RefundPanel (T047 §9)', () => {
     await user.click(screen.getByRole('button', { name: 'Tạo hoàn tiền' }));
 
     await waitFor(() => expect(capturedBody).toMatchObject({ amount: 50000, method: 'CASH' }));
+    expect(capturedKey).toBeTruthy();
+  });
+
+  // T053.06E §17 — end-to-end wiring proof (not just the isolated hook test): a failed attempt
+  // followed by a changed amount must send a DIFFERENT Idempotency-Key on retry, while an
+  // unchanged retry sends the SAME one.
+  it('gửi Idempotency-Key MỚI khi amount đổi sau lần thất bại, nhưng GIỮ NGUYÊN key khi retry không đổi', async () => {
+    const token = buildAccessToken({
+      sub: 'user-1',
+      organizationId: 'org-1',
+      permissions: ['sales_return:refund'],
+    });
+    useAuthStore.getState().setAccessToken(token);
+    const capturedKeys: (string | null)[] = [];
+    let shouldFail = true;
+    server.use(
+      http.post(`${API_BASE_URL}/sales-returns/${RETURN_ID}/refunds`, ({ request }) => {
+        capturedKeys.push(request.headers.get('idempotency-key'));
+        if (shouldFail) {
+          return HttpResponse.json(
+            errorEnvelope('SALES_RETURN_011', 'Vượt quá hạn mức hoàn tiền'),
+            { status: 422 },
+          );
+        }
+        return HttpResponse.json(envelope(buildRefund({ amount: '99999' })), { status: 201 });
+      }),
+    );
+    renderPanel({ salesReturnStatus: 'RECEIVED' });
+
+    const user = userEvent.setup();
+    const amountInput = screen.getByLabelText('Số tiền hoàn');
+    await user.type(amountInput, '50000');
+    await user.click(screen.getByRole('button', { name: 'Tạo hoàn tiền' }));
+    await waitFor(() => expect(capturedKeys).toHaveLength(1));
+
+    // Unchanged retry (same amount) — same key.
+    await user.click(screen.getByRole('button', { name: 'Tạo hoàn tiền' }));
+    await waitFor(() => expect(capturedKeys).toHaveLength(2));
+    expect(capturedKeys[1]).toBe(capturedKeys[0]);
+
+    // Changed intent (amount edited) — new key.
+    await user.clear(amountInput);
+    await user.type(amountInput, '99999');
+    shouldFail = false;
+    await user.click(screen.getByRole('button', { name: 'Tạo hoàn tiền' }));
+    await waitFor(() => expect(capturedKeys).toHaveLength(3));
+    expect(capturedKeys[2]).not.toBe(capturedKeys[1]);
   });
 
   it('shows Process/Cancel actions for a PENDING refund', async () => {

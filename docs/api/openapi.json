@@ -15406,6 +15406,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Do client tự sinh — cùng key + cùng payload sẽ trả lại đúng refund cũ, không tạo giao dịch mới. Sau khi trim: không rỗng, tối đa 255 ký tự. Không yêu cầu định dạng UUID (mirror T052.05B D2).",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -15495,7 +15504,7 @@
             "bearer": []
           }
         ],
-        "summary": "Tạo hoàn tiền cho phiếu trả hàng (Decision AD37 — độc lập Payment)",
+        "summary": "Tạo hoàn tiền cho phiếu trả hàng (Decision AD37 — độc lập Payment). Bắt buộc header Idempotency-Key (T053.06E).",
         "tags": [
           "SalesReturn"
         ]

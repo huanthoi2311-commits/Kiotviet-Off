@@ -253,6 +253,11 @@ export const ErrorCode = {
   SALES_RETURN_REFUND_INVALID_TRANSITION: 'SALES_RETURN_012',
   SALES_RETURN_REFUND_VERSION_CONFLICT: 'SALES_RETURN_013',
   SALES_RETURN_NOT_RECEIVED_FOR_REFUND: 'SALES_RETURN_014',
+  // T053.06E — Idempotency cho Refund (mirror CHECKOUT_007-009 shape, gộp missing+oversized vào 1
+  // mã theo hướng dẫn Architect §5/§14 — không cần tách INVALID riêng như Supplier Payment).
+  SALES_RETURN_REFUND_IDEMPOTENCY_KEY_MISSING: 'SALES_RETURN_015',
+  SALES_RETURN_REFUND_IDEMPOTENCY_KEY_REUSED: 'SALES_RETURN_016',
+  SALES_RETURN_REFUND_IDEMPOTENCY_CONFLICT: 'SALES_RETURN_017',
 
   // Subscription Usage (SUBSCRIPTION_xxx) — T053.05B, tách biệt ENTITLEMENT_001 (tính năng KHÔNG
   // có trong gói) khỏi "tính năng CÓ trong gói nhưng đã dùng hết hạn mức" (quota exhausted).

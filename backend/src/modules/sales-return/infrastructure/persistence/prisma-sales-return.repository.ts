@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
@@ -10,6 +10,7 @@ import {
   SalesReturnConcurrencyRetryError,
   SalesReturnInvalidTransitionError,
   SalesReturnNotFoundError,
+  SalesReturnNotReceivedForRefundError,
   SalesReturnQtyExceededError,
   SalesReturnRefundInvalidTransitionError,
   SalesReturnRefundNotFoundError,
@@ -24,6 +25,9 @@ import {
   SalesReturnSearchResult,
   UpdateSalesReturnDraftInput,
 } from '../../domain/repositories/sales-return.repository.interface';
+import { SALES_RETURN_REFUND_OPERATION_REPOSITORY } from '../../domain/repositories/sales-return-refund-operation.repository.interface';
+import type { ISalesReturnRefundOperationRepository } from '../../domain/repositories/sales-return-refund-operation.repository.interface';
+import { assertRefundCapNotExceeded } from '../../domain/policies/sales-return-refund-cap.policy';
 
 const SALES_RETURN_INCLUDE = {
   items: { orderBy: { createdAt: 'asc' as const } },
@@ -44,7 +48,14 @@ type RawSalesReturnRefund = Prisma.SalesReturnRefundGetPayload<object>;
  */
 @Injectable()
 export class PrismaSalesReturnRepository implements ISalesReturnRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // T053.06E — inject chỉ để gọi markCompleted() TRONG CÙNG transaction với
+    // tx.salesReturnRefund.create() bên dưới (atomicity proof, mirror
+    // PrismaSupplierDebtRepository) — cùng module (sales-return), không cross-module.
+    @Inject(SALES_RETURN_REFUND_OPERATION_REPOSITORY)
+    private readonly refundOperationRepository: ISalesReturnRefundOperationRepository,
+  ) {}
 
   async create(input: CreateSalesReturnInput): Promise<SalesReturnEntity> {
     const created = await this.prisma.salesReturn.create({
@@ -360,22 +371,78 @@ export class PrismaSalesReturnRepository implements ISalesReturnRepository {
     });
   }
 
-  // --- Refund (transaction riêng, độc lập với SalesReturn — SPEC §14/§15, Decision AD37) ---
+  // --- Refund (lifecycle độc lập với SalesReturn.status — SPEC §14/§15, Decision AD37/AD43;
+  // createRefund() dưới đây TỰ mở transaction riêng để khóa SalesReturn, T053.06E) ---
 
   async createRefund(
     input: CreateSalesReturnRefundInput,
   ): Promise<SalesReturnRefundEntity> {
-    const created = await this.prisma.salesReturnRefund.create({
-      data: {
-        salesReturnId: input.salesReturnId,
-        amount: input.amount,
-        method: input.method,
-        externalReference: input.externalReference,
-        createdBy: input.createdBy,
-        updatedBy: input.createdBy,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      // Bước 1 — Khóa SalesReturn (T053.06E Discovery §15, mirror Decision AD44's InvoiceItem
+      // lock kỹ thuật — row lock thật, KHÔNG phải advisory lock: SalesReturn CÓ 1 row cụ thể để
+      // khóa trực tiếp, khác Supplier Payment (không có 1 row balance nào để khóa, phải dùng
+      // pg_advisory_xact_lock). Raw SQL vì Prisma Client fluent API không có phương thức khóa
+      // row trực tiếp.
+      await tx.$queryRaw`
+        SELECT id FROM sales_returns
+        WHERE id = ${input.salesReturnId}::uuid AND "organizationId" = ${input.organizationId}::uuid
+        FOR UPDATE
+      `;
+
+      // Bước 2 — Đọc trạng thái ĐÃ COMMIT, SAU khi có lock (KHÔNG dùng snapshot cũ trước lock —
+      // đây chính là điểm sửa lỗi race "different-key concurrency vượt cap", Discovery §14).
+      const current = await tx.salesReturn.findFirst({
+        where: {
+          id: input.salesReturnId,
+          organizationId: input.organizationId,
+        },
+        include: SALES_RETURN_INCLUDE,
+      });
+      if (!current) throw new SalesReturnNotFoundError(input.salesReturnId);
+      if (
+        !(['RECEIVED', 'COMPLETED'] as SalesReturnStatus[]).includes(
+          current.status,
+        )
+      ) {
+        throw new SalesReturnNotReceivedForRefundError(
+          input.salesReturnId,
+          current.status,
+        );
+      }
+
+      // Bước 3 — Tính activeRefundTotal TỪ DỮ LIỆU ĐÃ COMMIT, DƯỚI KHÓA (không còn TOCTOU: không
+      // có transaction refund-creation nào khác có thể commit đồng thời trên CÙNG SalesReturn
+      // này trong lúc khóa còn giữ). Công thức tách vào policy thuần (unit-testable không cần DB
+      // thật — U7) — xem `assertRefundCapNotExceeded`.
+      assertRefundCapNotExceeded({
+        refunds: current.refunds,
+        totalAmount: current.totalAmount,
+        requestedAmount: input.amount,
+      });
+
+      // Bước 4 — Insert refund (CÙNG tx, vẫn dưới khóa).
+      const created = await tx.salesReturnRefund.create({
+        data: {
+          salesReturnId: input.salesReturnId,
+          amount: input.amount,
+          method: input.method,
+          externalReference: input.externalReference,
+          createdBy: input.createdBy,
+          updatedBy: input.createdBy,
+        },
+      });
+
+      // Bước 5 — Đánh dấu SalesReturnRefundOperation COMPLETED TRONG CÙNG tx (atomicity: hoặc cả
+      // refund lẫn operation COMPLETED cùng commit, hoặc cả 2 cùng rollback — không có trạng thái
+      // refund tồn tại mà operation không COMPLETED qua đường thực thi bình thường).
+      await this.refundOperationRepository.markCompleted(
+        input.idempotencyOperationId,
+        created.id,
+        tx,
+      );
+
+      return this.toRefundEntity(created);
     });
-    return this.toRefundEntity(created);
   }
 
   async findRefundById(
