@@ -3,6 +3,7 @@ import { COMMERCIAL_FEATURES, CommercialFeature } from './commercial-features';
 import {
   PLAN_ENTITLEMENTS,
   resolveEffectiveFeatures,
+  TRIAL_ONLY_FEATURES,
 } from './plan-entitlements';
 
 describe('PLAN_ENTITLEMENTS (T053.03 §2 — ma trận Architect cung cấp chính xác)', () => {
@@ -85,6 +86,26 @@ describe('PLAN_ENTITLEMENTS (T053.03 §2 — ma trận Architect cung cấp chí
       [...COMMERCIAL_FEATURES].sort(),
     );
     expect(PLAN_ENTITLEMENTS.ENTERPRISE.size).toBe(COMMERCIAL_FEATURES.length);
+  });
+});
+
+describe('TRIAL_ONLY_FEATURES (T053.06F §5 — tính động từ PLAN_ENTITLEMENTS)', () => {
+  it('đúng đúng 5 feature TRIAL có mà FREE không có', () => {
+    expect(Array.from(TRIAL_ONLY_FEATURES).sort()).toEqual(
+      [
+        'PURCHASE',
+        'SUPPLIER',
+        'SALES_RETURN',
+        'USER_MANAGEMENT',
+        'RBAC_MANAGEMENT',
+      ].sort(),
+    );
+  });
+
+  it('không chứa feature nào cũng có trong FREE', () => {
+    for (const feature of TRIAL_ONLY_FEATURES) {
+      expect(PLAN_ENTITLEMENTS.FREE.has(feature)).toBe(false);
+    }
   });
 });
 

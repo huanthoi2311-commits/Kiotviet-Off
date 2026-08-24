@@ -1,8 +1,18 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { ErrorCode } from '../../../common/errors/error-codes';
+import { withCode } from '../../../common/errors/with-code';
+import { isSubscriptionExpired } from '../../organization/domain/policies/subscription-lifecycle-policy';
 import { UsageResourceType } from '../domain/usage-resource-type';
 
 const LIMIT_SELECT = {
+  plan: true,
+  status: true,
+  expiredAt: true,
   maxUser: true,
   maxBranch: true,
   maxWarehouse: true,
@@ -50,7 +60,15 @@ export class UsageLimitService {
    *
    * Thiếu OrganizationSubscription cho 1 organizationId đã xác thực là VI PHẠM bất biến hệ thống
    * (writeOrganizationWithOwner luôn tạo đúng 1 dòng Subscription cùng lúc với Organization) —
-   * KHÔNG được hiểu ngầm là "không giới hạn" (fail closed, không có nhánh fallback all-unlimited). */
+   * KHÔNG được hiểu ngầm là "không giới hạn" (fail closed, không có nhánh fallback all-unlimited).
+   *
+   * T053.06F Architect Decision §6/§16 — đây là "canonical quota boundary": TRIAL hết hạn (persisted
+   * EXPIRED hoặc quá hạn hiệu lực, request-time fail-safe) bị chặn ở ĐÂY, TRƯỚC khi trả về limit —
+   * mọi caller (5 resource: USER/BRANCH/WAREHOUSE/PRODUCT/CUSTOMER, cả nhánh CREATE lẫn RESTORE)
+   * tự động được bảo vệ mà KHÔNG cần sửa từng repository riêng lẻ (đã gọi `getLimit()` TRƯỚC
+   * COUNT/assertUsageCapacity/INSERT ở mọi nơi — xem `prisma-user.repository.ts` v.v.). KHÔNG đổi
+   * persisted max-columns/plan — chỉ từ chối thao tác, dữ liệu lịch sử không đổi (§6: "Do NOT
+   * rewrite persisted max columns... Do NOT fake this by setting limits to zero"). */
   async getLimit(
     tx: Prisma.TransactionClient,
     organizationId: string,
@@ -63,6 +81,14 @@ export class UsageLimitService {
     if (!row) {
       throw new InternalServerErrorException(
         `Bất biến hệ thống bị vi phạm: tổ chức ${organizationId} không có OrganizationSubscription — không thể xác định giới hạn ${resource}`,
+      );
+    }
+    if (isSubscriptionExpired(row)) {
+      throw new ForbiddenException(
+        withCode(
+          ErrorCode.SUBSCRIPTION_TRIAL_EXPIRED,
+          'Gói dùng thử đã hết hạn — không thể tạo/khôi phục thêm dữ liệu mới. Dữ liệu hiện có vẫn được giữ nguyên.',
+        ),
       );
     }
     return this.pickLimit(row, resource);

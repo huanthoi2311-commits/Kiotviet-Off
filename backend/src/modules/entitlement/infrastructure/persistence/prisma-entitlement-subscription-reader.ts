@@ -8,7 +8,8 @@ import {
 /**
  * T053.03 §7/§23 — Đọc trực tiếp qua PrismaService (module @Global(), an toàn inject không cần
  * import PrismaModule — cùng pattern mọi repository khác trong codebase). Query hẹp: chỉ select
- * plan + entitlementOverrides, KHÔNG load toàn bộ Organization aggregate cho mỗi lần check feature.
+ * plan/status/expiredAt/entitlementOverrides, KHÔNG load toàn bộ Organization aggregate cho mỗi
+ * lần check feature. T053.06F bổ sung status/expiredAt (trước đó cố ý không đọc).
  */
 @Injectable()
 export class PrismaEntitlementSubscriptionReader implements IEntitlementSubscriptionReader {
@@ -19,11 +20,18 @@ export class PrismaEntitlementSubscriptionReader implements IEntitlementSubscrip
   ): Promise<EntitlementSubscriptionSnapshot | null> {
     const row = await this.prisma.organizationSubscription.findUnique({
       where: { organizationId },
-      select: { plan: true, entitlementOverrides: true },
+      select: {
+        plan: true,
+        status: true,
+        expiredAt: true,
+        entitlementOverrides: true,
+      },
     });
     if (!row) return null;
     return {
       plan: row.plan,
+      status: row.status,
+      expiredAt: row.expiredAt,
       entitlementOverrides: row.entitlementOverrides,
     };
   }
