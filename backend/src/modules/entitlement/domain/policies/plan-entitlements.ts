@@ -60,6 +60,19 @@ export const PLAN_ENTITLEMENTS: Readonly<
 };
 
 /**
+ * T053.06F Architect Decision §5 — tập feature CHỈ TRIAL có mà FREE không có (tính động từ chính
+ * `PLAN_ENTITLEMENTS`, không hardcode lặp lại danh sách — 1 nguồn sự thật duy nhất, T053.03 §2).
+ * Dùng để CHẶN việc `entitlementOverrides` "hồi sinh" 1 feature chỉ-TRIAL trên 1 TRIAL đã hết hạn
+ * (xem `EntitlementService`) — chính sách khóa: "expired TRIAL resolves from FREE baseline with
+ * no TRIAL-only expansion from legacy overrides".
+ */
+export const TRIAL_ONLY_FEATURES: ReadonlySet<CommercialFeature> = new Set(
+  Array.from(PLAN_ENTITLEMENTS.TRIAL).filter(
+    (feature) => !PLAN_ENTITLEMENTS.FREE.has(feature),
+  ),
+);
+
+/**
  * `overrides` là bản ghi thô đã parse (unknown key bị bỏ qua từ bước parse trước đó). Duyệt theo
  * COMMERCIAL_FEATURES cố định (không duyệt key thô của override) — đảm bảo override KHÔNG BAO GIỜ
  * đưa vào một feature code không tồn tại trong catalog (T053.03 §16).

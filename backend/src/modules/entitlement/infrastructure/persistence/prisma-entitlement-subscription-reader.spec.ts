@@ -21,19 +21,28 @@ describe('PrismaEntitlementSubscriptionReader (T053.03 §7/§23 — narrow read 
     await expect(reader.findByOrganizationId('org-1')).resolves.toBeNull();
   });
 
-  it('trả plan + entitlementOverrides khi có row, chỉ select 2 field (query hẹp)', async () => {
+  it('trả plan/status/expiredAt/entitlementOverrides khi có row, chỉ select đúng 4 field (query hẹp)', async () => {
     prisma.organizationSubscription.findUnique.mockResolvedValue({
       plan: 'PRO',
+      status: 'ACTIVE',
+      expiredAt: null,
       entitlementOverrides: { SUPPLIER: false },
     });
     const result = await reader.findByOrganizationId('org-1');
     expect(result).toEqual({
       plan: 'PRO',
+      status: 'ACTIVE',
+      expiredAt: null,
       entitlementOverrides: { SUPPLIER: false },
     });
     expect(prisma.organizationSubscription.findUnique).toHaveBeenCalledWith({
       where: { organizationId: 'org-1' },
-      select: { plan: true, entitlementOverrides: true },
+      select: {
+        plan: true,
+        status: true,
+        expiredAt: true,
+        entitlementOverrides: true,
+      },
     });
   });
 });
