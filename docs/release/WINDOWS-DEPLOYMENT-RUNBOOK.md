@@ -186,6 +186,68 @@ cơ chế "backdoor" đặt lại mật khẩu nào đi kèm bước này.
 **KHÔNG** có API công khai nào để tự thăng cấp — thao tác này chỉ thực hiện được qua dòng lệnh, đòi
 hỏi quyền truy cập máy chủ/container, đúng nguyên tắc "không cho phép Owner tổ chức tự thăng cấp".
 
+## 6B. Đổi Plan Subscription cho một Organization đã tồn tại (T053.06I — tùy chọn)
+
+Khi tạo tổ chức (`POST /organizations`), vận hành viên đã có thể chọn plan mong muốn ngay từ đầu
+(FREE/TRIAL/BASIC/PRO/ENTERPRISE). Mục này chỉ cần khi phải **đổi plan của một tổ chức đã tồn tại**
+— ví dụ: một tổ chức đang dùng thử (TRIAL) chuyển sang gói trả phí sau khi khách hàng thanh toán thủ
+công (chuyển khoản/hóa đơn), hoặc nâng/hạ cấp gói. Đây KHÔNG phải hệ thống thanh toán tự động — chỉ
+là công cụ vận hành viên cập nhật lại đúng "trạng thái thương mại" (plan/hạn mức) sau khi đã xác
+nhận thanh toán ngoài hệ thống.
+
+**Khuyến nghị: sao lưu trước** (mục 8) trước khi thực hiện bất kỳ thay đổi trạng thái thương mại
+thủ công nào — thao tác này ghi trực tiếp vào bảng subscription, không có cơ chế hoàn tác tự động
+ngoài khôi phục từ bản sao lưu.
+
+**Bước 1 — Xem trước (dry-run), KHÔNG có `--confirm` — luôn an toàn, không ghi gì:**
+
+```powershell
+docker compose -f docker-compose.yml run --rm bring-up `
+  npm run subscription:change-plan -- --organization-id=<uuid tổ chức> --plan=BASIC
+```
+
+Kết quả in ra: plan/hạn mức hiện tại, plan/hạn mức mục tiêu, usage hiện tại (số User/Chi nhánh/Kho/
+Sản phẩm/Khách hàng đang dùng), và **cho phép hay bị chặn**. Có thể dùng `--organization-slug=<slug>`
+thay cho `--organization-id` nếu tiện hơn (chỉ truyền ĐÚNG 1 trong 2 tham số).
+
+**Bước 2 — Xác nhận thật, thêm `--confirm`:**
+
+```powershell
+docker compose -f docker-compose.yml run --rm bring-up `
+  npm run subscription:change-plan -- --organization-id=<uuid tổ chức> --plan=BASIC --confirm
+```
+
+**Ví dụ — TRIAL (kể cả đã hết hạn) chuyển sang gói trả phí:**
+
+```powershell
+npm run subscription:change-plan -- --organization-id=<uuid> --plan=PRO --confirm
+```
+
+Kết quả: plan chuyển thành PRO, trạng thái luôn về ACTIVE, ngày hết hạn được xoá (`expiredAt=null`
+— gói trả phí không tự hết hạn), hạn mức tài nguyên chuyển sang đúng mức của PRO. Toàn quyền
+PRO có hiệu lực NGAY — không cần thao tác nào khác, không có cache nào cần xoá.
+
+**Ví dụ — nâng cấp giữa các gói trả phí:**
+
+```powershell
+npm run subscription:change-plan -- --organization-id=<uuid> --plan=ENTERPRISE --confirm
+```
+
+**Hạ cấp bị từ chối khi vượt hạn mức:** nếu tổ chức đang dùng nhiều tài nguyên hơn hạn mức của gói
+mục tiêu (ví dụ đang có 8 User nhưng hạ xuống BASIC chỉ cho phép 5), lệnh sẽ báo lỗi rõ tài nguyên
+nào vượt, đang dùng bao nhiêu, hạn mức mục tiêu là bao nhiêu — **không có gì bị ghi, không có dữ
+liệu nào bị xoá/khoá**. Phải giảm usage (vô hiệu hoá bớt User, lưu trữ bớt Sản phẩm, v.v.) hoặc chọn
+gói khác trước khi thử lại.
+
+**TRIAL không được hỗ trợ làm plan đích** — không thể dùng lệnh này để đưa một tổ chức đã tồn tại
+QUAY LẠI trạng thái dùng thử (không có chính sách "dùng thử lại" nào được duyệt).
+
+**An toàn khi chạy lại nhiều lần (idempotent)**: nếu tổ chức đã ở đúng plan/hạn mức mục tiêu, lệnh
+in ra "không có thay đổi nào", không ghi thêm bản ghi audit nào.
+
+**KHÔNG** làm: tạo hoá đơn/thanh toán, tự động gia hạn, tự động huỷ, đụng tới `entitlementOverrides`
+đã cấu hình riêng cho tổ chức đó (được giữ nguyên qua mọi lần đổi plan).
+
 ## 7. Xác nhận dữ liệu bền vững (Persistence Sanity Check)
 
 Tạo thử 1 bản ghi bất kỳ (vd 1 Đơn vị tính ở màn hình Đơn vị tính), sau đó:
