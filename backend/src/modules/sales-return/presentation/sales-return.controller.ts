@@ -27,6 +27,8 @@ import { withCode } from '../../../common/errors/with-code';
 import type { JwtAccessPayload } from '../../../common/types/jwt-payload.type';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../auth/presentation/guards/jwt-auth.guard';
+import { RequireEntitlement } from '../../entitlement/presentation/entitlement.decorator';
+import { EntitlementGuard } from '../../entitlement/presentation/entitlement.guard';
 import { PermissionsGuard } from '../../rbac/presentation/permissions.guard';
 import { RequirePermissions } from '../../rbac/presentation/permissions.decorator';
 import {
@@ -62,7 +64,7 @@ const IDEMPOTENCY_KEY_MAX_LENGTH = 255;
 @ApiTags('SalesReturn')
 @ApiBearerAuth()
 @ApiCommonErrors()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, EntitlementGuard, PermissionsGuard)
 @Controller('sales-returns')
 export class SalesReturnController {
   constructor(
@@ -71,6 +73,7 @@ export class SalesReturnController {
   ) {}
 
   @Post()
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:create')
   @ApiOperation({ summary: 'Tạo phiếu trả hàng (trạng thái DRAFT)' })
   @ApiResponse({ status: 201, type: SalesReturnResponseDto })
@@ -141,6 +144,7 @@ export class SalesReturnController {
   }
 
   @Patch(':id')
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:update')
   @ApiOperation({ summary: 'Sửa phiếu trả hàng (chỉ khi DRAFT)' })
   @ApiResponse({ status: 200, type: SalesReturnResponseDto })
@@ -160,6 +164,7 @@ export class SalesReturnController {
   }
 
   @Post(':id/submit')
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:submit')
   @ApiOperation({ summary: 'Gửi phiếu trả hàng chờ duyệt (DRAFT → SUBMITTED)' })
   @ApiResponse({ status: 200, type: SalesReturnResponseDto })
@@ -178,6 +183,7 @@ export class SalesReturnController {
   }
 
   @Post(':id/approve')
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:approve')
   @ApiOperation({ summary: 'Duyệt phiếu trả hàng (SUBMITTED → APPROVED)' })
   @ApiResponse({ status: 200, type: SalesReturnResponseDto })
@@ -196,6 +202,7 @@ export class SalesReturnController {
   }
 
   @Post(':id/receive')
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:receive')
   @ApiOperation({
     summary:
@@ -217,6 +224,7 @@ export class SalesReturnController {
   }
 
   @Post(':id/complete')
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:complete')
   @ApiOperation({ summary: 'Hoàn tất phiếu trả hàng (RECEIVED → COMPLETED)' })
   @ApiResponse({ status: 200, type: SalesReturnResponseDto })
@@ -235,6 +243,7 @@ export class SalesReturnController {
   }
 
   @Post(':id/cancel')
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:cancel')
   @ApiOperation({
     summary: 'Hủy phiếu trả hàng ([DRAFT,SUBMITTED,APPROVED] → CANCELLED)',
@@ -255,6 +264,7 @@ export class SalesReturnController {
   }
 
   @Post(':id/refunds')
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:refund')
   @ApiOperation({
     summary:
@@ -289,6 +299,7 @@ export class SalesReturnController {
   }
 
   @Post('refunds/:refundId/process')
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:refund')
   @ApiOperation({ summary: 'Xử lý hoàn tiền (PENDING → PROCESSING)' })
   @ApiResponse({ status: 200, type: SalesReturnRefundResponseDto })
@@ -307,6 +318,7 @@ export class SalesReturnController {
   }
 
   @Post('refunds/:refundId/complete')
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:refund')
   @ApiOperation({ summary: 'Hoàn tất hoàn tiền (PROCESSING → COMPLETED)' })
   @ApiResponse({ status: 200, type: SalesReturnRefundResponseDto })
@@ -325,6 +337,7 @@ export class SalesReturnController {
   }
 
   @Post('refunds/:refundId/fail')
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:refund')
   @ApiOperation({
     summary: 'Đánh dấu hoàn tiền thất bại (PROCESSING → FAILED)',
@@ -346,6 +359,7 @@ export class SalesReturnController {
   }
 
   @Post('refunds/:refundId/cancel')
+  @RequireEntitlement('SALES_RETURN')
   @RequirePermissions('sales_return:refund')
   @ApiOperation({ summary: 'Hủy hoàn tiền (PENDING → CANCELLED)' })
   @ApiResponse({ status: 200, type: SalesReturnRefundResponseDto })

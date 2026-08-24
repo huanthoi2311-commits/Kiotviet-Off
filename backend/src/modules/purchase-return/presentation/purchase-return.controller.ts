@@ -24,6 +24,8 @@ import {
 } from '../../../common/swagger/api-common-errors.decorator';
 import type { JwtAccessPayload } from '../../../common/types/jwt-payload.type';
 import { JwtAuthGuard } from '../../auth/presentation/guards/jwt-auth.guard';
+import { RequireEntitlement } from '../../entitlement/presentation/entitlement.decorator';
+import { EntitlementGuard } from '../../entitlement/presentation/entitlement.guard';
 import { PermissionsGuard } from '../../rbac/presentation/permissions.guard';
 import { RequirePermissions } from '../../rbac/presentation/permissions.decorator';
 import {
@@ -47,12 +49,13 @@ import {
 @ApiTags('PurchaseReturn')
 @ApiBearerAuth()
 @ApiCommonErrors()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, EntitlementGuard, PermissionsGuard)
 @Controller('purchase-returns')
 export class PurchaseReturnController {
   constructor(private readonly purchaseReturnService: PurchaseReturnService) {}
 
   @Post()
+  @RequireEntitlement('PURCHASE')
   @RequirePermissions('purchase_return:create')
   @ApiOperation({
     summary: 'Tạo phiếu trả hàng nhà cung cấp (trạng thái DRAFT)',
@@ -91,6 +94,7 @@ export class PurchaseReturnController {
   }
 
   @Patch(':id/approve')
+  @RequireEntitlement('PURCHASE')
   @RequirePermissions('purchase_return:approve')
   @ApiOperation({ summary: 'Duyệt phiếu trả hàng (DRAFT → APPROVED)' })
   @ApiResponse({ status: 200, type: PurchaseReturnResponseDto })
@@ -104,6 +108,7 @@ export class PurchaseReturnController {
   }
 
   @Patch(':id/complete')
+  @RequireEntitlement('PURCHASE')
   @RequirePermissions('purchase_return:complete')
   @ApiOperation({
     summary:
@@ -127,6 +132,7 @@ export class PurchaseReturnController {
 
   /** Không có trong API list gốc của Prompt 028 — bổ sung để có lối thoát an toàn cho phiếu tạo nhầm, cùng mẫu đã áp dụng ở mọi module workflow trước (Transfer/StockCount/Adjustment/PurchaseOrder). */
   @Patch(':id/cancel')
+  @RequireEntitlement('PURCHASE')
   @RequirePermissions('purchase_return:cancel')
   @ApiOperation({ summary: 'Hủy phiếu trả hàng (chưa Complete)' })
   @ApiResponse({ status: 200, type: PurchaseReturnResponseDto })

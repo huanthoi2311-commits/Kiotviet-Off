@@ -1,5 +1,6 @@
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
+import { ENTITLEMENT_KEY } from '../../entitlement/presentation/entitlement.decorator';
 import { PERMISSIONS_KEY } from '../../rbac/presentation/permissions.decorator';
 import {
   ActorContext,
@@ -58,6 +59,35 @@ describe('PurchaseOrderController', () => {
       );
       expect(permissions).toEqual([expectedPermission]);
     });
+  });
+
+  describe('entitlement metadata (T053.06H — đóng lỗ hổng PURCHASE bỏ sót @RequireEntitlement)', () => {
+    it.each([
+      ['create', 'PURCHASE'],
+      ['approve', 'PURCHASE'],
+      ['receive', 'PURCHASE'],
+      ['cancel', 'PURCHASE'],
+    ])(
+      'method %s yêu cầu CommercialFeature %s (trước T053.06H THIẾU metadata này, khiến EntitlementGuard mặc định cho qua)',
+      (method, expectedFeature) => {
+        const feature = reflector.get<string>(
+          ENTITLEMENT_KEY,
+          (controller as unknown as Record<string, () => void>)[method],
+        );
+        expect(feature).toBe(expectedFeature);
+      },
+    );
+
+    it.each(['search', 'findOne'])(
+      'method %s KHÔNG yêu cầu entitlement (chỉ đọc dữ liệu, đúng phạm vi T053.06H — không mở rộng)',
+      (method) => {
+        const feature = reflector.get<string>(
+          ENTITLEMENT_KEY,
+          (controller as unknown as Record<string, () => void>)[method],
+        );
+        expect(feature).toBeUndefined();
+      },
+    );
   });
 
   it('create ủy quyền cho service kèm actor context', async () => {
