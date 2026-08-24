@@ -261,6 +261,39 @@ docker cp $(docker compose -f docker-compose.yml ps -q backend):/app/logs "C:\po
 ## 12. Nâng cấp phiên bản (Upgrade Procedure)
 
 1. **Backup xác minh được trước tiên** — chạy §8, xác nhận file `.dump` có kích thước > 0.
+
+   **Riêng khi nâng cấp lên bản có T053.06F (Trial Expiry Enforcement) trở lên** — bản này bắt
+   đầu THỰC SỰ chặn các TRIAL đã quá hạn (`expiredAt <= now`) ngay khi ứng dụng khởi động lại
+   (không có grace period tự động — Architect Decision §12: "No automatic grace policy is
+   authorized"). TRƯỚC khi deploy, chạy SQL chỉ-đọc sau (qua `psql`/pgAdmin) để biết CHÍNH XÁC tổ
+   chức nào sẽ bị chuyển sang hết hạn ngay lập tức, rồi tự quyết định (liên hệ khách hàng trước,
+   hoãn deploy, hay chấp nhận enforcement ngay):
+
+   ```sql
+   -- Đếm tổng quan
+   SELECT
+     COUNT(*) FILTER (WHERE plan = 'TRIAL') AS total_trial_rows,
+     COUNT(*) FILTER (WHERE plan = 'TRIAL' AND status = 'ACTIVE') AS active_trial_rows,
+     COUNT(*) FILTER (WHERE plan = 'TRIAL' AND status = 'ACTIVE' AND "expiredAt" <= now()) AS overdue_active_trial_rows,
+     COUNT(*) FILTER (WHERE plan = 'TRIAL' AND status = 'EXPIRED') AS already_expired_rows
+   FROM organization_subscriptions;
+
+   -- Danh sách chi tiết tổ chức sẽ bị ảnh hưởng ngay lập tức
+   SELECT o.code, o.slug, s."expiredAt"
+   FROM organization_subscriptions s
+   JOIN organizations o ON o.id = s."organizationId"
+   WHERE s.plan = 'TRIAL' AND s.status = 'ACTIVE' AND s."expiredAt" <= now()
+   ORDER BY s."expiredAt" ASC;
+   ```
+
+   2 câu SQL trên tương đương chính xác với `getTrialExpiryImpactSummary()`/
+   `findOverdueActiveTrials()` (`src/modules/platform/operational-tooling/trial-expiry-impact-inspector.ts`)
+   — hàm CHỈ ĐỌC dùng nội bộ để kiểm thử, không có endpoint public nào lộ báo cáo này ra ngoài
+   (Architect Decision §12: không public API cho tenant). Việc enforcement có chạy ngay khi
+   `overdue_active_trial_rows > 0` là hành vi ĐÃ ĐƯỢC CHẤP NHẬN theo thiết kế (§12: "Immediate
+   enforcement of already-past-due trials is ACCEPTED once the operator has reviewed the
+   impact") — bước này chỉ đảm bảo operator KHÔNG bị bất ngờ, không phải một cổng chặn deploy.
+
 2. Lấy mã nguồn/package phiên bản mới (`git pull` hoặc giải nén package mới đè lên, GIỮ NGUYÊN
    `.env`/`backend\.env` hiện có — không ghi đè 2 file này).
 3. `docker compose -f docker-compose.yml build` (build lại image với mã mới).
