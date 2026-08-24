@@ -17,7 +17,12 @@ import { PurchaseReturnController } from './presentation/purchase-return.control
  * ở bootstrap (`NestFactory.create()`), phát hiện qua CI E2E job thất bại ở bước Export OpenAPI.
  */
 @Module({
-  imports: [RbacModule, EntitlementModule, PurchaseOrderModule, InventoryModule],
+  imports: [
+    RbacModule,
+    EntitlementModule,
+    PurchaseOrderModule,
+    InventoryModule,
+  ],
   controllers: [PurchaseReturnController],
   providers: [
     PurchaseReturnService,
