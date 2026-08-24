@@ -38,12 +38,19 @@ describe('SalesReturn Refund Idempotency (e2e, integration — Postgres thật)'
 
   let orgA: OrgFixture;
   let orgB: OrgFixture;
+  let orgFree: OrgFixture;
 
   const PRODUCT_UNIT_PRICE = 10_000;
 
   async function setupOrganization(
     slug: string,
     code: string,
+    // T053.06H — mặc định BASIC (khong phai FREE mac dinh) vi cac route /sales-returns gan
+    // @RequireEntitlement('SALES_RETURN'), FREE khong co feature nay (T053.03 PLAN_ENTITLEMENTS).
+    // Tham số `plan` cho phép orgFree (bên dưới) dựng fixture FREE dùng CHUNG helper này — mọi
+    // bước bên trong helper (product/inventory-adjustment/checkout) chỉ cần PRODUCT_BASIC/
+    // INVENTORY_BASIC/POS_SALES, đều nằm trong FREE, nên vẫn chạy được tới bước checkout.
+    plan: 'BASIC' | 'FREE' = 'BASIC',
   ): Promise<OrgFixture> {
     const organization = await prisma.organization.upsert({
       where: { slug },
@@ -53,8 +60,8 @@ describe('SalesReturn Refund Idempotency (e2e, integration — Postgres thật)'
     const organizationId = organization.id;
     await prisma.organizationSubscription.upsert({
       where: { organizationId },
-      create: { organizationId },
-      update: {},
+      create: { organizationId, plan },
+      update: { plan },
     });
 
     for (const permission of PERMISSION_CATALOG) {
@@ -277,6 +284,71 @@ describe('SalesReturn Refund Idempotency (e2e, integration — Postgres thật)'
     return { salesReturnId, totalAmount };
   }
 
+  /**
+   * T053.06H — dựng 1 SalesReturn ở trạng thái RECEIVED cho org FREE để chứng minh
+   * EntitlementGuard chặn POST /sales-returns/:id/refunds TRƯỚC RefundDomainService (không tạo
+   * SalesReturnRefund/SalesReturnRefundOperation nào). Checkout đi qua API thật (POS_SALES nằm
+   * trong FREE — PLAN_ENTITLEMENTS) để có Invoice/InvoiceItem thật; SalesReturn+SalesReturnItem
+   * seed TRỰC TIẾP qua Prisma (org FREE không có SALES_RETURN, không thể tạo qua API create/
+   * submit/approve/receive — đúng ý đồ chính route này đang bảo vệ) — mục đích DUY NHẤT là có 1
+   * salesReturnId hợp lệ để gọi route refund, KHÔNG chứng minh lại luồng nghiệp vụ RECEIVED.
+   */
+  async function seedReceivedSalesReturnDirect(
+    fixture: OrgFixture,
+    quantity: number,
+  ): Promise<{ salesReturnId: string }> {
+    await request(app.getHttpServer())
+      .post('/api/v1/cart/add')
+      .set('Authorization', `Bearer ${fixture.accessToken}`)
+      .send({ productId: fixture.productId, quantity })
+      .expect(201);
+
+    const checkoutRes = await request(app.getHttpServer())
+      .post('/api/v1/checkout')
+      .set('Authorization', `Bearer ${fixture.accessToken}`)
+      .set('Idempotency-Key', `sri-e2e-free-checkout-${randomUUID()}`)
+      .send({
+        branchId: fixture.branchId,
+        warehouseId: fixture.warehouseId,
+        paymentMethod: 'CASH',
+      })
+      .expect(201);
+
+    const invoiceId = checkoutRes.body.data.invoice.id as string;
+    const invoiceItemId = checkoutRes.body.data.invoice.items[0].id as string;
+    const invoiceItem = await prisma.invoiceItem.findUniqueOrThrow({
+      where: { id: invoiceItemId },
+    });
+
+    const salesReturn = await prisma.salesReturn.create({
+      data: {
+        organizationId: fixture.organizationId,
+        branchId: fixture.branchId,
+        invoiceId,
+        code: `SRI-FREE-${randomUUID()}`,
+        status: 'RECEIVED',
+        totalAmount: invoiceItem.totalAmount,
+      },
+    });
+    await prisma.salesReturnItem.create({
+      data: {
+        salesReturnId: salesReturn.id,
+        invoiceItemId,
+        productId: fixture.productId,
+        warehouseId: fixture.warehouseId,
+        quantity: invoiceItem.quantity,
+        unitPrice: invoiceItem.unitPrice,
+        totalAmount: invoiceItem.totalAmount,
+        productCodeSnapshot: invoiceItem.productCodeSnapshot ?? 'SRI-FREE-CODE',
+        productNameSnapshot: invoiceItem.productNameSnapshot ?? 'SRI-FREE-NAME',
+        unitNameSnapshot: invoiceItem.unitNameSnapshot ?? 'SRI-FREE-UNIT',
+        reason: 'DAMAGED',
+      },
+    });
+
+    return { salesReturnId: salesReturn.id };
+  }
+
   function refundRequest(
     fixture: OrgFixture,
     salesReturnId: string,
@@ -333,6 +405,11 @@ describe('SalesReturn Refund Idempotency (e2e, integration — Postgres thật)'
     orgB = await setupOrganization(
       'sales-return-refund-idempotency-b',
       'SRI-B',
+    );
+    orgFree = await setupOrganization(
+      'sales-return-refund-idempotency-free',
+      'SRI-FREE',
+      'FREE',
     );
   }, 60_000);
 
@@ -614,5 +691,30 @@ describe('SalesReturn Refund Idempotency (e2e, integration — Postgres thật)'
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('SALES_RETURN_015');
     expect(await countRefunds(salesReturnId)).toBe(countBefore);
+  });
+
+  // T053.06H — chứng minh guard-ordering: EntitlementGuard (class-level @UseGuards, ĐỨNG TRƯỚC
+  // handler) chặn org FREE ở createRefund() TRƯỚC KHI RefundDomainService/idempotency layer
+  // (T053.06E) chạy — 0 SalesReturnRefund, 0 SalesReturnRefundOperation được ghi, dù request có
+  // Idempotency-Key hợp lệ và salesReturnId thật (RECEIVED).
+  it('Extra (T053.06H) — FREE tenant KHÔNG có SALES_RETURN → POST /sales-returns/:id/refunds bị từ chối 403 ENTITLEMENT_001, KHÔNG tạo SalesReturnRefund/SalesReturnRefundOperation nào', async () => {
+    const { salesReturnId } = await seedReceivedSalesReturnDirect(orgFree, 5);
+    const idempotencyKey = randomUUID();
+
+    const refundCountBefore = await countRefunds(salesReturnId);
+    const opBefore = await getOperation(orgFree, idempotencyKey);
+    expect(opBefore).toBeNull();
+
+    const res = await refundRequest(
+      orgFree,
+      salesReturnId,
+      10_000,
+      idempotencyKey,
+    );
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+    expect(await countRefunds(salesReturnId)).toBe(refundCountBefore);
+    expect(await getOperation(orgFree, idempotencyKey)).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { EntitlementModule } from '../entitlement/entitlement.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { PurchaseOrderModule } from '../purchase-order/purchase-order.module';
 import { RbacModule } from '../rbac/rbac.module';
@@ -9,8 +10,19 @@ import { SequencePurchaseReturnCodeGenerator } from './infrastructure/generators
 import { PrismaPurchaseReturnRepository } from './infrastructure/persistence/prisma-purchase-return.repository';
 import { PurchaseReturnController } from './presentation/purchase-return.controller';
 
+/**
+ * T053.06H — `EntitlementModule` là leaf module (chỉ phụ thuộc PrismaService đã Global, import 1
+ * chiều không tạo vòng lặp). `PurchaseReturnController` vừa gắn `EntitlementGuard` vào
+ * `@UseGuards()` — thiếu import này khiến Nest DI không resolve được `EntitlementGuard`, sập ngay
+ * ở bootstrap (`NestFactory.create()`), phát hiện qua CI E2E job thất bại ở bước Export OpenAPI.
+ */
 @Module({
-  imports: [RbacModule, PurchaseOrderModule, InventoryModule],
+  imports: [
+    RbacModule,
+    EntitlementModule,
+    PurchaseOrderModule,
+    InventoryModule,
+  ],
   controllers: [PurchaseReturnController],
   providers: [
     PurchaseReturnService,

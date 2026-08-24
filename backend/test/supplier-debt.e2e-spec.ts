@@ -80,10 +80,12 @@ describe('SupplierDebt Module (e2e, integration)', () => {
     });
     organizationId = organization.id;
     // T053.05B - to chuc test fixture nay tao truc tiep qua prisma.organization.upsert (khong qua writeOrganizationWithOwner), KHONG tu dong co OrganizationSubscription - can them thu cong de UsageLimitService.getLimit() khong fail-closed.
+    // T053.06H - plan BASIC (khong phai FREE mac dinh) vi cac route /purchase-orders, /purchase-returns
+    // gan @RequireEntitlement('PURCHASE'), FREE khong co feature nay (T053.03 PLAN_ENTITLEMENTS).
     await prisma.organizationSubscription.upsert({
       where: { organizationId },
-      create: { organizationId },
-      update: {},
+      create: { organizationId, plan: 'BASIC' },
+      update: { plan: 'BASIC' },
     });
 
     for (const permission of PERMISSION_CATALOG) {

@@ -24,6 +24,8 @@ import {
 } from '../../../common/swagger/api-common-errors.decorator';
 import type { JwtAccessPayload } from '../../../common/types/jwt-payload.type';
 import { JwtAuthGuard } from '../../auth/presentation/guards/jwt-auth.guard';
+import { RequireEntitlement } from '../../entitlement/presentation/entitlement.decorator';
+import { EntitlementGuard } from '../../entitlement/presentation/entitlement.guard';
 import { PermissionsGuard } from '../../rbac/presentation/permissions.guard';
 import { RequirePermissions } from '../../rbac/presentation/permissions.decorator';
 import {
@@ -41,12 +43,13 @@ import {
 @ApiTags('PurchaseOrder')
 @ApiBearerAuth()
 @ApiCommonErrors()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, EntitlementGuard, PermissionsGuard)
 @Controller('purchase-orders')
 export class PurchaseOrderController {
   constructor(private readonly purchaseOrderService: PurchaseOrderService) {}
 
   @Post()
+  @RequireEntitlement('PURCHASE')
   @RequirePermissions('purchase:create')
   @ApiOperation({ summary: 'Tạo đơn nhập hàng (trạng thái DRAFT)' })
   @ApiResponse({ status: 201, type: PurchaseOrderResponseDto })
@@ -83,6 +86,7 @@ export class PurchaseOrderController {
   }
 
   @Patch(':id/approve')
+  @RequireEntitlement('PURCHASE')
   @RequirePermissions('purchase:approve')
   @ApiOperation({ summary: 'Duyệt đơn nhập hàng (DRAFT → APPROVED)' })
   @ApiResponse({ status: 200, type: PurchaseOrderResponseDto })
@@ -96,6 +100,7 @@ export class PurchaseOrderController {
   }
 
   @Patch(':id/receive')
+  @RequireEntitlement('PURCHASE')
   @RequirePermissions('purchase:receive')
   @ApiOperation({
     summary:
@@ -118,6 +123,7 @@ export class PurchaseOrderController {
   }
 
   @Patch(':id/cancel')
+  @RequireEntitlement('PURCHASE')
   @RequirePermissions('purchase:cancel')
   @ApiOperation({ summary: 'Hủy đơn nhập hàng (chưa Receive)' })
   @ApiResponse({ status: 200, type: PurchaseOrderResponseDto })

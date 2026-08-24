@@ -594,6 +594,124 @@ describe('Entitlement Module (e2e, integration) — T053.03 CASE 1-10', () => {
     expect(rolePermission).not.toBeNull();
   });
 
+  // T053.06H — POST /purchase-orders, /purchase-returns, /sales-returns trước đây KHÔNG mang
+  // @RequireEntitlement (PURCHASE/SALES_RETURN) VÀ chính EntitlementGuard còn chưa có trong
+  // @UseGuards() của cả 3 controller — cùng lớp lỗi T053.06C/D, phát hiện qua Final T053.06 Broad
+  // Discovery. CASE 19-21 chứng minh đã đóng lỗ hổng cho 1 route đại diện mỗi module (create) —
+  // hành vi guard giống hệt nhau trên toàn bộ 20 route đã gắn (xem completeness matrix §6), không
+  // lặp lại từng route trong CASE này (approve/receive/cancel/... đã có unit test metadata riêng ở
+  // *.controller.spec.ts của từng module).
+  it('CASE 19: FREE tenant KHÔNG có PURCHASE → POST /purchase-orders bị từ chối 403 ENTITLEMENT_001, KHÔNG ghi PurchaseOrder nào, KHÔNG ghi audit "purchase_order.create"', async () => {
+    const { ownerToken, orgId } = await createOrgWithPlan(
+      'FREE',
+      'case19-free-purchase-order',
+    );
+    const beforePurchaseOrderCount = await prisma.purchaseOrder.count({
+      where: { organizationId: orgId },
+    });
+    const beforeAuditCount = await prisma.auditLog.count({
+      where: { organizationId: orgId, action: 'purchase_order.create' },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/purchase-orders')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        branchId: `branch-${Date.now()}`,
+        supplierId: `supplier-${Date.now()}`,
+        items: [
+          {
+            productId: `product-${Date.now()}`,
+            warehouseId: `wh-${Date.now()}`,
+            quantity: 10,
+            unitCost: 1000,
+          },
+        ],
+      })
+      .expect(403);
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+
+    expect(
+      await prisma.purchaseOrder.count({ where: { organizationId: orgId } }),
+    ).toBe(beforePurchaseOrderCount);
+    expect(
+      await prisma.auditLog.count({
+        where: { organizationId: orgId, action: 'purchase_order.create' },
+      }),
+    ).toBe(beforeAuditCount);
+  });
+
+  it('CASE 20: FREE tenant KHÔNG có PURCHASE → POST /purchase-returns bị từ chối 403 ENTITLEMENT_001, KHÔNG ghi PurchaseReturn nào, KHÔNG ghi audit "purchase_return.create"', async () => {
+    const { ownerToken, orgId } = await createOrgWithPlan(
+      'FREE',
+      'case20-free-purchase-return',
+    );
+    const beforePurchaseReturnCount = await prisma.purchaseReturn.count({
+      where: { organizationId: orgId },
+    });
+    const beforeAuditCount = await prisma.auditLog.count({
+      where: { organizationId: orgId, action: 'purchase_return.create' },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/purchase-returns')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        purchaseOrderId: `po-${Date.now()}`,
+        reason: 'DAMAGED',
+        items: [{ purchaseItemId: `item-${Date.now()}`, quantity: 5 }],
+      })
+      .expect(403);
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+
+    expect(
+      await prisma.purchaseReturn.count({ where: { organizationId: orgId } }),
+    ).toBe(beforePurchaseReturnCount);
+    expect(
+      await prisma.auditLog.count({
+        where: { organizationId: orgId, action: 'purchase_return.create' },
+      }),
+    ).toBe(beforeAuditCount);
+  });
+
+  it('CASE 21: FREE tenant KHÔNG có SALES_RETURN → POST /sales-returns bị từ chối 403 ENTITLEMENT_001, KHÔNG ghi SalesReturn nào, KHÔNG ghi audit "sales_return.create"', async () => {
+    const { ownerToken, orgId } = await createOrgWithPlan(
+      'FREE',
+      'case21-free-sales-return',
+    );
+    const beforeSalesReturnCount = await prisma.salesReturn.count({
+      where: { organizationId: orgId },
+    });
+    const beforeAuditCount = await prisma.auditLog.count({
+      where: { organizationId: orgId, action: 'sales_return.create' },
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/sales-returns')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        invoiceId: `invoice-${Date.now()}`,
+        items: [
+          {
+            invoiceItemId: `ii-${Date.now()}`,
+            quantity: 1,
+            reason: 'DAMAGED',
+          },
+        ],
+      })
+      .expect(403);
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+
+    expect(
+      await prisma.salesReturn.count({ where: { organizationId: orgId } }),
+    ).toBe(beforeSalesReturnCount);
+    expect(
+      await prisma.auditLog.count({
+        where: { organizationId: orgId, action: 'sales_return.create' },
+      }),
+    ).toBe(beforeAuditCount);
+  });
+
   // ============================================================
   // Architect Decision (Current Entitlement Context Defect) — GET /entitlements/current: hợp đồng
   // đọc HẸP, KHÔNG yêu cầu organization:view hay bất kỳ permission nào — chỉ cần đăng nhập.

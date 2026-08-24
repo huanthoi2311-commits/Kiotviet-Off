@@ -1,4 +1,5 @@
 import { Reflector } from '@nestjs/core';
+import { ENTITLEMENT_KEY } from '../../entitlement/presentation/entitlement.decorator';
 import { PERMISSIONS_KEY } from '../../rbac/presentation/permissions.decorator';
 import {
   ActorContext,
@@ -105,6 +106,43 @@ describe('SalesReturnController', () => {
       );
       expect(permissions).toEqual([expectedPermission]);
     });
+  });
+
+  describe('entitlement metadata (T053.06H — đóng lỗ hổng SALES_RETURN bỏ sót @RequireEntitlement)', () => {
+    it.each([
+      ['create', 'SALES_RETURN'],
+      ['updateDraft', 'SALES_RETURN'],
+      ['submit', 'SALES_RETURN'],
+      ['approve', 'SALES_RETURN'],
+      ['receive', 'SALES_RETURN'],
+      ['complete', 'SALES_RETURN'],
+      ['cancel', 'SALES_RETURN'],
+      ['createRefund', 'SALES_RETURN'],
+      ['processRefund', 'SALES_RETURN'],
+      ['completeRefund', 'SALES_RETURN'],
+      ['failRefund', 'SALES_RETURN'],
+      ['cancelRefund', 'SALES_RETURN'],
+    ])(
+      'method %s yêu cầu CommercialFeature %s (trước T053.06H THIẾU metadata này, khiến EntitlementGuard mặc định cho qua)',
+      (method, expectedFeature) => {
+        const feature = reflector.get<string>(
+          ENTITLEMENT_KEY,
+          (controller as unknown as Record<string, () => void>)[method],
+        );
+        expect(feature).toBe(expectedFeature);
+      },
+    );
+
+    it.each(['search', 'eligibility', 'findOne'])(
+      'method %s KHÔNG yêu cầu entitlement (chỉ đọc dữ liệu, đúng phạm vi T053.06H — không mở rộng)',
+      (method) => {
+        const feature = reflector.get<string>(
+          ENTITLEMENT_KEY,
+          (controller as unknown as Record<string, () => void>)[method],
+        );
+        expect(feature).toBeUndefined();
+      },
+    );
   });
 
   it('create ủy quyền cho service kèm actor context, map entity -> response dto', async () => {

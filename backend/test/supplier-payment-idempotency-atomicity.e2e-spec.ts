@@ -61,10 +61,12 @@ describe('SupplierPayment Idempotency Atomicity (e2e, integration — Postgres t
       update: {},
     });
     const organizationId = organization.id;
+    // T053.06H - plan BASIC (khong phai FREE mac dinh) vi POST /purchase-orders (fixture seed) gan
+    // @RequireEntitlement('PURCHASE'), FREE khong co feature nay (T053.03 PLAN_ENTITLEMENTS).
     await prisma.organizationSubscription.upsert({
       where: { organizationId },
-      create: { organizationId },
-      update: {},
+      create: { organizationId, plan: 'BASIC' },
+      update: { plan: 'BASIC' },
     });
 
     for (const permission of PERMISSION_CATALOG) {
