@@ -54,6 +54,19 @@ async function bootstrap() {
   validateEnv(process.env);
 
   const app = await NestFactory.create(AppModule, { logger: winstonLogger });
+
+  // T053.06G — kích hoạt lifecycle shutdown của Nest cho ĐÚNG 2 tín hiệu OS thật sự cần xử lý ở
+  // đây (SIGTERM: `docker stop`/`docker compose down`/`restart`; SIGINT: Ctrl+C khi chạy trực
+  // tiếp). KHÔNG dùng `enableShutdownHooks()` không tham số — mặc định đó lắng thêm cả nhóm tín
+  // hiệu crash/mục đích riêng (SIGSEGV/SIGILL/SIGABRT/SIGBUS/SIGFPE/SIGTRAP/SIGUSR2/SIGHUP/
+  // SIGQUIT) mà ứng dụng này không cần và không nên cố gắng graceful-shutdown khi đang ở trạng
+  // thái crash (T053.06G Discovery §16). Các hook cleanup đã sẵn có, ĐÚNG, idempotent
+  // (`PrismaService.onModuleDestroy` → `$disconnect()`; `RedisModule.onApplicationShutdown` →
+  // `client.quit()`; BullMQ tự đóng Worker/Queue qua `onApplicationShutdown` framework-native) —
+  // dòng dưới đây là mảnh còn thiếu DUY NHẤT để Nest thực sự lắng nghe OS signal và chạy đúng
+  // các hook đó, không tự viết lại/nhân bản logic nào trong số chúng.
+  app.enableShutdownHooks(['SIGTERM', 'SIGINT']);
+
   const config = app.get(ConfigService);
 
   app.use(
