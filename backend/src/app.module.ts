@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { BranchModule } from './modules/branch/branch.module';
@@ -14,6 +15,7 @@ import { InvoiceModule } from './modules/invoice/invoice.module';
 import { OrganizationModule } from './modules/organization/organization.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { SalesReturnModule } from './modules/sales-return/sales-return.module';
+import { SubscriptionLifecycleModule } from './modules/subscription-lifecycle/subscription-lifecycle.module';
 import { TrialSignupModule } from './modules/trial-signup/trial-signup.module';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -62,6 +64,9 @@ import { WebsocketModule } from './websocket/websocket.module';
     // Domain Event bus trong-tiến-trình (Prompt 031) — module publish qua DomainEventPublisher
     // (platform/events), subscriber lắng nghe bằng @OnEvent(...), không gọi thẳng service module khác.
     EventEmitterModule.forRoot(),
+    // T053.06F — đăng ký 1 LẦN DUY NHẤT tại đây; @Cron() ở bất kỳ provider nào (SubscriptionExpiryScheduler)
+    // được SchedulerRegistry tự động phát hiện, không cần import lại ScheduleModule ở module con.
+    ScheduleModule.forRoot(),
     PrismaModule,
     RedisModule,
     QueueModule,
@@ -71,6 +76,7 @@ import { WebsocketModule } from './websocket/websocket.module';
     RbacModule,
     AuthModule,
     OrganizationModule,
+    SubscriptionLifecycleModule,
     BranchModule,
     UserModule,
     ProductModule,
