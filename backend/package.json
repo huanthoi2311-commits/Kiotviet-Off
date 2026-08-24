@@ -32,6 +32,7 @@
     "prisma:bootstrap-first-admin": "ts-node -T prisma/bootstrap-first-admin.ts",
     "prisma:production-bring-up": "npm run prisma:migrate:deploy && npm run prisma:bootstrap-permissions && npm run prisma:bootstrap-first-admin",
     "platform-admin:promote": "ts-node -T prisma/promote-platform-admin.ts",
+    "subscription:change-plan": "ts-node -T prisma/change-subscription-plan.ts",
     "ops:inspect-db": "ts-node -T prisma/inspect-db.ts",
     "ops:inspect-jobs": "ts-node -T prisma/inspect-jobs.ts",
     "ops:backup": "ts-node -T prisma/backup.ts",
