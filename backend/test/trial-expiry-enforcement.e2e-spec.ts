@@ -133,6 +133,29 @@ describe('Trial Expiry Enforcement (e2e, integration — Postgres thật)', () =
       .send({ companyName: `NCC ${randomUUID()}` });
   }
 
+  /**
+   * T053.06H — thân request chỉ cần ĐÚNG hình dạng DTO (branchId/supplierId/items giả), vì
+   * EntitlementGuard chạy TRƯỚC ValidationPipe/service — request bị chặn 403 trước khi bất kỳ giá
+   * trị nào trong body được đọc/kiểm tra tồn tại thật.
+   */
+  function createPurchaseOrder(fixture: OrgFixture) {
+    return request(app.getHttpServer())
+      .post('/api/v1/purchase-orders')
+      .set('Authorization', `Bearer ${fixture.accessToken}`)
+      .send({
+        branchId: randomUUID(),
+        supplierId: randomUUID(),
+        items: [
+          {
+            productId: randomUUID(),
+            warehouseId: randomUUID(),
+            quantity: 1,
+            unitCost: 1000,
+          },
+        ],
+      });
+  }
+
   function createCustomer(fixture: OrgFixture) {
     return request(app.getHttpServer())
       .post('/api/v1/customers')
@@ -308,6 +331,30 @@ describe('Trial Expiry Enforcement (e2e, integration — Postgres thật)', () =
     const res = await createSupplier(org);
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('ENTITLEMENT_001');
+  });
+
+  // T053.06H — bổ sung 1 case đại diện (không phải toàn bộ ma trận) chứng minh cùng cơ chế soft-
+  // landing E8 (đã đóng cho SUPPLIER) áp dụng ĐÚNG cho PURCHASE — feature vừa được đóng lỗ hổng
+  // entitlement ở T053.06H, cũng nằm trong TRIAL_ONLY_FEATURES (plan-entitlements.ts).
+  it('E8B — TRIAL đã hết hạn (persisted EXPIRED): PURCHASE (TRIAL-only, đóng lỗ hổng T053.06H) cũng bị từ chối', async () => {
+    const org = await setupOrganization(
+      'tee-e8b',
+      'TEE-E8B',
+      'TRIAL',
+      new Date('2020-01-01T00:00:00.000Z'),
+      'EXPIRED',
+    );
+    const beforeCount = await prisma.purchaseOrder.count({
+      where: { organizationId: org.organizationId },
+    });
+    const res = await createPurchaseOrder(org);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('ENTITLEMENT_001');
+    expect(
+      await prisma.purchaseOrder.count({
+        where: { organizationId: org.organizationId },
+      }),
+    ).toBe(beforeCount);
   });
 
   it('E9 — TRIAL đã hết hạn: capability FREE/base vẫn dùng được (đọc dữ liệu)', async () => {
