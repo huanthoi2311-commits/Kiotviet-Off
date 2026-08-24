@@ -262,6 +262,10 @@ export const ErrorCode = {
   // Subscription Usage (SUBSCRIPTION_xxx) — T053.05B, tách biệt ENTITLEMENT_001 (tính năng KHÔNG
   // có trong gói) khỏi "tính năng CÓ trong gói nhưng đã dùng hết hạn mức" (quota exhausted).
   SUBSCRIPTION_USAGE_LIMIT_REACHED: 'SUBSCRIPTION_001',
+  // T053.06F — TRIAL đã hết hạn (persisted EXPIRED hoặc quá hạn hiệu lực) chặn thao tác TĂNG usage
+  // (403 Forbidden — khác 409 SUBSCRIPTION_001 "còn hạn mức nhưng đã dùng hết"; đây là "hạn mức
+  // không còn áp dụng vì gói đã hết hạn", một lý do từ chối khác hẳn).
+  SUBSCRIPTION_TRIAL_EXPIRED: 'SUBSCRIPTION_002',
 
   // Generic (dùng khi exception không tự gắn code cụ thể)
   VALIDATION_FAILED: 'VALIDATION_001',
