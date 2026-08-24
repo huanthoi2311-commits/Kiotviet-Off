@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BranchModule } from '../branch/branch.module';
+import { EntitlementModule } from '../entitlement/entitlement.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ProductModule } from '../product/product.module';
 import { RbacModule } from '../rbac/rbac.module';
@@ -17,10 +18,16 @@ import { PurchaseOrderController } from './presentation/purchase-order.controlle
  * `BranchService`/`SupplierDomainService`/`WarehouseService`/`ProductDomainService` (đọc thuần,
  * xác minh organizationId trước khi dùng branchId/supplierId/warehouseId/productId trong business
  * write) — vá lỗ hổng tenant-isolation đã xác nhận, cùng pattern T051.06A (Checkout).
+ *
+ * T053.06H — bổ sung `EntitlementModule` (leaf module, chỉ phụ thuộc PrismaService đã Global,
+ * import 1 chiều không tạo vòng lặp). `PurchaseOrderController` vừa gắn `EntitlementGuard` vào
+ * `@UseGuards()` — thiếu import này khiến Nest DI không resolve được `EntitlementGuard`, sập ngay
+ * ở bootstrap (`NestFactory.create()`), phát hiện qua CI E2E job thất bại ở bước Export OpenAPI.
  */
 @Module({
   imports: [
     RbacModule,
+    EntitlementModule,
     InventoryModule,
     BranchModule,
     SupplierModule,

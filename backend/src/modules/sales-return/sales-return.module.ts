@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { EntitlementModule } from '../entitlement/entitlement.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { InvoiceModule } from '../invoice/invoice.module';
 import { ProductModule } from '../product/product.module';
@@ -42,9 +43,18 @@ import { SalesReturnController } from './presentation/sales-return.controller';
  * T053.06E — bổ sung `SalesReturnRefundOperationService` + `SALES_RETURN_REFUND_OPERATION_REPOSITORY`
  * (Idempotency cho `createRefund()`, bảng riêng `sales_return_refund_operations`, KHÔNG tái dùng/mở
  * rộng `checkout_operations` — mirror Supplier Payment T052.05B, KHÔNG import module nào mới).
+ *
+ * T053.06H — bổ sung `EntitlementModule` (import TRỰC TIẾP, KHÔNG dựa vào việc `WarehouseModule` đã
+ * transitively kéo theo nó — provider chỉ resolve được trong phạm vi module tự khai báo/import,
+ * không "kế thừa" qua transitive graph của module khác). `SalesReturnController` vừa gắn
+ * `EntitlementGuard` vào `@UseGuards()` — thiếu import này khiến Nest DI không resolve được
+ * `EntitlementGuard`, sập ngay ở bootstrap (`NestFactory.create()`), phát hiện qua CI E2E job thất
+ * bại ở bước Export OpenAPI. `EntitlementModule` là leaf module (chỉ phụ thuộc PrismaService đã
+ * Global) — import 1 chiều, không tạo vòng lặp.
  */
 @Module({
   imports: [
+    EntitlementModule,
     InvoiceModule,
     ProductModule,
     InventoryModule,
