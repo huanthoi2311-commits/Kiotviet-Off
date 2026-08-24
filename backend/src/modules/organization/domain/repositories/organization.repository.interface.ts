@@ -149,6 +149,19 @@ export interface IOrganizationRepository {
   existsBySlug(slug: string): Promise<boolean>;
   existsByTaxCode(taxCode: string): Promise<boolean>;
   existsByEmail(email: string): Promise<boolean>;
+
+  /**
+   * T053.06F — chuyển ĐÚNG các dòng OrganizationSubscription đang `plan=TRIAL, status=ACTIVE,
+   * expiredAt<=now` sang `status=EXPIRED`. Đây là mutation boundary DUY NHẤT được thêm cho vòng
+   * đời Subscription sau khi tạo (bảng này trước đây chỉ được TẠO, chưa từng được SỬA — Architect
+   * Implementation Authorization §14: "narrowest mutation boundary necessary", KHÔNG phải
+   * `updateSubscription()`/`changePlan()` tổng quát). Idempotent tự nhiên qua mệnh đề
+   * `WHERE status='ACTIVE'` — 1 lượt chạy thứ 2 (đồng thời hoặc lặp lại) khớp 0 dòng cho bất kỳ
+   * dòng nào lượt đầu đã chuyển xong (§3/§12/§19: không có SELECT FOR UPDATE/advisory lock, không
+   * cần operation table — CAS tự nhiên qua chính `updateMany`). Trả về số dòng đã chuyển (phục vụ
+   * log/test, không phải bắt buộc nghiệp vụ).
+   */
+  expireDueTrials(now: Date): Promise<number>;
 }
 
 export const ORGANIZATION_REPOSITORY = Symbol('ORGANIZATION_REPOSITORY');

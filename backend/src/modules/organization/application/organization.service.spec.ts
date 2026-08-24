@@ -97,6 +97,7 @@ describe('OrganizationService', () => {
       existsBySlug: jest.fn(),
       existsByTaxCode: jest.fn(),
       existsByEmail: jest.fn(),
+      expireDueTrials: jest.fn(),
     };
     codeGenerator = { generate: jest.fn() };
     passwordHasher = { hash: jest.fn(), verify: jest.fn() };

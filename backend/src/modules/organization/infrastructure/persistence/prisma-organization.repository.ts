@@ -363,6 +363,21 @@ export class PrismaOrganizationRepository implements IOrganizationRepository {
     return count > 0;
   }
 
+  /** T053.06F — xem doc-comment interface. `updateMany` trên connection thường (không cần `tx`
+   * riêng) — WHERE + SET đủ để tự CAS an toàn dưới đồng thời (không có bước đọc-rồi-ghi nào cần
+   * bảo vệ bằng transaction/lock). */
+  async expireDueTrials(now: Date): Promise<number> {
+    const result = await this.prisma.organizationSubscription.updateMany({
+      where: {
+        plan: 'TRIAL',
+        status: 'ACTIVE',
+        expiredAt: { lte: now },
+      },
+      data: { status: 'EXPIRED' },
+    });
+    return result.count;
+  }
+
   private mapUniqueConstraintError(
     error: unknown,
     input: UpdateOrganizationInput,

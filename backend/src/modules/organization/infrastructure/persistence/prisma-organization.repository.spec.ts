@@ -20,7 +20,7 @@ describe('PrismaOrganizationRepository', () => {
       count: jest.Mock;
     };
     organizationSettings: { findUnique: jest.Mock };
-    organizationSubscription: { findUnique: jest.Mock };
+    organizationSubscription: { findUnique: jest.Mock; updateMany: jest.Mock };
     user: { create: jest.Mock; findUnique: jest.Mock; updateMany: jest.Mock };
     $transaction: jest.Mock;
   };
@@ -86,7 +86,10 @@ describe('PrismaOrganizationRepository', () => {
         count: jest.fn(),
       },
       organizationSettings: { findUnique: jest.fn() },
-      organizationSubscription: { findUnique: jest.fn() },
+      organizationSubscription: {
+        findUnique: jest.fn(),
+        updateMany: jest.fn(),
+      },
       user: { create: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
       $transaction: jest.fn(),
     };
@@ -683,6 +686,37 @@ describe('PrismaOrganizationRepository', () => {
     it('existsByEmail trả về true khi count > 0', async () => {
       prisma.organization.count.mockResolvedValue(1);
       await expect(repository.existsByEmail('a@b.com')).resolves.toBe(true);
+    });
+  });
+
+  describe('expireDueTrials (T053.06F)', () => {
+    it('gọi updateMany với đúng WHERE (plan=TRIAL, status=ACTIVE, expiredAt<=now) và SET status=EXPIRED', async () => {
+      const now = new Date('2026-08-24T00:00:00.000Z');
+      prisma.organizationSubscription.updateMany.mockResolvedValue({
+        count: 3,
+      });
+
+      const result = await repository.expireDueTrials(now);
+
+      expect(result).toBe(3);
+      expect(prisma.organizationSubscription.updateMany).toHaveBeenCalledWith({
+        where: {
+          plan: 'TRIAL',
+          status: 'ACTIVE',
+          expiredAt: { lte: now },
+        },
+        data: { status: 'EXPIRED' },
+      });
+    });
+
+    // U7 (repository-level phần idempotency) — lần gọi thứ 2 với cùng `now` khớp 0 dòng vì
+    // WHERE status='ACTIVE' đã tự loại các dòng lượt đầu vừa chuyển — chứng minh qua hành vi
+    // mock trả 0, không phải qua cơ chế khóa/operation table nào (không có ở method này).
+    it('lần gọi lặp lại (đã transition hết) trả về 0, không lỗi', async () => {
+      prisma.organizationSubscription.updateMany.mockResolvedValue({
+        count: 0,
+      });
+      await expect(repository.expireDueTrials(new Date())).resolves.toBe(0);
     });
   });
 });
