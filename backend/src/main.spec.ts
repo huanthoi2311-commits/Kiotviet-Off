@@ -93,6 +93,26 @@ describe('main.ts — T030.7 structural verification (startup ordering)', () => 
   });
 });
 
+describe('main.ts — T053.06G graceful shutdown wiring', () => {
+  it("gọi đúng `app.enableShutdownHooks(['SIGTERM', 'SIGINT'])` — KHÔNG dùng dạng không tham số (mặc định lắng thêm cả nhóm tín hiệu crash/mục đích riêng không cần thiết)", () => {
+    expect(readMainSource()).toMatch(
+      /app\.enableShutdownHooks\(\s*\[\s*['"]SIGTERM['"]\s*,\s*['"]SIGINT['"]\s*\]\s*\)/,
+    );
+  });
+
+  it('`app.enableShutdownHooks(` xuất hiện SAU `NestFactory.create(` và TRƯỚC `app.listen(` (bootstrap path thật, không phải TestingModule)', () => {
+    const source = readMainSource();
+    const createIndex = source.indexOf('NestFactory.create(');
+    const hooksIndex = source.indexOf('app.enableShutdownHooks(');
+    const listenIndex = source.indexOf('await app.listen(');
+    expect(createIndex).toBeGreaterThan(-1);
+    expect(hooksIndex).toBeGreaterThan(-1);
+    expect(listenIndex).toBeGreaterThan(-1);
+    expect(createIndex).toBeLessThan(hooksIndex);
+    expect(hooksIndex).toBeLessThan(listenIndex);
+  });
+});
+
 describe('VALIDATION_PIPE_OPTIONS — T030.12D (E2E/production validation parity)', () => {
   it('có đúng 3 tùy chọn whitelist/forbidNonWhitelisted/transform, đều bật', () => {
     expect(VALIDATION_PIPE_OPTIONS).toEqual({

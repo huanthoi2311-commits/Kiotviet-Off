@@ -211,9 +211,30 @@ jobs:
         run: /tmp/verify-unit.sh
 
       # §18 drill — restart backend container, verify data untouched.
-      - name: Restart backend container
+      #
+      # T053.06G — also a real timing proof that SIGTERM is now handled gracefully. Docker
+      # Compose's default `stop_grace_period` is 10s; before `app.enableShutdownHooks()` was
+      # wired (T053.06G Discovery §3/§9), Node ran as PID 1 with no signal handler, so the kernel
+      # never delivered SIGTERM at all — `restart` always consumed the FULL 10s grace period
+      # before Docker force-killed with SIGKILL. Observed baseline on this exact step, pre-fix
+      # (CI run 32341669983, 2026-08-20): ~16s total for restart+health-wait combined, dominated
+      # by that wasted grace-period wait. Measuring the `restart` command in isolation (excluding
+      # the separate health-check-wait step below, which has its own unrelated Prisma-reconnect
+      # polling overhead) isolates the actual signal-handling signal. Threshold: 8s — wide,
+      # non-flaky margin below the 10s SIGKILL point, while still clearly below the ~10-12s a
+      # regression back to silently-dropped-SIGTERM would produce.
+      - name: Restart backend container (graceful-shutdown timing proof — T053.06G)
         run: |
+          set -euo pipefail
+          START=$(date +%s)
           docker compose -f docker-compose.yml -f docker-compose.override.yml restart backend
+          END=$(date +%s)
+          DURATION=$((END - START))
+          echo "docker compose restart backend took ${DURATION}s"
+          if [ "$DURATION" -ge 8 ]; then
+            echo "FAIL: restart took ${DURATION}s (>= 8s) — SIGTERM was likely NOT handled gracefully (Docker's default grace period is 10s before SIGKILL forces the container down)"
+            exit 1
+          fi
           docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --wait --wait-timeout 120
       - name: Verify data after backend restart
         run: /tmp/verify-unit.sh
