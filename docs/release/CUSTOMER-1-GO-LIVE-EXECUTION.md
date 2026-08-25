@@ -1,0 +1,753 @@
+# Customer #1 Go-Live Execution Worksheet
+
+**Đây là một WORKSHEET THỰC THI, không phải tài liệu kiến trúc.** Vận hành viên in/copy tài liệu
+này ra bản làm việc riêng, điền trực tiếp vào các ô trống khi thực hiện triển khai thật trên máy
+Windows của Customer #1, theo ĐÚNG thứ tự các mục A→T.
+
+**KHÔNG điền mật khẩu/token/secret thật vào bản trong git này hay bất kỳ báo cáo nào gửi lại.**
+Dùng placeholder `<REDACTED_...>` khi cần tham chiếu tới thứ gì đó nhạy cảm trong báo cáo.
+
+**Nguồn tham chiếu đầy đủ** (tài liệu này chỉ tổng hợp thành thứ tự thực thi, không thay thế):
+- `docs/release/WINDOWS-DEPLOYMENT-RUNBOOK.md` — chi tiết triển khai/vận hành.
+- `docs/release/BACKUP-RESTORE-RUNBOOK.md` — chi tiết backup/restore/DR.
+- `docs/release/FIRST-CUSTOMER-CHECKLIST.md` — checklist gốc, quyết định Architect đã khoá.
+
+**Quy tắc dừng:** bất kỳ mục nào trong SECTION S (GO-LIVE ACCEPTANCE TABLE) là FAIL → GO-LIVE
+KHÔNG được duyệt. Không có ngoại lệ "sẽ sửa sau." Xem "INCIDENT / STOP RULES" cuối tài liệu cho các
+tình huống phải dừng ngay và báo cáo lại, không tự sửa production.
+
+---
+
+## SECTION A — DEPLOYMENT IDENTIFICATION
+
+Điền trước khi bắt đầu:
+
+```
+Deployment date/time:
+Operator:
+Customer deployment identifier:
+Machine identifier:
+Windows version:
+Git SHA:
+Application version/tag if applicable:
+Network mode:                          (phải là "MODE B — TRUSTED-LAN POS")
+Backup destination type:               (chỉ ghi LOẠI, vd "external drive"/"NAS" — không ghi đường dẫn/thông tin đăng nhập)
+SMTP enabled:
+Result:
+```
+
+**Git SHA phải được xác minh bằng lệnh, không ghi theo trí nhớ:**
+
+```powershell
+git rev-parse HEAD
+```
+
+SHA chuẩn bị của gói tài liệu này (KHÔNG phải SHA bắt buộc — máy triển khai thật là nguồn sự thật):
+`31f0043f3f19841978321ea0203d9ebb6c9df2ef`. **SHA ghi lại từ chính máy triển khai mới là SHA có
+thẩm quyền**, không phải giá trị này.
+
+---
+
+## SECTION B — MACHINE PREREQUISITES
+
+| Kiểm tra | Lệnh xác minh | PASS | FAIL |
+|---|---|---|---|
+| Docker Desktop đã cài và đang chạy | `docker version` (phải trả về cả Client và Server, không báo lỗi kết nối) | [ ] | [ ] |
+| Docker Compose v2 khả dụng | `docker compose version` | [ ] | [ ] |
+| Git khả dụng (nếu lấy mã nguồn qua `git pull`, không cần nếu dùng package đóng gói sẵn) | `git --version` | [ ] | [ ] |
+| Đủ dung lượng đĩa trống (repo yêu cầu tối thiểu ~10GB cho image + dữ liệu Postgres) | `Get-PSDrive C \| Select-Object Used,Free` (hoặc ổ đĩa thật sự chứa Docker data) | [ ] | [ ] |
+| Đồng hồ/múi giờ máy đúng | `Get-Date` — đối chiếu bằng mắt với giờ thực tế | [ ] | [ ] |
+| Thư mục triển khai đã tồn tại | vd `C:\pos-erp` — `Test-Path C:\pos-erp` | [ ] | [ ] |
+| Vận hành viên có quyền OS cần thiết (chạy Docker, PowerShell không hạn chế) | Thử `docker ps` không báo lỗi quyền | [ ] | [ ] |
+
+RAM tối thiểu ~4GB dành riêng cho Docker Desktop — theo `WINDOWS-DEPLOYMENT-RUNBOOK.md` §1, không
+có lệnh xác minh tự động chuẩn hoá trong repo; xác minh thủ công qua Docker Desktop → Settings →
+Resources.
+
+Bất kỳ FAIL nào ở mục này: khắc phục trước khi tiếp tục (không phải GO-LIVE FAIL — đây là điều kiện
+tiên quyết trước khi bắt đầu, không phải một hạng mục nghiệp vụ).
+
+---
+
+## SECTION C — NETWORK SAFETY GATE
+
+**MODE B — TRUSTED-LAN POS đã KHOÁ** (Architect Decision). Xác minh THẬT trên máy/mạng thật —
+không giả định.
+
+| # | Kiểm tra | PASS | FAIL | Bằng chứng |
+|---|---|---|---|---|
+| 1 | Máy nằm trên mạng private/trusted (không phải Wi-Fi công cộng/khách vãng lai chung dải mạng) | [ ] | [ ] | ____________________ |
+| 2 | Không có port-forward trên router cho cổng backend(3000)/frontend(3001) | [ ] | [ ] | ____________________ |
+| 3 | Postgres (5432) không reachable từ LAN/Internet công cộng | [ ] | [ ] | ____________________ |
+| 4 | Redis (6379) không reachable từ LAN/Internet công cộng | [ ] | [ ] | ____________________ |
+| 5 | Windows Firewall đã được rà soát | [ ] | [ ] | ____________________ |
+| 6 | Chỉ đúng cổng ứng dụng cần thiết mới reachable từ LAN tin cậy | [ ] | [ ] | ____________________ |
+| 7 | Ứng dụng KHÔNG bị chủ ý expose ra Internet công cộng | [ ] | [ ] | ____________________ |
+
+**Xác minh #3/#4 kỹ thuật** (chạy trên chính máy triển khai, sau khi stack đã lên — xem SECTION E):
+```powershell
+docker compose -f docker-compose.yml ps
+```
+Kiểm tra cột PORTS của `postgres`/`redis` — đúng cấu hình production KHÔNG hiện cổng nào map ra
+host (chỉ `backend`/`frontend` mới có cổng map ra host). Nếu `postgres`/`redis` hiện cổng map ra
+host, dừng ngay — có khả năng đã lỡ dùng `docker-compose.override.yml` (chỉ dành cho máy phát
+triển) thay vì đúng `-f docker-compose.yml` một mình.
+
+**Bất kỳ FAIL nào ở mục 1-7: DỪNG GO-LIVE ngay.** Tài liệu này KHÔNG hướng dẫn cách bypass
+firewall/security control — khắc phục đúng theo hạng mục bị FAIL rồi quay lại.
+
+---
+
+## SECTION D — PRODUCTION CONFIGURATION
+
+**KHÔNG BAO GIỜ in giá trị secret thật ra màn hình/log/báo cáo.** Các lệnh dưới đây chỉ xác minh sự
+hiện diện/tính an toàn, không echo giá trị.
+
+| Biến | Cấu hình? | Quy tắc production | Cách xác minh AN TOÀN | Kết quả kỳ vọng |
+|---|---|---|---|---|
+| `JWT_ACCESS_SECRET` | [ ] | ≠ placeholder đóng gói, ≥32 ký tự, ≠ `JWT_REFRESH_SECRET` | Khởi động `bring-up`, xem log (không echo giá trị) | Khởi động OK; nếu sai, `bring-up` thoát khác 0, thông báo rõ tên biến |
+| `JWT_REFRESH_SECRET` | [ ] | Như trên | Như trên | Như trên |
+| `SIGNUP_SECRET` | [ ] | ≠ placeholder | Như trên | Như trên |
+| `FORGOT_PASSWORD_OTP_SECRET` | [ ] | ≠ placeholder | Như trên | Như trên |
+| `FIRST_ADMIN_PASSWORD` | [ ] | ≠ placeholder, ≠ mật khẩu demo công khai (`Admin@123`), ≥8 ký tự | Như trên | Như trên |
+| `DATABASE_URL` | [ ] | Đúng cấu trúc `postgresql://...` | Như trên | Như trên |
+| `REDIS_HOST` | [ ] | — | `docker compose -f docker-compose.yml ps redis` healthy | healthy |
+| `REDIS_PASSWORD` | [ ] | Bắt buộc NẾU `REDIS_HOST` không phải host Compose nội bộ tin cậy | Như trên (log khởi động) | Như trên |
+| `CORS_ORIGIN` | [ ] | ≠ mặc định dev đơn lẻ, không rỗng, không `*` | Như trên | Như trên |
+| `SWAGGER_ENABLED` | [ ] | **Phải = `false`** | `curl.exe http://localhost:3000/api/docs` (sau khi lên) | KHÔNG trả trang Swagger |
+| SMTP (`SMTP_HOST`...) | [ ] | Tuỳ chọn — nếu bỏ trống chỉ cảnh báo | Xem log khởi động | Cảnh báo rõ nếu thiếu, KHÔNG chặn hệ thống |
+| Backup destination (`BACKUP_DIR`) | [ ] | Tuỳ chọn (mặc định `./backups`) | `npm run ops:backup`, kiểm tra file xuất hiện | File `.dump` > 0 byte |
+
+**Xác minh guard đang hoạt động** (tuỳ chọn, khuyến nghị làm 1 lần): thử để 1 biến bắt buộc ở giá
+trị placeholder, chạy `bring-up`, xác nhận thoát khác 0 với thông báo rõ ràng — đây CHÍNH LÀ hành
+vi đã được CI (`Deployment Smoke`) xác nhận từ trước.
+
+Nếu bất kỳ mục nào không thể xác minh an toàn (không có lệnh nào trong repo làm việc này mà không
+lộ secret), **hướng dẫn vận hành viên tự kiểm tra thủ công** (mở `backend\.env` bằng Notepad, đối
+chiếu bằng mắt) thay vì phát minh lệnh mới.
+
+---
+
+## SECTION E — BUILD / START
+
+Dùng ĐÚNG NGUYÊN lệnh đã có trong `WINDOWS-DEPLOYMENT-RUNBOOK.md` §4 — không sửa `docker-compose.yml`.
+
+```powershell
+docker compose -f docker-compose.yml up -d --wait
+```
+
+**Lưu ý cú pháp:** đúng `-f docker-compose.yml` MỘT MÌNH — KHÔNG kèm `docker-compose.override.yml`
+(file đó chỉ dành máy phát triển, sẽ lộ cổng Postgres/Redis nếu lỡ dùng — xem SECTION C).
+
+```
+Command:                    docker compose -f docker-compose.yml up -d --wait
+Result:                     _____________________
+Containers/services:        postgres / redis / bring-up / backend / frontend
+Start timestamp:            _____________________
+Health-ready timestamp:     _____________________ (thời điểm lệnh trên trả về — --wait tự chờ)
+```
+
+**Nếu stack không lên được:** DỪNG. Thu thập chẩn đoán theo bảng troubleshooting sẵn có
+(`WINDOWS-DEPLOYMENT-RUNBOOK.md` §14) — KHÔNG xoá database/volume như một cách "sửa nhanh" chung
+chung. Lệnh chẩn đoán an toàn:
+```powershell
+docker compose -f docker-compose.yml ps
+docker compose -f docker-compose.yml logs bring-up
+docker compose -f docker-compose.yml logs backend
+```
+
+---
+
+## SECTION F — HEALTH GATE
+
+| Kiểm tra | Lệnh | PASS | FAIL |
+|---|---|---|---|
+| Tất cả service `running (healthy)` (riêng `bring-up` là `exited (0)` — ĐÚNG) | `docker compose -f docker-compose.yml ps` | [ ] | [ ] |
+| Backend health | `curl.exe http://localhost:3000/health` — JSON chứa `"status":"ok"` | [ ] | [ ] |
+| Database dependency (trong cùng response trên) | `"dependencies":{"database":"up",...}` | [ ] | [ ] |
+| Redis dependency (trong cùng response trên) | `"dependencies":{...,"redis":"up"}` | [ ] | [ ] |
+| Frontend reachable từ chính máy triển khai | Mở trình duyệt: `http://localhost:3001` — load được trang đăng nhập | [ ] | [ ] |
+
+**Bất kỳ dependency nào (database/Redis) unhealthy: DỪNG GO-LIVE.**
+
+---
+
+## SECTION G — PLATFORM ADMIN
+
+Chỉ cần 1 lần cho toàn bộ triển khai (bỏ qua nếu tổ chức vận hành đã có Platform Admin từ trước).
+
+```powershell
+docker compose -f docker-compose.yml run --rm bring-up `
+  npm run platform-admin:promote -- --organization-slug=<PLACEHOLDER_ORG_SLUG> --email=<PLACEHOLDER_EMAIL>
+```
+
+**KHÔNG ghi email/mật khẩu thật vào git hay báo cáo — dùng placeholder như trên.**
+
+```
+Command template:           npm run platform-admin:promote -- --organization-slug=<...> --email=<...>
+Expected safe result:       "Đã cấp quyền Platform Admin..." + nhắc đăng nhập lại
+Verification step:          đăng nhập lại, gọi GET /api/v1/organizations → phải trả 200
+PASS/FAIL:                  [ ]
+```
+
+Lệnh này AN TOÀN khi chạy lại nhiều lần (idempotent) — nếu đã là Platform Admin, chỉ in "đã là
+Platform Admin từ trước", không thu hồi session/ghi audit thêm.
+
+**Nếu không thể thực hiện được mà không sửa database trực tiếp: DỪNG.**
+
+---
+
+## SECTION H — CUSTOMER ORGANIZATION
+
+Dùng ĐÚNG trình tự đã xác minh trong `FIRST-CUSTOMER-CHECKLIST.md`. Toàn bộ qua API/CLI đã hỗ trợ —
+**không SQL trực tiếp ở bất kỳ bước nào dưới đây.**
+
+**1. Tạo tổ chức:**
+```
+POST /api/v1/organizations
+Authorization: Bearer <platform admin token>
+
+{
+  "organization": { "displayName": "<PLACEHOLDER>", "slug": "<PLACEHOLDER>" },
+  "owner": { "fullName": "<PLACEHOLDER>", "email": "<PLACEHOLDER>", "password": "<PLACEHOLDER>" },
+  "subscription": { "plan": "<FREE|TRIAL|BASIC|PRO|ENTERPRISE>" }
+}
+```
+
+**2. Xác minh subscription:**
+```
+GET /api/v1/organizations/current
+Authorization: Bearer <owner token>
+```
+Kỳ vọng: 200, subscription đúng plan vừa chọn.
+
+**3. Owner đăng nhập lần đầu:**
+```
+POST /api/v1/auth/login
+{ "organizationSlug": "<PLACEHOLDER>", "email": "<PLACEHOLDER>", "password": "<PLACEHOLDER>" }
+```
+
+**4. Xác minh tenant isolation (không có visibility chéo tổ chức):** đăng nhập bằng owner token vừa
+tạo, gọi thử 1 route danh sách bất kỳ (vd `GET /api/v1/branches`) — kỳ vọng chỉ thấy dữ liệu của
+CHÍNH tổ chức này, không thấy dữ liệu tổ chức khác (nếu máy đã có tổ chức khác từ trước).
+
+```
+organizationId:              <REDACTED_ORG_ID>          (ghi vào bản ghi vận hành riêng, không vào báo cáo)
+organizationSlug:            <REDACTED_ORG_SLUG>
+Subscription verified:       [ ] PASS  [ ] FAIL
+Owner login verified:        [ ] PASS  [ ] FAIL
+Tenant isolation verified:   [ ] PASS  [ ] FAIL
+```
+
+**Nếu đăng nhập yêu cầu chỉnh sửa database: DỪNG.**
+
+---
+
+## SECTION I — BRANCH (⚠️ HARD ONBOARDING GATE)
+
+**Bất biến đã xác nhận qua audit:** `POST /organizations` KHÔNG tự động tạo Branch. Thiếu bước này,
+Warehouse không tạo được (`branchId` bắt buộc).
+
+```
+POST /api/v1/branches
+Authorization: Bearer <owner token>
+
+{ "name": "<PLACEHOLDER — Tên chi nhánh chính>" }
+```
+
+```
+[ ] Branch đã tạo
+[ ] Branch thuộc đúng organizationId ở SECTION H
+[ ] Owner truy cập được Branch này qua API/UI
+[ ] Không có visibility chéo tổ chức (không thấy Branch của tổ chức khác nếu có)
+```
+
+Nếu Branch không thể tạo/quản lý đủ cho Customer #1 qua API hiện có: phân loại rõ đây là
+**BLOCKER thật sự** (API lỗi/không hoạt động) hay **OPERATOR/API WORKAROUND ACCEPTABLE** (chỉ thiếu
+UI, API vẫn hoạt động đúng — đã xác nhận trong RC report trước đó là chấp nhận được cho quy mô
+pilot).
+
+---
+
+## SECTION J — WAREHOUSE
+
+```
+POST /api/v1/warehouses
+Authorization: Bearer <owner token>
+
+{ "branchId": "<id Branch ở SECTION I>", "code": "<PLACEHOLDER>", "name": "<PLACEHOLDER>" }
+```
+
+```
+[ ] branchId đúng (khớp SECTION I)
+[ ] organizationId đúng
+[ ] Không có liên kết chéo tổ chức
+[ ] Warehouse xuất hiện đúng trong luồng nghiệp vụ đã hỗ trợ (vd dropdown Kho khi tạo Đơn nhập hàng/POS)
+```
+
+---
+
+## SECTION I2 — MASTER DATA
+
+**BẮT BUỘC CHO GO-LIVE:** tối thiểu 1 Đơn vị tính (Unit), 1 Danh mục (Category), 1 Sản phẩm
+(Product) — để có thể thực hiện giao dịch đại diện ở SECTION J tiếp theo.
+
+**TUỲ CHỌN (theo nhu cầu thật của khách hàng, không bắt buộc cho GO-LIVE):** Brand, Supplier,
+Customer — chỉ tạo nếu khách hàng thực sự cần ngay từ ngày đầu; không cần tạo dữ liệu mẫu không
+cần thiết.
+
+Ưu tiên tạo qua UI thật (`http://localhost:3001`) hơn là gọi API trực tiếp, để đồng thời xác minh
+UI hoạt động đúng.
+
+```
+[ ] Unit tồn tại — MANDATORY
+[ ] Category tồn tại — MANDATORY
+[ ] Product tồn tại — MANDATORY
+[ ] Brand — OPTIONAL, thực hiện: [ ] có [ ] không cần
+[ ] Supplier — OPTIONAL, thực hiện: [ ] có [ ] không cần
+[ ] Customer — OPTIONAL, thực hiện: [ ] có [ ] không cần
+[ ] Tất cả dữ liệu trên chỉ hiển thị trong tenant Customer #1 (không rò rỉ tổ chức khác)
+```
+
+---
+
+## SECTION J2 — REPRESENTATIVE TRANSACTION (POS)
+
+Mục tiêu: chứng minh UI → API → DB hoạt động đúng trên chính deployment thật, dùng 1 bản ghi kiểm
+soát được (test record), tránh dữ liệu tài chính thật không cần thiết.
+
+Thực hiện qua UI thật (`/pos`) — 1 giao dịch bán 1 sản phẩm đã tạo ở SECTION I2, thanh toán tiền
+mặt.
+
+```
+Transaction identifier:      _____________________ (mã Invoice/hoá đơn sinh ra)
+Expected result:             1 Invoice được tạo, tồn kho sản phẩm giảm đúng số lượng đã bán
+Actual result:                _____________________
+PASS/FAIL:                   [ ]
+```
+
+**Không cần stress-test đồng thời ở bước này** — bằng chứng race/concurrency (duplicate-submit,
+idempotency) đã có sẵn từ CI thật (Release E2E test "Duplicate-submit: double-click Thanh toán
+không tạo 2 Invoice/Payment", đã pass trên nhánh `main`). Đây là drill CHỨC NĂNG, không phải drill
+tải/đồng thời.
+
+---
+
+## SECTION K — RBAC / USER (nếu cần thêm nhân viên ngoài Owner)
+
+```
+[ ] Owner tồn tại và đăng nhập được (đã xác minh SECTION H)
+[ ] (Nếu cần) tạo thêm 1 User qua UI/API — POST /api/v1/users
+[ ] (Nếu cần) RBAC hoạt động đúng — User có role hạn chế KHÔNG thực hiện được hành động ngoài quyền
+[ ] Hành động được cấp quyền (entitled action) hoạt động đúng cho plan hiện tại
+```
+
+Không thực hiện thiết kế lại RBAC ở bước này — chỉ xác minh cơ chế đã có hoạt động đúng.
+
+---
+
+## SECTION K2 — INVENTORY ACCEPTANCE
+
+```
+[ ] Sản phẩm đã liên kết đúng Warehouse của Customer #1
+[ ] Số lượng tồn kho thay đổi đúng sau giao dịch SECTION J2
+[ ] Có bản ghi biến động tồn kho (InventoryMovement) tương ứng
+[ ] Không xuất hiện quan hệ chéo tổ chức nào không hợp lệ
+```
+
+---
+
+## SECTION K3 — PURCHASE WORKFLOW (nếu plan có PURCHASE entitlement)
+
+Chỉ thực hiện nếu plan của Customer #1 (SECTION H) bao gồm tính năng PURCHASE (BASIC/PRO/ENTERPRISE
+hoặc TRIAL còn hiệu lực — xem `plan-entitlements.ts`, KHÔNG có ở FREE).
+
+```
+Purchase Order: Tạo → Duyệt → Nhận hàng
+[ ] Entitlement cho phép plan đã chọn (không bị 403 ENTITLEMENT_001)
+[ ] Tồn kho tăng đúng sau bước Nhận hàng
+[ ] Đúng phạm vi tổ chức
+[ ] Trạng thái chuyển đổi đúng (DRAFT → APPROVED → RECEIVED)
+```
+
+Nếu plan KHÔNG có PURCHASE: đánh dấu N/A với lý do "Plan <tên plan> không bao gồm PURCHASE theo
+PLAN_ENTITLEMENTS — đây là hành vi ĐÚNG, không phải lỗi."
+
+---
+
+## SECTION K4 — PURCHASE RETURN (nếu vận hành sẵn có)
+
+```
+[ ] Thực hiện được 1 luồng Purchase Return đại diện (nếu có Purchase Order để trả)
+[ ] Chuyển trạng thái đúng
+[ ] Tác động tồn kho đúng
+```
+
+Nếu chưa cần ngay cho Customer #1 (chưa có nhu cầu trả hàng NCC ngày đầu): đánh dấu **N/A — chưa
+cần thiết cho go-live, API đã sẵn sàng khi cần** (không phải FAIL).
+
+---
+
+## SECTION K5 — SALES RETURN / REFUND (nếu vận hành sẵn có)
+
+```
+[ ] Thực hiện được 1 luồng Sales Return đại diện
+[ ] (Nếu có refund) Idempotency-Key được dùng đúng cho POST .../refunds
+[ ] Đúng 1 refund logic được tạo (không duplicate)
+[ ] Không vượt hạn mức refund cho phép
+[ ] Entitlement cho phép (SALES_RETURN có trong plan)
+[ ] Đúng phạm vi tổ chức
+```
+
+**Không tự tạo race/concurrency thật trên dữ liệu Customer #1** — bằng chứng race đã có từ CI thật
+(`sales-return-refund-idempotency.e2e-spec.ts`, real-Postgres, đã pass trên `main`). Đây là drill
+chức năng đơn lẻ, không phải kiểm thử đồng thời.
+
+Nếu chưa cần ngay: đánh dấu **N/A — chưa cần thiết cho go-live**.
+
+---
+
+## SECTION L — TRIAL → PAID (nếu áp dụng)
+
+Chỉ thực hiện nếu Customer #1 bắt đầu ở TRIAL cần chuyển sang trả phí, HOẶC dùng 1 tổ chức
+synthetic/test riêng trên CÙNG máy nếu không muốn đụng vào tổ chức Customer #1 thật đang hoạt động.
+
+**LUÔN preview trước, không bao giờ bỏ qua:**
+
+```powershell
+# Bước 1 — Preview, KHÔNG ghi gì
+docker compose -f docker-compose.yml run --rm bring-up `
+  npm run subscription:change-plan -- --organization-id=<id tổ chức> --plan=<PLAN ĐÍCH>
+
+# Bước 2 — Xác nhận thật, CHỈ sau khi đã xem preview
+docker compose -f docker-compose.yml run --rm bring-up `
+  npm run subscription:change-plan -- --organization-id=<id tổ chức> --plan=<PLAN ĐÍCH> --confirm
+```
+
+**KHÔNG bao giờ dùng `--plan=TRIAL`** — không được hỗ trợ, không có chính sách "dùng thử lại".
+**KHÔNG dùng SQL trực tiếp.**
+
+```
+Source plan:                 _____________________
+Target plan:                 _____________________
+Preview result:              _____________________
+Confirmed result:            _____________________
+Post-change verification:    [ ] status ACTIVE  [ ] expiredAt null (nếu target là plan trả phí)  [ ] hạn mức đúng target plan  [ ] entitlement mới hoạt động ngay (thử 1 route đã gated)
+Audit record exists:         [ ] (AuditLog action "organization.subscription.plan_changed")
+```
+
+**Không ghi organizationId thật vào git/báo cáo** — chỉ dùng `<REDACTED_ORG_ID>`.
+
+Nếu không áp dụng cho lần triển khai này (Customer #1 đã đúng plan cần từ đầu): đánh dấu N/A,
+lý do "Đã tạo đúng plan mục tiêu ngay từ SECTION H, không cần đổi plan."
+
+---
+
+## SECTION L2 — DOWNGRADE SAFETY (nếu áp dụng)
+
+Chỉ thực hiện trên tổ chức synthetic/test nếu cần drill — **không hạ cấp Customer #1 thật một cách
+không cần thiết.**
+
+```powershell
+docker compose -f docker-compose.yml run --rm bring-up `
+  npm run subscription:change-plan -- --organization-id=<id tổ chức test> --plan=<PLAN THẤP HƠN>
+```
+
+```
+[ ] Preview hiển thị đúng usage hiện tại
+[ ] Downgrade vượt hạn mức bị từ chối đúng (nếu drill trường hợp này)
+[ ] Không có dữ liệu nào bị xoá khi bị từ chối
+[ ] Subscription row không đổi khi bị từ chối
+```
+
+---
+
+## SECTION M — PASSWORD RECOVERY
+
+**Đường CHÍNH (ưu tiên): SMTP đã cấu hình.**
+
+```
+[ ] Request "Quên mật khẩu" qua UI
+[ ] Email đến hộp thư đã duyệt (KHÔNG ghi lại nội dung OTP vào báo cáo)
+[ ] Verify OTP thành công
+[ ] Đặt lại mật khẩu thành công
+[ ] Đăng nhập bằng mật khẩu mới thành công
+```
+
+**Đường DỰ PHÒNG (nếu SMTP chủ ý chưa khả dụng cho pilot này):**
+```
+PATCH /api/v1/users/:id/reset-password
+Authorization: Bearer <admin/owner token có quyền user:update>
+```
+```
+[ ] Admin reset thực hiện được qua API trên
+[ ] Xác nhận không cần SQL trực tiếp
+```
+
+```
+Mode đã dùng cho Customer #1:   [ ] SMTP self-service   [ ] Admin reset fallback
+PASS/FAIL:                       [ ]
+```
+
+**Nếu KHÔNG đường nào hoạt động: GO-LIVE FAIL.**
+
+---
+
+## SECTION N — BACKUP (BẮT BUỘC)
+
+```powershell
+npm run ops:backup
+```
+
+(`BACKUP_MODE` mặc định là `docker-compose` — đúng cho máy Windows triển khai qua Docker Compose,
+không cần set biến môi trường thêm trừ khi muốn tường minh: `$env:BACKUP_MODE = "docker-compose"`.)
+
+**Bối cảnh quan trọng đã được chính `BACKUP-RESTORE-RUNBOOK.md` §12 công bố từ trước:** đường
+`BACKUP_MODE=docker-compose` (đường operator Windows thực tế dùng) có unit test cho cấu trúc lệnh,
+nhưng KHÔNG có bằng chứng end-to-end tự động trong CI (CI chỉ chạy `BACKUP_MODE=direct`, không dựng
+Docker Compose cho job đó) — runbook đã khuyến nghị "vận hành viên nên tự chạy thử một lần backup
+drill thật trên máy triển khai thật trước khi tin tưởng hoàn toàn." Bước này CHÍNH LÀ lần chạy thử
+đó — không phải hình thức, có ý nghĩa xác minh thật.
+
+```
+[ ] Lệnh backup thành công (thoát mã 0, log "✓ Backup thành công")
+[ ] File .dump tồn tại tại BACKUP_DIR (mặc định ./backups)
+[ ] Kích thước file > 0 byte
+Backup timestamp:                _____________________
+Artifact size (an toàn để ghi):  _____________________
+```
+
+**Backup thất bại: DỪNG GO-LIVE.**
+
+---
+
+## SECTION O — OFF-HOST COPY (BẮT BUỘC)
+
+**Off-host nghĩa là KHÔNG chỉ lưu trên máy triển khai/POS.**
+
+```
+1. [ ] Copy file .dump ra khỏi máy chủ (ổ đĩa rời / NAS / máy thứ 2 đã bảo vệ / cloud storage đã duyệt)
+2. [ ] Xác nhận file đã copy tồn tại ở đích, kích thước khớp file gốc
+3. [ ] Ghi lại ngày giờ thực hiện
+Destination TYPE (chỉ loại, KHÔNG ghi đường dẫn/thông tin đăng nhập):  _____________________
+```
+
+**Không có bản copy off-host: GO-LIVE FAIL.**
+
+---
+
+## SECTION P — RESTORE DRILL (BẮT BUỘC)
+
+**KHÔNG BAO GIỜ restore trực tiếp lên database production đang chạy.**
+
+```powershell
+npm run ops:restore -- <đường dẫn file .dump> pos_erp_restore_drill
+npm run ops:verify-restore -- pos_erp_restore_drill --compare-source
+```
+
+```
+Temporary DB identifier:     pos_erp_restore_drill (hoặc tên tạm khác, KHÔNG phải tên production)
+Restore result:               _____________________
+Verification result:          [ ] Kết nối OK  [ ] _prisma_migrations tồn tại  [ ] 6 bảng trọng yếu tồn tại  [ ] So sánh row-count nguồn↔đích hợp lý
+```
+
+**Dọn dẹp database tạm sau khi verify xong** (theo `BACKUP-RESTORE-RUNBOOK.md` — xoá
+`pos_erp_restore_drill` qua `psql`/pgAdmin sau khi đã xác nhận, không để tồn đọng vô thời hạn):
+```
+[ ] Cleanup đã thực hiện
+```
+
+**Restore/verify thất bại: GO-LIVE FAIL.**
+
+---
+
+## SECTION Q — GRACEFUL RESTART
+
+Theo đúng phương pháp đã có ở `WINDOWS-DEPLOYMENT-RUNBOOK.md` §7 (Persistence Sanity Check) — tạo 1
+bản ghi, restart, xác nhận còn nguyên:
+
+```powershell
+docker compose -f docker-compose.yml restart backend
+```
+
+```
+[ ] Backend dừng gracefully (không cần force-kill)
+[ ] Restart hoàn tất, health phục hồi (curl /health lại → "status":"ok")
+[ ] Dữ liệu đã tạo trước đó (SECTION I2/J2) vẫn còn nguyên sau reload
+[ ] Đăng nhập/thao tác bình thường vẫn hoạt động sau restart
+Restart duration:             _____________________
+```
+
+**Ngưỡng tham khảo (không phải ngưỡng bắt buộc cho vận hành viên — runbook không định nghĩa ngưỡng
+thao tác tay):** CI (`Deployment Smoke`) enforce cùng lệnh này phải <8 giây như một cổng chống hồi
+quy kỹ thuật (graceful shutdown, T053.06G) — nếu restart thực tế mất hàng chục giây trở lên, đó là
+tín hiệu bất thường đáng ghi chú dù không tự động = FAIL theo tiêu chí vận hành viên (tiêu chí vận
+hành viên là: health phục hồi + dữ liệu còn nguyên).
+
+**Không sửa code shutdown ở bước này** — nếu có bất thường, DỪNG và báo cáo lại thay vì tự sửa.
+
+---
+
+## SECTION R — LAN CLIENT TEST
+
+Từ MỘT máy client khác trong cùng mạng LAN tin cậy (không phải máy triển khai chính):
+
+```
+[ ] Frontend reachable (http://<IP máy triển khai>:3001)
+[ ] Đăng nhập được
+[ ] Điều hướng cơ bản hoạt động (dashboard, 1 màn hình danh sách)
+[ ] Thực hiện được 1 thao tác đọc/ghi đại diện
+[ ] XÁC NHẬN: KHÔNG test từ Internet công cộng — chỉ từ trong LAN tin cậy
+```
+
+Nếu không có máy LAN thứ 2 sẵn có để test: đánh dấu N/A với lý do rõ ràng, KHÔNG coi là FAIL tự
+động — nhưng ghi rõ đây là hạn chế cần khắc phục trước khi có nhiều thiết bị POS thật kết nối.
+
+---
+
+## SECTION S1 — SECURITY FINAL CHECK
+
+| Kiểm tra | PASS | FAIL |
+|---|---|---|
+| Không có credential mặc định/demo còn dùng (`Admin@123` hoặc placeholder khác) | [ ] | [ ] |
+| Không có secret nào bị commit vào Git (`git status`/`.gitignore` đã che `.env`/`backend\.env`/`*.dump`) | [ ] | [ ] |
+| Không có PII khách hàng nào bị commit vào Git | [ ] | [ ] |
+| Swagger theo đúng chính sách production (`SWAGGER_ENABLED=false`, xác nhận `/api/docs` không truy cập được) | [ ] | [ ] |
+| Database không expose công khai | [ ] | [ ] |
+| Redis không expose công khai | [ ] | [ ] |
+| Không có port-forward trên router | [ ] | [ ] |
+| Firewall đã rà soát | [ ] | [ ] |
+| Backup đã có bản off-host | [ ] | [ ] |
+| Restore đã được xác minh | [ ] | [ ] |
+
+**Bất kỳ FAIL nào ở đây chặn phê duyệt go-live.**
+
+---
+
+## SECTION S2 — GO-LIVE ACCEPTANCE TABLE (bảng tổng hợp cuối cùng)
+
+| Gate | PASS | FAIL | Evidence reference | Operator initials | Timestamp |
+|---|---|---|---|---|---|
+| Deployment identity (A) | [ ] | [ ] | | | |
+| Machine prerequisites (B) | [ ] | [ ] | | | |
+| Network safety (C) | [ ] | [ ] | | | |
+| Production configuration (D) | [ ] | [ ] | | | |
+| Stack start (E) | [ ] | [ ] | | | |
+| Health (F) | [ ] | [ ] | | | |
+| Platform Admin (G) | [ ] | [ ] | | | |
+| Organization (H) | [ ] | [ ] | | | |
+| Branch (I) | [ ] | [ ] | | | |
+| Warehouse (J) | [ ] | [ ] | | | |
+| Master data (I2) | [ ] | [ ] | | | |
+| Representative transaction (J2) | [ ] | [ ] | | | |
+| RBAC/User (K) | [ ] | [ ] | | | |
+| Inventory (K2) | [ ] | [ ] | | | |
+| Purchase (K3) | [ ] N/A allowed w/ reason | [ ] | | | |
+| Purchase Return (K4) | [ ] N/A allowed w/ reason | [ ] | | | |
+| Sales Return/Refund (K5) | [ ] N/A allowed w/ reason | [ ] | | | |
+| Trial/Plan procedure (L/L2) | [ ] N/A allowed w/ reason | [ ] | | | |
+| Password recovery (M) | [ ] | [ ] | | | |
+| Backup (N) | [ ] | [ ] | | | |
+| Off-host backup (O) | [ ] | [ ] | | | |
+| Restore verification (P) | [ ] | [ ] | | | |
+| Restart/Graceful shutdown (Q) | [ ] | [ ] | | | |
+| LAN client (R) | [ ] N/A allowed w/ reason | [ ] | | | |
+| Security final check (S1) | [ ] | [ ] | | | |
+| Operator responsibility (see CUSTOMER HANDOVER in FIRST-CUSTOMER-CHECKLIST.md) | [ ] | [ ] | | | |
+
+**N/A chỉ được dùng cho các mục đã đánh dấu rõ "N/A allowed w/ reason" ở trên (Purchase/Purchase
+Return/Sales Return/Trial-Plan/LAN client — vì các mục này phụ thuộc vào plan/nhu cầu thật của
+Customer #1) — TUYỆT ĐỐI KHÔNG dùng N/A để bỏ qua bất kỳ mục MANDATORY nào khác** (Deployment
+identity, Machine prerequisites, Network safety, Production configuration, Stack start, Health,
+Platform Admin, Organization, Branch, Warehouse, Master data, Representative transaction, Password
+recovery, Backup, Off-host backup, Restore verification, Restart, Security final check, Operator
+responsibility).
+
+**Bất kỳ FAIL nào trong bảng trên (ở mục MANDATORY) = GO-LIVE KHÔNG được duyệt.**
+
+---
+
+## SECTION T — FINAL VERDICT
+
+Chọn ĐÚNG 1:
+
+```
+[ ] CUSTOMER #1 GO-LIVE — APPROVED
+[ ] CUSTOMER #1 GO-LIVE — NOT APPROVED
+```
+
+Nếu NOT APPROVED, liệt kê:
+
+```
+Failed gates:                 _____________________
+Required remediation:         _____________________
+```
+
+**KHÔNG coi Customer #1 là "live" cho tới khi TOÀN BỘ mục MANDATORY ở SECTION S2 đều PASS.**
+
+---
+
+## INCIDENT / STOP RULES
+
+**DỪNG NGAY LẬP TỨC** (không tiếp tục các bước còn lại, không tự sửa production) nếu gặp bất kỳ
+điều nào dưới đây:
+
+- Phát hiện ứng dụng bị expose ra Internet công cộng ngoài ý muốn.
+- Database/Redis bị expose công khai ngoài ý muốn.
+- Health check thất bại và không phục hồi.
+- Migration/khởi động thất bại không rõ nguyên nhân theo bảng troubleshooting sẵn có.
+- Bất thường về tính toàn vẹn dữ liệu (dữ liệu sai/thiếu không giải thích được).
+- Bất thường về tenant isolation (thấy dữ liệu tổ chức khác).
+- Bất thường về authentication/bảo mật.
+- Backup thất bại.
+- Restore verification thất bại.
+- Không có bản backup off-host.
+- Exception production không mong đợi (lỗi 500 không giải thích được bằng nguyên nhân đã biết).
+- Nghi ngờ bất kỳ lỗi P0/P1 nào.
+
+**Khi gặp bất kỳ điều trên:**
+- Thu thập bằng chứng (log, mô tả chính xác).
+- KHÔNG tự sửa production.
+- KHÔNG nới lỏng/bỏ qua bất kỳ gate nào để "cho qua."
+- KHÔNG xoá dữ liệu khách hàng chỉ để một mục kiểm tra PASS.
+- Quay lại Architect review với báo cáo đầy đủ.
+
+---
+
+## OPERATOR RETURN REPORT TEMPLATE
+
+Copy phần dưới đây, điền đầy đủ, gửi lại sau khi thực thi. **Không đưa mật khẩu/OTP/token production
+thật/PII khách hàng vào báo cáo này — dùng `<REDACTED_...>`.**
+
+```markdown
+# CUSTOMER #1 REAL GO-LIVE RESULT
+
+1. Deployment Git SHA:
+2. Machine/environment summary:
+3. Network gate: PASS/FAIL —
+4. Config gate: PASS/FAIL —
+5. Stack-start result: PASS/FAIL —
+6. Health result: PASS/FAIL —
+7. Platform Admin result: PASS/FAIL —
+8. Organization result: PASS/FAIL — orgId=<REDACTED_ORG_ID> slug=<REDACTED_ORG_SLUG>
+9. Branch result: PASS/FAIL —
+10. Warehouse result: PASS/FAIL —
+11. Master-data result: PASS/FAIL —
+12. Representative transaction result: PASS/FAIL —
+13. Subscription/entitlement result: PASS/FAIL/N/A —
+14. Password-recovery result: PASS/FAIL — mode used: SMTP/admin-fallback
+15. Backup result: PASS/FAIL —
+16. Off-host-copy result: PASS/FAIL — destination type only:
+17. Restore-drill result: PASS/FAIL —
+18. Restart result: PASS/FAIL —
+19. Persistence result: PASS/FAIL —
+20. LAN-client result: PASS/FAIL/N/A —
+21. Security-final-check result: PASS/FAIL —
+22. Complete PASS/FAIL table: (attach/paste SECTION S2)
+23. Failed gates:
+24. Newly discovered defects:
+25. P0/P1:
+26. Final verdict: APPROVED / NOT APPROVED
+```
+
+No secrets. No passwords. No OTPs. No production tokens. No customer PII.
