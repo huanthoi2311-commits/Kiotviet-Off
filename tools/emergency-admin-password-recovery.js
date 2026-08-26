@@ -6,7 +6,14 @@
  * PROJECT_HANDOFF.md). The normal reset-password API requires an authenticated session, which
  * nobody can obtain anymore -- confirmed dead this engagement -- so this script performs a direct,
  * narrowly-scoped, audited database update instead, matching exactly what the app's own
- * reset-password service does (hash + persist + audit log), using the app's own hashing algorithm.
+ * reset-password service does (hash + persist + revoke sessions + audit log), using the app's own
+ * hashing algorithm, verified against the real Prisma schema and repository implementations:
+ *   - Argon2PasswordHasher.hash(): argon2.hash(plain, { type: argon2.argon2id }) -- matched exactly.
+ *   - User.updatedAt is @updatedAt (Prisma-client-side only, no DB default) -- explicitly set here.
+ *   - PrismaSessionRepository.revokeAllForUser(): UPDATE sessions SET "revokedAt" = now() WHERE
+ *     "userId" = ? AND "revokedAt" IS NULL -- replicated here, in the same transaction.
+ *   - organizations.slug is globally @unique and users has @@unique([organizationId, email]) --
+ *     the lookup below is therefore provably deterministic, not just "usually" unique.
  *
  * MUST be run directly by the real account owner, in their own terminal, on the deployment
  * machine, OUTSIDE any AI tool session -- the whole point is that the plaintext password never
@@ -14,15 +21,23 @@
  * argv.
  *
  * Safety properties:
+ *  - Displays only non-secret identifying metadata (email/username/org slug/status/platform-admin
+ *    flag) and requires an explicit typed confirmation before any mutation.
  *  - Password is entered via local masked input (never echoed, never passed as a CLI argument).
  *  - Hashed with the exact same call the application itself uses (argon2id, backend's own
- *    installed `argon2` package -- see argon2-password-hasher.ts).
+ *    installed `argon2` package). Defensively verifies the resulting hash contains no character
+ *    that could break out of the SQL string literal it's interpolated into, before ever using it.
  *  - The hash (not the plaintext) is piped to `docker compose exec` via stdin -- never appears in
  *    a command line or shell history.
- *  - Scoped to exactly ONE row, matched by both user id AND email, and only proceeds if exactly
- *    one row is found beforehand (fails safe, no partial/ambiguous writes).
- *  - Writes a real audit_logs row documenting the action, matching the shape
- *    UserService.resetPassword() itself writes.
+ *  - Scoped to exactly ONE row, matched by both organization slug AND email (both structurally
+ *    unique per the schema), and only proceeds if exactly one row is found beforehand.
+ *  - The UPDATE, its own affected-row-count check, the session revocation, and the audit insert
+ *    all happen in ONE transaction: if any part fails, everything rolls back together -- this
+ *    session deliberately couples the audit write to the mutation (stricter than the app's own
+ *    normal best-effort audit logging) because an unaudited emergency credential change is worse
+ *    than a failed recovery attempt that can simply be retried.
+ *  - Writes a real audit_logs row honestly describing this as an emergency/operator recovery, not
+ *    disguised as a normal authenticated user.reset_password action.
  *  - Verifies the new password with a real login call before declaring success -- if that check
  *    fails, the account may be left with a password nobody can currently prove works; the script
  *    reports this precisely rather than claiming success.
@@ -33,6 +48,7 @@
 
 const path = require('path');
 const http = require('http');
+const readline = require('readline');
 const { spawnSync } = require('child_process');
 
 const argon2 = require(path.join(__dirname, '..', 'backend', 'node_modules', 'argon2'));
@@ -94,6 +110,16 @@ function promptMasked(promptText) {
   });
 }
 
+function promptPlain(promptText) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(promptText, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
 function request(options, body) {
   return new Promise((resolve, reject) => {
     const req = http.request(options, (res) => {
@@ -116,7 +142,7 @@ function request(options, body) {
 function runPsql(sqlText) {
   const result = spawnSync(
     'docker',
-    ['compose', '-f', 'docker-compose.yml', 'exec', '-T', 'postgres', 'psql', '-U', 'postgres', '-d', 'pos_erp', '-t', '-A'],
+    ['compose', '-f', 'docker-compose.yml', 'exec', '-T', 'postgres', 'psql', '-U', 'postgres', '-d', 'pos_erp', '-v', 'ON_ERROR_STOP=1', '-t', '-A'],
     { input: sqlText, encoding: 'utf8', cwd: path.join(__dirname, '..') },
   );
   if (result.status !== 0) {
@@ -125,24 +151,47 @@ function runPsql(sqlText) {
   return result.stdout.trim();
 }
 
+/** SQL string literals here only ever carry: UUIDs (hex+dashes), the fixed EMAIL/ORG_SLUG
+ * constants above, or an argon2 hash -- validated safe just below. No user-typed value (the
+ * password itself) is ever interpolated into SQL. */
+function assertSqlSafeLiteral(value, label) {
+  if (value.includes("'") || value.includes('\\')) {
+    throw new Error(`Refusing to use ${label} in SQL -- contains an unexpected character.`);
+  }
+}
+
 async function main() {
   console.log(`Looking up exactly one user for organizationSlug=${ORG_SLUG}, email=${EMAIL}...`);
   const lookup = runPsql(
-    `SELECT u.id || '|' || u."organizationId" FROM users u JOIN organizations o ON o.id = u."organizationId" WHERE o.slug = '${ORG_SLUG}' AND u.email = '${EMAIL}';`,
+    `SELECT u.id || '|' || u."organizationId" || '|' || u.username || '|' || u."isPlatformAdmin" || '|' || u.status ` +
+      `FROM users u JOIN organizations o ON o.id = u."organizationId" ` +
+      `WHERE o.slug = '${ORG_SLUG}' AND u.email = '${EMAIL}';`,
   );
   const rows = lookup.split('\n').filter(Boolean);
   if (rows.length !== 1) {
     console.error(`LOOKUP: FAIL (expected exactly 1 matching user, found ${rows.length}) -- aborting, nothing changed.`);
     process.exit(1);
   }
-  const [userId, organizationId] = rows[0].split('|');
+  const [userId, organizationId, username, isPlatformAdmin, status] = rows[0].split('|');
   console.log('LOOKUP: PASS (exactly 1 user matched)');
+
+  console.log('\nTarget account (non-secret identifying metadata only):');
+  console.log(`  Organization slug : ${ORG_SLUG}`);
+  console.log(`  Email             : ${EMAIL}`);
+  console.log(`  Username          : ${username}`);
+  console.log(`  Status            : ${status}`);
+  console.log(`  Platform Admin    : ${isPlatformAdmin}`);
+  const confirmTarget = await promptPlain('\nType YES to confirm this is the correct account to recover: ');
+  if (confirmTarget.trim() !== 'YES') {
+    console.log('Not confirmed -- aborting, nothing changed.');
+    process.exit(1);
+  }
 
   let newPassword;
   let confirmPassword;
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    newPassword = await promptMasked(`New password for ${EMAIL} (min ${MIN_PASSWORD_LENGTH} chars): `);
+    newPassword = await promptMasked(`\nNew password for ${EMAIL} (min ${MIN_PASSWORD_LENGTH} chars): `);
     if (newPassword.length < MIN_PASSWORD_LENGTH) {
       console.log(`Too short -- needs at least ${MIN_PASSWORD_LENGTH} characters. Try again.`);
       continue;
@@ -159,29 +208,45 @@ async function main() {
     break;
   }
 
-  console.log("Hashing locally with the application's own argon2id algorithm...");
+  console.log("\nHashing locally with the application's own argon2id algorithm...");
   const passwordHash = await argon2.hash(newPassword, { type: argon2.argon2id });
+  assertSqlSafeLiteral(passwordHash, 'computed password hash');
 
-  console.log('Writing password hash + audit record (scoped to exactly this one user)...');
-  const auditNewValue = JSON.stringify({ action: 'emergency_password_recovery' }).replace(/'/g, "''");
+  console.log('Writing password hash + revoking sessions + audit record (one transaction)...');
+  const auditNewValue = JSON.stringify({
+    method: 'emergency_direct_db_recovery',
+    reason: 'reset-password API unreachable -- no valid authenticated session existed for this account',
+    triggeredVia: 'tools/emergency-admin-password-recovery.js',
+  }).replace(/'/g, "''");
+
   runPsql(`
     BEGIN;
-    UPDATE users
-    SET "passwordHash" = '${passwordHash}', "updatedBy" = '${userId}'
-    WHERE id = '${userId}' AND "organizationId" = '${organizationId}' AND email = '${EMAIL}';
+
+    DO $$
+    DECLARE
+      affected int;
+    BEGIN
+      UPDATE users
+      SET "passwordHash" = '${passwordHash}', "updatedBy" = '${userId}', "updatedAt" = now()
+      WHERE id = '${userId}' AND "organizationId" = '${organizationId}' AND email = '${EMAIL}';
+      GET DIAGNOSTICS affected = ROW_COUNT;
+      IF affected != 1 THEN
+        RAISE EXCEPTION 'Expected exactly 1 user row updated, got %', affected;
+      END IF;
+    END $$;
+
+    UPDATE sessions
+    SET "revokedAt" = now()
+    WHERE "userId" = '${userId}' AND "revokedAt" IS NULL;
+
     INSERT INTO audit_logs (id, "organizationId", "userId", action, "entityType", "entityId", "newValue", "createdBy", "updatedAt")
     VALUES (gen_random_uuid(), '${organizationId}', '${userId}', 'user.emergency_password_recovery', 'User', '${userId}', '${auditNewValue}'::jsonb, '${userId}', now());
+
     COMMIT;
   `);
-  console.log('DATABASE UPDATE: PASS');
-  console.log(
-    'NOTE: existing sessions were not explicitly revoked via Redis -- access tokens expire in ' +
-      '15 minutes and are already stale (no successful login has occurred since the prior ' +
-      'rotation), and no refresh token is held by anyone, so this is a negligible residual risk, ' +
-      'not skipped carelessly.',
-  );
+  console.log('DATABASE UPDATE: PASS (password changed, sessions revoked, audit recorded -- atomically)');
 
-  console.log('Verifying the new password logs in for real...');
+  console.log('\nVerifying the new password logs in for real...');
   const loginRes = await request(
     {
       hostname: 'localhost',
@@ -194,7 +259,7 @@ async function main() {
   );
 
   if (loginRes.statusCode !== 200 && loginRes.statusCode !== 201) {
-    console.error(`LOGIN VERIFICATION: FAIL (status ${loginRes.statusCode}) -- the password you chose may not be usable. Do not assume recovery succeeded.`);
+    console.error(`LOGIN VERIFICATION: FAIL (status ${loginRes.statusCode}) -- the password you chose may not be usable. The database change above already committed; do not assume recovery succeeded until this is resolved.`);
     process.exit(1);
   }
   console.log('LOGIN VERIFICATION: PASS');
