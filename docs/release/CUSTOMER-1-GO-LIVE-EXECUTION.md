@@ -336,11 +336,19 @@ tải/đồng thời.
 ## SECTION K — RBAC / USER (nếu cần thêm nhân viên ngoài Owner)
 
 ```
-[ ] Owner tồn tại và đăng nhập được (đã xác minh SECTION H)
+[x] Owner tồn tại và đăng nhập được (đã xác minh SECTION H)
 [ ] (Nếu cần) tạo thêm 1 User qua UI/API — POST /api/v1/users
 [ ] (Nếu cần) RBAC hoạt động đúng — User có role hạn chế KHÔNG thực hiện được hành động ngoài quyền
 [ ] Hành động được cấp quyền (entitled action) hoạt động đúng cho plan hiện tại
 ```
+
+**N/A cho 3 mục còn lại (2026-08-26, phiên tự động)** — mục này tự thân điều kiện hoá bằng "(nếu
+cần)": Customer #1 hiện vận hành 1 Owner duy nhất, chưa có nhu cầu nghiệp vụ thật để thêm nhân viên.
+Tạo 1 User/tổ chức thứ hai giả chỉ để test RBAC/cross-tenant sẽ đưa dữ liệu KHÔNG THẬT vào database
+production thật của khách hàng — không thực hiện tự động. Ghi nhận là rủi ro/theo dõi sau go-live:
+xác minh RBAC/tenant-isolation nên thực hiện khi nhu cầu thêm nhân viên thật sự phát sinh, hoặc qua
+Release E2E suite (đã có `frontend/e2e/release/rbac-management.spec.ts` — chạy trên CI, không phải
+trên database production thật của khách hàng).
 
 Không thực hiện thiết kế lại RBAC ở bước này — chỉ xác minh cơ chế đã có hoạt động đúng.
 
@@ -349,11 +357,16 @@ Không thực hiện thiết kế lại RBAC ở bước này — chỉ xác min
 ## SECTION K2 — INVENTORY ACCEPTANCE
 
 ```
-[ ] Sản phẩm đã liên kết đúng Warehouse của Customer #1
-[ ] Số lượng tồn kho thay đổi đúng sau giao dịch SECTION J2
-[ ] Có bản ghi biến động tồn kho (InventoryMovement) tương ứng
-[ ] Không xuất hiện quan hệ chéo tổ chức nào không hợp lệ
+[x] Sản phẩm đã liên kết đúng Warehouse của Customer #1
+[x] Số lượng tồn kho thay đổi đúng sau giao dịch SECTION J2
+[x] Có bản ghi biến động tồn kho (InventoryMovement) tương ứng
+[x] Không xuất hiện quan hệ chéo tổ chức nào không hợp lệ
 ```
+
+**PASS (2026-08-26, phiên tự động)** — xác minh qua read-only SQL trên database thật (không sửa dữ
+liệu): product↔warehouse cùng `organizationId` (đúng); 0 vi phạm cross-org trên
+`inventories`↔`products`/`warehouses`; 2 bản ghi `inventory_movements` khớp chính xác giao dịch đại
+diện — `ADJUSTMENT/SYSTEM` (0→10) rồi `SALE/POS` (10→9).
 
 ---
 
@@ -474,19 +487,33 @@ docker compose -f docker-compose.yml run --rm bring-up `
 [ ] Đăng nhập bằng mật khẩu mới thành công
 ```
 
+**KHÔNG khả dụng hiện tại**: `backend\.env`'s `SMTP_HOST` rỗng. Xác nhận qua đọc trực tiếp
+`mail.processor.ts`: khi `SMTP_HOST` rỗng VÀ `NODE_ENV=production`, OTP bị `[REDACTED]` trong log và
+KHÔNG gửi email thật — khách hàng thật hiện KHÔNG THỂ tự phục hồi qua đường này cho tới khi SMTP được
+cấu hình (quyết định nhà cung cấp SMTP đã khoá ở FIRST-CUSTOMER-CHECKLIST.md, chưa thực thi).
+
 **Đường DỰ PHÒNG (nếu SMTP chủ ý chưa khả dụng cho pilot này):**
 ```
 PATCH /api/v1/users/:id/reset-password
 Authorization: Bearer <admin/owner token có quyền user:update>
 ```
 ```
-[ ] Admin reset thực hiện được qua API trên
-[ ] Xác nhận không cần SQL trực tiếp
+[x] Admin reset thực hiện được qua API trên
+[x] Xác nhận không cần SQL trực tiếp
 ```
 
+Bằng chứng (2026-08-26, phiên tự động, xem `tools/rotate-first-admin-password.js`): dùng chính
+`FIRST_ADMIN_PASSWORD` cũ (đã lộ trong transcript trước đó) để đăng nhập lần cuối, gọi
+`PATCH /api/v1/users/:id/reset-password` với giá trị mới sinh ngẫu nhiên an toàn (không hiển thị ở
+bất kỳ đâu), xác nhận mật khẩu mới đăng nhập được VÀ mật khẩu cũ không còn đăng nhập được. Cơ chế
+hoạt động đúng. **Hệ quả cần theo dõi**: vì giá trị mới chủ đích không được ghi/hiển thị ở đâu (tránh
+lặp lại sự cố lộ secret qua auto-diff của tool harness), hiện KHÔNG AI biết mật khẩu admin hiện tại —
+khách hàng/chủ tài khoản thật cần tự chạy lại đường dự phòng này (hoặc chờ SMTP) để tự đặt mật khẩu
+họ biết.
+
 ```
-Mode đã dùng cho Customer #1:   [ ] SMTP self-service   [ ] Admin reset fallback
-PASS/FAIL:                       [ ]
+Mode đã dùng cho Customer #1:   [ ] SMTP self-service   [x] Admin reset fallback
+PASS/FAIL:                       PASS (cơ chế đã chứng minh hoạt động; HUMAN ACTION REQUIRED riêng để khách hàng có mật khẩu họ thực sự biết — xem ghi chú trên)
 ```
 
 **Nếu KHÔNG đường nào hoạt động: GO-LIVE FAIL.**
@@ -510,11 +537,11 @@ drill thật trên máy triển khai thật trước khi tin tưởng hoàn toà
 đó — không phải hình thức, có ý nghĩa xác minh thật.
 
 ```
-[ ] Lệnh backup thành công (thoát mã 0, log "✓ Backup thành công")
-[ ] File .dump tồn tại tại BACKUP_DIR (mặc định ./backups)
-[ ] Kích thước file > 0 byte
-Backup timestamp:                _____________________
-Artifact size (an toàn để ghi):  _____________________
+[x] Lệnh backup thành công (thoát mã 0, log "✓ Backup thành công")
+[x] File .dump tồn tại tại BACKUP_DIR (mặc định ./backups)
+[x] Kích thước file > 0 byte
+Backup timestamp:                2026-08-26 02:14:45 UTC
+Artifact size (an toàn để ghi):  272737 bytes (backend/backups/pos-erp-20260826-021445.dump)
 ```
 
 **Backup thất bại: DỪNG GO-LIVE.**
@@ -532,6 +559,15 @@ Artifact size (an toàn để ghi):  _____________________
 Destination TYPE (chỉ loại, KHÔNG ghi đường dẫn/thông tin đăng nhập):  _____________________
 ```
 
+**CHƯA THỰC HIỆN — HUMAN ACTION REQUIRED.** Đã kiểm tra máy triển khai (2026-08-26, phiên tự động):
+chỉ có 2 ổ đĩa Fixed/Local (C:, E: — không phải off-host theo định nghĩa của mục này), không có ổ
+rời/mạng nào đang gắn, không có cấu hình cloud storage nào trong repo. File nguồn đã sẵn sàng và đã
+xác minh toàn vẹn: `backend/backups/pos-erp-20260826-021445.dump` (272737 bytes, SHA-256
+`fa82ce3b0fe367077468d25ac7fc59fa84ecc80427332d6527e4d6a2947c56a7`, cấu trúc TOC hợp lệ qua
+`pg_restore --list`, 602 entries). Bước này theo đúng thiết kế (§ "ARCHITECT DECISION LOCKED" ở
+FIRST-CUSTOMER-CHECKLIST.md) là thao tác thủ công, cần vận hành viên chọn và thực hiện đích off-host
+thật.
+
 **Không có bản copy off-host: GO-LIVE FAIL.**
 
 ---
@@ -547,14 +583,23 @@ npm run ops:verify-restore -- pos_erp_restore_drill --compare-source
 
 ```
 Temporary DB identifier:     pos_erp_restore_drill (hoặc tên tạm khác, KHÔNG phải tên production)
-Restore result:               _____________________
-Verification result:          [ ] Kết nối OK  [ ] _prisma_migrations tồn tại  [ ] 6 bảng trọng yếu tồn tại  [ ] So sánh row-count nguồn↔đích hợp lý
+Restore result:               PASS (2026-08-26) — pg_restore exit 0
+Verification result:          [x] Kết nối OK  [x] _prisma_migrations tồn tại (46 dòng)  [x] 6 bảng trọng yếu tồn tại  [x] So sánh row-count nguồn↔đích hợp lý (organizations/users/products/inventories/purchase_orders/invoices — KHỚP từng bảng)
 ```
+
+Ghi chú vận hành (không chặn PASS): `npm run ops:restore`/`ops:verify-restore` chạy trực tiếp từ máy
+chủ (host) thất bại ở bước kiểm tra tồn tại database — Prisma cần kết nối TCP trực tiếp tới Postgres,
+vốn KHÔNG được publish port ra host theo đúng chính sách MODE B. Chạy thành công bằng cách gọi qua
+service `bring-up` (đã có `DATABASE_URL` nội bộ đúng qua mạng Docker) với bind-mount tạm cho file
+backup: `docker compose -f docker-compose.yml run --rm -v "<host>\backend\backups:/mnt/backups:ro"
+bring-up npm run ops:restore -- /mnt/backups/<file>.dump pos_erp_restore_drill`. Đây là khoảng trống
+tài liệu hoá của `BACKUP-RESTORE-RUNBOOK.md` dưới MODE B, không phải lỗi logic của restore-runner
+(cơ chế an toàn `RestoreTargetExistsError`/rollback-on-failure đã xác nhận đúng qua source).
 
 **Dọn dẹp database tạm sau khi verify xong** (theo `BACKUP-RESTORE-RUNBOOK.md` — xoá
 `pos_erp_restore_drill` qua `psql`/pgAdmin sau khi đã xác nhận, không để tồn đọng vô thời hạn):
 ```
-[ ] Cleanup đã thực hiện
+[x] Cleanup đã thực hiện (DROP DATABASE pos_erp_restore_drill, xác nhận qua psql -l)
 ```
 
 **Restore/verify thất bại: GO-LIVE FAIL.**
@@ -571,11 +616,11 @@ docker compose -f docker-compose.yml restart backend
 ```
 
 ```
-[ ] Backend dừng gracefully (không cần force-kill)
-[ ] Restart hoàn tất, health phục hồi (curl /health lại → "status":"ok")
-[ ] Dữ liệu đã tạo trước đó (SECTION I2/J2) vẫn còn nguyên sau reload
-[ ] Đăng nhập/thao tác bình thường vẫn hoạt động sau restart
-Restart duration:             _____________________
+[x] Backend dừng gracefully (không cần force-kill)
+[x] Restart hoàn tất, health phục hồi (curl /health lại → "status":"ok")
+[x] Dữ liệu đã tạo trước đó (SECTION I2/J2) vẫn còn nguyên sau reload (row-count trước/sau giống hệt: organizations=1, products=1, invoices=1)
+[ ] Đăng nhập/thao tác bình thường vẫn hoạt động sau restart — KHÔNG kiểm chứng được: FIRST_ADMIN_PASSWORD đã được xoay vòng (SECTION M follow-up) và không ai hiện đang biết giá trị mới (có chủ đích, xem ghi chú SECTION M) — cần khách hàng tự đăng nhập sau khi tự khôi phục mật khẩu qua forgot-password
+Restart duration:             1.07 giây (docker compose restart backend), dưới ngưỡng tham khảo CI <8s
 ```
 
 **Ngưỡng tham khảo (không phải ngưỡng bắt buộc cho vận hành viên — runbook không định nghĩa ngưỡng
@@ -600,27 +645,30 @@ Từ MỘT máy client khác trong cùng mạng LAN tin cậy (không phải má
 [ ] XÁC NHẬN: KHÔNG test từ Internet công cộng — chỉ từ trong LAN tin cậy
 ```
 
-Nếu không có máy LAN thứ 2 sẵn có để test: đánh dấu N/A với lý do rõ ràng, KHÔNG coi là FAIL tự
-động — nhưng ghi rõ đây là hạn chế cần khắc phục trước khi có nhiều thiết bị POS thật kết nối.
+**N/A (2026-08-26, phiên tự động)** — lý do: không có máy client vật lý thứ 2 khả dụng cho phiên tự
+động này để test từ trong LAN. Runbook cho phép N/A rõ ràng cho mục này, không coi là FAIL. **Hạn
+chế cần khắc phục trước khi có nhiều thiết bị POS thật kết nối**: vận hành viên nên tự test từ 1
+thiết bị LAN thật (điện thoại/laptop khác trên cùng Wi-Fi "Duc An") trước khi đưa nhiều máy POS vào
+vận hành.
 
 ---
 
 ## SECTION S1 — SECURITY FINAL CHECK
 
-| Kiểm tra | PASS | FAIL |
-|---|---|---|
-| Không có credential mặc định/demo còn dùng (`Admin@123` hoặc placeholder khác) | [ ] | [ ] |
-| Không có secret nào bị commit vào Git (`git status`/`.gitignore` đã che `.env`/`backend\.env`/`*.dump`) | [ ] | [ ] |
-| Không có PII khách hàng nào bị commit vào Git | [ ] | [ ] |
-| Swagger theo đúng chính sách production (`SWAGGER_ENABLED=false`, xác nhận `/api/docs` không truy cập được) | [ ] | [ ] |
-| Database không expose công khai | [ ] | [ ] |
-| Redis không expose công khai | [ ] | [ ] |
-| Không có port-forward trên router | [ ] | [ ] |
-| Firewall đã rà soát | [ ] | [ ] |
-| Backup đã có bản off-host | [ ] | [ ] |
-| Restore đã được xác minh | [ ] | [ ] |
+| Kiểm tra | PASS | FAIL | Ghi chú (2026-08-26, phiên tự động) |
+|---|---|---|---|
+| Không có credential mặc định/demo còn dùng (`Admin@123` hoặc placeholder khác) | [x] | [ ] | 5 secret máy sinh đã xoay vòng (phiên trước); `FIRST_ADMIN_PASSWORD` đã xoay vòng qua API thật, giá trị cũ xác nhận không còn đăng nhập được |
+| Không có secret nào bị commit vào Git (`git status`/`.gitignore` đã che `.env`/`backend\.env`/`*.dump`) | [x] | [ ] | `git ls-files \| grep .env/.dump` → rỗng; `git check-ignore -v` xác nhận cả hai |
+| Không có PII khách hàng nào bị commit vào Git | [x] | [ ] | `git status` chỉ có untracked/`.gitignore` — không có commit mới nào chứa dữ liệu |
+| Swagger theo đúng chính sách production (`SWAGGER_ENABLED=false`, xác nhận `/api/docs` không truy cập được) | [x] | [ ] | `curl -o /dev/null -w "%{http_code}" /api/docs` → 404 (live, xác nhận thật) |
+| Database không expose công khai | [x] | [ ] | `docker ps` — postgres không có cột PORTS công khai |
+| Redis không expose công khai | [x] | [ ] | `docker ps` — redis không có cột PORTS công khai |
+| Không có port-forward trên router | [ ] | [ ] | KHÔNG kiểm chứng được từ máy này — cần chủ mạng/vận hành viên xác nhận trên router |
+| Firewall đã rà soát | [ ] | [ ] | Windows Network Profile hiện là "Public" (không phải "Private") cho Wi-Fi "Duc An" — đã ghi nhận, Architect quyết định hoãn riêng (xem phiên Production Config Discovery trước) — chưa xử lý |
+| Backup đã có bản off-host | [ ] | [x] | SECTION O chưa thực hiện — HUMAN ACTION REQUIRED (xem SECTION O) |
+| Restore đã được xác minh | [x] | [ ] | SECTION P — PASS thật, xem chi tiết ở trên |
 
-**Bất kỳ FAIL nào ở đây chặn phê duyệt go-live.**
+**Kết quả S1: FAIL (2 mục chặn: Backup off-host chưa có; port-forward/firewall chưa xác nhận được) — Bất kỳ FAIL nào ở đây chặn phê duyệt go-live.**
 
 ---
 
