@@ -146,10 +146,18 @@ without explicit permission. The two staged files are safe, reviewed, secret-fre
 diff scan) and ready to commit as soon as identity is configured.
 
 ## Known Problems
-1. **Nobody currently knows the live `FIRST_ADMIN_PASSWORD`** — needs the real customer admin to
-   self-service via forgot-password/OTP (currently non-functional, SMTP not configured — see
-   Secret Rotation Status / Section M) or via one more admin-reset-fallback run that this time
-   records the value somewhere the real owner can retrieve it.
+1. **Nobody can currently authenticate at all — this is a full lockout, not just an unknown
+   password.** `backend\.env` still holds the OLD (now-dead) password; the live one is unknown to
+   everyone. The admin-reset-fallback API (`PATCH /users/:id/reset-password`) itself requires an
+   authenticated session, which nobody can obtain anymore — confirmed by checking
+   `first-admin-initializer.ts`: re-running the bootstrap CLI against an existing organization only
+   no-ops on `OrganizationSettings`/`OrganizationSubscription`, it never touches the User/password.
+   `platform-admin:promote` only elevates permissions on the *same* already-inaccessible account, it
+   doesn't provide a separate credential. **The only remaining legitimate paths are: (a) configure
+   SMTP so the real forgot-password/OTP flow works (the Architect's own locked primary-path
+   decision), or (b) an Architect-authorized direct database intervention** — which was deliberately
+   NOT done, since bypassing the password-reset control path without explicit authorization crosses
+   a line this session isn't willing to cross unilaterally.
 2. **`ops:restore`'s `docker-compose` mode has a real environment gap under MODE B**: confirmed by
    reading `restore-runner.ts` directly — the existence-check/`CREATE DATABASE`/`DROP DATABASE`
    safety guard always uses a direct Prisma TCP connection regardless of `mode`, while only the
