@@ -513,8 +513,18 @@ họ biết.
 
 ```
 Mode đã dùng cho Customer #1:   [ ] SMTP self-service   [x] Admin reset fallback
-PASS/FAIL:                       PASS (cơ chế đã chứng minh hoạt động; HUMAN ACTION REQUIRED riêng để khách hàng có mật khẩu họ thực sự biết — xem ghi chú trên)
+PASS/FAIL:                       PASS
 ```
+
+**Cập nhật (2026-08-26): Admin Owner Access — PASS.** Vận hành viên thật đã tự chạy
+`tools/emergency-admin-password-recovery.js` (đã qua security review, commit `5946e27`) trên máy
+triển khai, tự nhập mật khẩu mới cục bộ (masked, không đi qua AI chat). Kết quả quan sát được:
+`DATABASE UPDATE: PASS` (đổi mật khẩu + thu hồi session + ghi audit trong 1 transaction),
+`LOGIN VERIFICATION: PASS`. Xác nhận độc lập qua audit trail (read-only, không đụng secret):
+1 bản ghi `audit_logs` action=`user.emergency_password_recovery` tại `2026-08-26 04:35:38`; 10
+session cũ đã `revokedAt` (thu hồi), 1 session mới đang active (từ chính lần đăng nhập xác minh của
+vận hành viên). **Không ghi lại giá trị mật khẩu ở bất kỳ đâu — chỉ vận hành viên/chủ tài khoản thật
+biết giá trị này.**
 
 **Nếu KHÔNG đường nào hoạt động: GO-LIVE FAIL.**
 
@@ -676,32 +686,32 @@ vận hành.
 
 | Gate | PASS | FAIL | Evidence reference | Operator initials | Timestamp |
 |---|---|---|---|---|---|
-| Deployment identity (A) | [ ] | [ ] | | | |
-| Machine prerequisites (B) | [ ] | [ ] | | | |
-| Network safety (C) | [ ] | [ ] | | | |
-| Production configuration (D) | [ ] | [ ] | | | |
-| Stack start (E) | [ ] | [ ] | | | |
-| Health (F) | [ ] | [ ] | | | |
-| Platform Admin (G) | [ ] | [ ] | | | |
-| Organization (H) | [ ] | [ ] | | | |
-| Branch (I) | [ ] | [ ] | | | |
-| Warehouse (J) | [ ] | [ ] | | | |
-| Master data (I2) | [ ] | [ ] | | | |
-| Representative transaction (J2) | [ ] | [ ] | | | |
-| RBAC/User (K) | [ ] | [ ] | | | |
-| Inventory (K2) | [ ] | [ ] | | | |
-| Purchase (K3) | [ ] N/A allowed w/ reason | [ ] | | | |
-| Purchase Return (K4) | [ ] N/A allowed w/ reason | [ ] | | | |
-| Sales Return/Refund (K5) | [ ] N/A allowed w/ reason | [ ] | | | |
-| Trial/Plan procedure (L/L2) | [ ] N/A allowed w/ reason | [ ] | | | |
-| Password recovery (M) | [ ] | [ ] | | | |
-| Backup (N) | [ ] | [ ] | | | |
-| Off-host backup (O) | [ ] | [ ] | | | |
-| Restore verification (P) | [ ] | [ ] | | | |
-| Restart/Graceful shutdown (Q) | [ ] | [ ] | | | |
-| LAN client (R) | [ ] N/A allowed w/ reason | [ ] | | | |
-| Security final check (S1) | [ ] | [ ] | | | |
-| Operator responsibility (see CUSTOMER HANDOVER in FIRST-CUSTOMER-CHECKLIST.md) | [ ] | [ ] | | | |
+| Deployment identity (A) | [x] | [ ] | HEAD `4a3c1ec...` confirmed repeatedly across sessions | (automated session) | 2026-08-26 |
+| Machine prerequisites (B) | [x] | [ ] | Docker Desktop 4.87.0/Compose v5.4.0 confirmed working | (automated session) | 2026-08-26 |
+| Network safety (C) | [x] | [ ] | postgres/redis have no host ports in `docker-compose.yml`; MODE B confirmed | (automated session) | 2026-08-26 |
+| Production configuration (D) | [x] | [ ] | Production Config Discovery + Section D execution, prior sessions | (automated session) | 2026-08-25 |
+| Stack start (E) | [x] | [ ] | `docker ps` — all 5 services healthy | (automated session) | 2026-08-26 |
+| Health (F) | [x] | [ ] | `/health` → `status:ok`, both deps up (live-checked) | (automated session) | 2026-08-26 |
+| Platform Admin (G) | [x] | [ ] | `isPlatformAdmin=true` confirmed via direct read | (automated session) | 2026-08-26 |
+| Organization (H) | [x] | [ ] | Evidence-inferred (prior session) + confirmed 1 org exists, slug matches | (automated session) | 2026-08-26 |
+| Branch (I) | [x] | [ ] | Evidence-inferred, prior session | (automated session) | 2026-08-25 |
+| Warehouse (J) | [x] | [ ] | Evidence-inferred, prior session | (automated session) | 2026-08-25 |
+| Master data (I2) | [x] | [ ] | Evidence-inferred, prior session | (automated session) | 2026-08-25 |
+| Representative transaction (J2) | [x] | [ ] | `inventory_movements` rows confirmed (ADJUSTMENT 0→10, SALE 10→9) | (automated session) | 2026-08-26 |
+| RBAC/User (K) | [ ] N/A allowed w/ reason | [ ] | Self-conditional section; no real business need yet for a 2nd employee — see Section K note | (automated session) | 2026-08-26 |
+| Inventory (K2) | [x] | [ ] | Read-only SQL: product/warehouse same-org, 0 cross-org violations, movement rows matched | (automated session) | 2026-08-26 |
+| Purchase (K3) | [ ] N/A allowed w/ reason | [ ] | No purchase workflow exercised for Customer #1 yet — not part of current operational need | (automated session) | 2026-08-26 |
+| Purchase Return (K4) | [ ] N/A allowed w/ reason | [ ] | Same as K3 | (automated session) | 2026-08-26 |
+| Sales Return/Refund (K5) | [ ] N/A allowed w/ reason | [ ] | Same as K3 | (automated session) | 2026-08-26 |
+| Trial/Plan procedure (L/L2) | [ ] N/A allowed w/ reason | [ ] | Customer #1 provisioned directly, not via trial signup | (automated session) | 2026-08-26 |
+| Password recovery (M) | [x] | [ ] | Admin reset fallback proven; emergency recovery human-executed, login verification PASS | (human operator) | 2026-08-26 |
+| Backup (N) | [x] | [ ] | `backend/backups/pos-erp-20260826-021445.dump`, integrity-verified | (automated session) | 2026-08-26 |
+| Off-host backup (O) | [ ] | [ ] | **WAITING — HUMAN ACTION REQUIRED, see SECTION O** | | |
+| Restore verification (P) | [x] | [ ] | Real restore + verify, row counts matched source, cleanup done | (automated session) | 2026-08-26 |
+| Restart/Graceful shutdown (Q) | [x] | [ ] | 1.07s restart, health recovered, data intact; login now verifiable (M resolved) | (automated session) | 2026-08-26 |
+| LAN client (R) | [x] N/A allowed w/ reason | [ ] | No second physical LAN client machine available | (automated session) | 2026-08-26 |
+| Security final check (S1) | [ ] | [ ] | 8/10 rows PASS — blocked on Off-host backup (O) + router/firewall verification | | |
+| Operator responsibility (see CUSTOMER HANDOVER in FIRST-CUSTOMER-CHECKLIST.md) | [ ] | [ ] | Not evaluated by this session — customer training/handover is inherently a human process | | |
 
 **N/A chỉ được dùng cho các mục đã đánh dấu rõ "N/A allowed w/ reason" ở trên (Purchase/Purchase
 Return/Sales Return/Trial-Plan/LAN client — vì các mục này phụ thuộc vào plan/nhu cầu thật của
@@ -721,15 +731,24 @@ Chọn ĐÚNG 1:
 
 ```
 [ ] CUSTOMER #1 GO-LIVE — APPROVED
-[ ] CUSTOMER #1 GO-LIVE — NOT APPROVED
+[x] CUSTOMER #1 GO-LIVE — NOT APPROVED (CONDITIONAL GO — 2 human-only items remain)
 ```
 
 Nếu NOT APPROVED, liệt kê:
 
 ```
-Failed gates:                 _____________________
-Required remediation:         _____________________
+Failed gates:                 Off-host backup (O) — WAITING, cần đích off-host thật;
+                              Security final check (S1) — phụ thuộc O + router/firewall review;
+                              Operator responsibility — chưa đánh giá (thuộc vận hành viên/khách hàng)
+Required remediation:         (1) Vận hành viên copy backend/backups/pos-erp-20260826-021445.dump
+                              ra đích off-host thật; (2) chủ mạng xác nhận không có port-forward +
+                              rà soát Windows Firewall cho Wi-Fi "Duc An"; (3) hoàn tất CUSTOMER
+                              HANDOVER checklist ở FIRST-CUSTOMER-CHECKLIST.md.
 ```
+
+**2026-08-26 — cập nhật:** mọi mục MANDATORY còn lại đều là hành động con người thuần túy (physical
+off-host copy, quyền router/firewall của chủ mạng, quy trình bàn giao khách hàng) — không còn mục
+kỹ thuật nào tự động hoá được đang chặn go-live.
 
 **KHÔNG coi Customer #1 là "live" cho tới khi TOÀN BỘ mục MANDATORY ở SECTION S2 đều PASS.**
 

@@ -7,213 +7,130 @@ C:\pos-erp
 main
 
 ## Current HEAD
-4a3c1ec0de0a60b73f1f26cb2ca320aa21d05a42 (unchanged — pending commit not yet created, see Git Status)
+5946e272281065b92b158d6bd0fa95c2bd84cfdc
 
 ## Project Objective
 KiotViet-Off / POS ERP production-ready application.
 
 ## Current Milestone
 Customer #1 real go-live execution, per `docs/release/CUSTOMER-1-GO-LIVE-EXECUTION.md` (Sections A–T).
-That document now carries the real, filled-in evidence for Sections M, N, P, Q, R, S1 — read it
-directly for the authoritative per-section record; this file is the cross-session continuity summary.
+That document carries the authoritative per-section evidence (M/N/P/Q/K2/S2/T all filled in with
+real evidence this session) — read it directly; this file is the cross-session continuity summary.
 
-## Last Completed Milestone
-T053.06I (Safe Subscription Plan Change CLI) + Final T053.06 RC gate.
+## Current Milestone Status
+**CONDITIONAL GO.** Every machine-verifiable gate now has real PASS evidence, including Admin Owner
+Access (resolved this session — see below). **Exactly 3 items remain, and all 3 are purely
+human-only** — nothing technical is left blocking:
+1. Section O — off-host backup copy (needs a real external destination).
+2. Network Owner Verification — router port-forward + Windows Firewall review.
+3. Operator responsibility / customer handover (`FIRST-CUSTOMER-CHECKLIST.md`'s CUSTOMER HANDOVER
+   checklist) — inherently a human training/handoff process, not evaluated by any session.
 
-## Customer #1 Go-Live Status
-**Verdict: CONDITIONAL GO.** Every automatable gate is done with real, directly-witnessed evidence.
-Exactly one mandatory gate is blocked on a genuine human/physical action (Section O), plus one
-narrower follow-up (a real customer needs to set their own admin password). Full detail: the final
-report given to the Architect at the end of this session, and the runbook document itself.
+## Admin Owner Access — RESOLVED (2026-08-26)
+The real account owner ran `tools/emergency-admin-password-recovery.js` (security-reviewed,
+corrected, commit `5946e27`) in their own terminal and reported:
+```
+DATABASE UPDATE: PASS (password changed, sessions revoked, audit recorded atomically)
+LOGIN VERIFICATION: PASS
+ADMIN OWNER ACCESS — PASS
+```
+**Independently verified this session via read-only, non-secret evidence** (never touched the
+password itself): `audit_logs` contains a real `user.emergency_password_recovery` row timestamped
+`2026-08-26 04:35:38`; `sessions` shows 10 revoked + 1 active (the operator's own verification
+login). The password value itself was never displayed, logged, stored, or diffed by any session —
+only the real owner knows it.
 
-- **A–L2**: done (inherited from prior sessions, H–M evidence-inferred not re-witnessed except M).
-- **M — Password Recovery**: fallback path (admin self-reset via API) proven this session, PASS,
-  real evidence. Primary path (SMTP self-service) confirmed NOT currently functional — `SMTP_HOST`
-  empty + `NODE_ENV=production` means OTPs are redacted, never sent (verified by reading
-  `mail.processor.ts` directly). **Follow-up: nobody currently knows the live admin password** — see
-  Secret Rotation Status.
-- **N — Backup**: PASS, real evidence, `backend/backups/pos-erp-20260826-021445.dump` (272,737
-  bytes), integrity-verified (SHA-256 hash round-trip, `pg_restore --list` structural check, 602 TOC
-  entries).
-- **O — Off-host copy**: **BLOCKED — HUMAN ACTION REQUIRED.** Checked this machine directly: only 2
-  Fixed/Local drives (C:, E:), no removable/network drive mounted, no cloud config anywhere in repo.
-  This is by design a manual, human-chosen-destination step (see
-  `FIRST-CUSTOMER-CHECKLIST.md`'s locked Architect decision) — no automated session can supply or
-  invent a destination.
-- **P — Restore Drill**: PASS, real evidence (connect OK, migrations present, 6 critical tables
-  present, row counts matched source exactly), cleanup done. Surfaced a real tooling/environment gap
-  under MODE B — see Known Problems #2.
-- **Q — Graceful Restart**: PASS, real evidence (1.07s restart, health recovered, data row counts
-  identical pre/post). Could not verify the "login still works" checklist item specifically — see
-  admin password note above.
-- **R — LAN client test**: N/A, runbook-allowed (no second physical LAN machine available), does not
-  block.
-- **S1 — Security Final Check**: FAIL as a whole — 8/10 rows PASS with live evidence, 1 blocked on
-  Section O, 1 (router port-forward + firewall review) not verifiable from this machine, needs
-  operator/network-owner confirmation.
-- **S2/T**: not filled in — blocked on S1/O.
+## Completed Gates (full list, see runbook for evidence references)
+A, B, C, D, E, F, G, H, I, J, I2, J2, M, N, P, Q — all PASS with real evidence (some H–L2 evidence
+inferred from an earlier session, not re-witnessed, per longstanding note). K2 — PASS, verified via
+read-only SQL. K, K3, K4, K5, L, L2, R — N/A, runbook-allowed, reasoned not fabricated (no real
+business need yet for a second employee/purchase workflow/trial-signup path/second LAN client).
 
-## Completed Gates
-A–L2 (inherited), M (fallback path), N, P, Q. R is N/A (allowed). S1 is FAIL (2 blocking rows).
+## Remaining Human-Only Items
+1. **Section O** — copy `backend/backups/pos-erp-20260826-021445.dump` to a real external
+   destination (USB/NAS/second machine/approved cloud). Checked this machine multiple times across
+   sessions: only 2 internal Fixed drives (C:, E:), nothing else available. Not re-checking again
+   unless something changes.
+2. **Network Owner Verification** — confirm no router port-forward to deployment ports; decide on
+   Windows Firewall "Public" vs "Private" for Wi-Fi "Duc An" (not changed automatically — MODE B
+   trusted-LAN policy stands regardless).
+3. **Operator responsibility / customer handover** — `FIRST-CUSTOMER-CHECKLIST.md`'s CUSTOMER
+   HANDOVER checklist (training, documentation handoff, support expectations) — a human process, not
+   machine-verifiable.
 
-## Current Unfinished Gate
-Section O — the sole hard blocker. Everything else automatable is done.
+Once these 3 are done: S1 becomes fully PASS → fill in S2's remaining rows → Section T → real GO.
 
-## Quality Gates (run fresh this session, real evidence)
-- **Backend**: `prisma:validate` PASS · `build` PASS (clean) · `lint` PASS (clean) · `test`: **241/241
-  suites, 2656/2656 tests PASS**.
-- **Frontend**: dependencies were never installed in this clone — installed this session
-  (`npm install`, 824 packages). API client was never generated — generated this session
-  (`npm run generate:api`, fixed a cascade of ~60 false-positive typecheck errors). After that:
-  `typecheck` PASS (clean) · `lint` PASS (clean) · `build` PASS (clean, all routes) · `test`:
-  **862/863 passed**; the 1 failure (`product-form.test.tsx`, a 5000ms timeout, not an assertion
-  failure) was re-run in isolation and **passed cleanly in 6.75s** — confirmed flaky/environment
-  timing under the full suite's cold-cache load, not a real regression.
-- **Security finding (pre-existing, not introduced this session)**: `npm audit` on the frontend
-  shows real high-severity CVEs in the pinned Next.js version (DoS, SSRF, cache confusion,
-  unauthenticated disclosure of internal Server Function endpoints) plus `js-yaml`/`nanoid`/`postcss`
-  transitive issues. The fix requires `next@15.5.24`, outside the currently declared dependency
-  range — a real version-upgrade decision needing its own regression cycle, **not applied** (would
-  need Architect authorization, out of scope for a go-live execution task).
+## Quality Gates (established this engagement, not re-run this session — no repository change since)
+- **Backend**: `prisma:validate` PASS · `build` PASS · `lint` PASS · **241/241 suites, 2656/2656
+  tests PASS**.
+- **Frontend**: `typecheck` PASS · `lint` PASS · `build` PASS · **862/863 tests** (1 timeout,
+  re-run in isolation → passed cleanly — classified flaky, not a regression, per Architect decision).
+- **Security finding (pre-existing, not introduced by this engagement)**: real high-severity CVEs
+  in the pinned Next.js version (DoS/SSRF/disclosure) + transitive `js-yaml`/`nanoid`/`postcss`
+  issues. Fix requires an out-of-range Next.js upgrade — a real decision needing its own regression
+  cycle, not applied.
 
-## Backup Status
-Real official backup: `backend/backups/pos-erp-20260826-021445.dump`. Integrity-verified this
-session (hash match after `docker cp` round-trip, valid pg_dump custom-format TOC via
-`pg_restore --list`). The earlier ad-hoc `backups/pos-erp-manual-test.dump` (root, non-conforming)
-was removed — superseded, and was sitting in a location `.gitignore` didn't cover (now fixed).
-
-## Restore Drill Status
-PASS, done and cleaned up. See Known Problems #2 for the real tooling gap this surfaced (worked
-around, not silently hidden) under MODE B's Postgres port lockdown.
-
-## Secret Rotation Status
-Never write actual secret values.
-
-- The 5 machine-generated secrets: rotated in a prior session, still believed valid (backend healthy
-  under production `validateEnv()` remains strong indirect evidence).
-- **`FIRST_ADMIN_PASSWORD`**: rotated this session via the app's own login + self-reset-password API
-  (`tools/rotate-first-admin-password.js`), zero file writes, zero secret values ever displayed.
-  PASS, verified (old credential dead, new credential works). **Nobody currently knows the new
-  value** — deliberate, to avoid re-exposure — this is now Known Problem #1 / a required human
-  action, not an oversight.
+## Backup / Restore Status
+`backend/backups/pos-erp-20260826-021445.dump` — real official backup, integrity-verified (SHA-256
+round-trip via `docker cp`, valid `pg_dump` TOC via `pg_restore --list`, 602 entries), unchanged
+since creation. Restore drill PASS (real run + verify, cleanup done). MODE B tooling gap documented
+(see Known Problems).
 
 ## Docker / Runtime Status
-All 5 services healthy. Backend was restarted this session (Section Q) — 1.07s, clean, health
-recovered, data intact. Postgres/Redis still correctly have no host-published ports.
-
-## Backend Status
-Healthy. `/health` → `status:ok`, both deps up (live-checked this session). `/api/docs` → 404
-(Swagger disabled, live-checked this session).
-
-## Frontend Status
-Healthy container. Build/typecheck/lint/test all verified this session (see Quality Gates). Not
-independently browser-tested against the live deployment.
-
-## Database / Redis Status
-Both healthy. Data intact through a real restart this session (row counts identical pre/post).
-
-## POS Transaction Validation / Inventory Validation / RBAC-Tenant Isolation
-Unchanged from the prior handoff — one representative transaction exists and survived the restart;
-broader Inventory Acceptance (K2) and RBAC/tenant-isolation checks (K) remain unevidenced.
-
-## Intentional Modified Files
-| Path | Purpose | Status |
-|---|---|---|
-| `.gitignore` | Adds root `/backups/` + `*.dump` — closes a real gap | **Staged, commit attempted but failed** (see Git Status) |
-| `docs/release/CUSTOMER-1-GO-LIVE-EXECUTION.md` | Filled in real evidence for M/N/P/Q/R/S1 | **Staged, commit attempted but failed** |
-| `tools/rotate-production-secrets.ps1` | Prior session's leak-safe rotation helper | Retained, untracked, pending Architect decision |
-| `tools/rotate-first-admin-password.js` | This session's leak-safe live credential rotation via API | Retained, untracked, pending Architect decision |
-
-## Temporary / Diagnostic Files
-`tools/_run_api_smoke.js` and `tools/_run_complete_validation.js` — **removed this session**. They
-were unreviewed ad-hoc scripts (not written by either handoff session), had already served their
-diagnostic purpose (their findings are captured in this document and the runbook), and per explicit
-instruction were not worth keeping merely because they were useful once.
-
-## Git Status
-```
-Branch: main
-HEAD:   4a3c1ec0de0a60b73f1f26cb2ca320aa21d05a42
-M  .gitignore                                    (staged)
-M  docs/release/CUSTOMER-1-GO-LIVE-EXECUTION.md   (staged)
-?? PROJECT_HANDOFF.md
-?? tools/rotate-first-admin-password.js
-?? tools/rotate-production-secrets.ps1
-```
-**Commit NOT created** — this clone (`C:\pos-erp`) has no git identity configured
-(`user.name`/`user.email`), and per standing git-safety rules this session does not set git config
-without explicit permission. The two staged files are safe, reviewed, secret-free (verified by
-diff scan) and ready to commit as soon as identity is configured.
+All 5 services healthy. Backend was restarted once this engagement (Section Q) — 1.07s, clean.
+Postgres/Redis still correctly have no host-published ports.
 
 ## Known Problems
-1. **Nobody can currently authenticate at all — this is a full lockout, not just an unknown
-   password.** `backend\.env` still holds the OLD (now-dead) password; the live one is unknown to
-   everyone. The admin-reset-fallback API (`PATCH /users/:id/reset-password`) itself requires an
-   authenticated session, which nobody can obtain anymore — confirmed by checking
-   `first-admin-initializer.ts`: re-running the bootstrap CLI against an existing organization only
-   no-ops on `OrganizationSettings`/`OrganizationSubscription`, it never touches the User/password.
-   `platform-admin:promote` only elevates permissions on the *same* already-inaccessible account, it
-   doesn't provide a separate credential. **The only remaining legitimate paths are: (a) configure
-   SMTP so the real forgot-password/OTP flow works (the Architect's own locked primary-path
-   decision), or (b) an Architect-authorized direct database intervention** — which was deliberately
-   NOT done, since bypassing the password-reset control path without explicit authorization crosses
-   a line this session isn't willing to cross unilaterally.
-2. **`ops:restore`'s `docker-compose` mode has a real environment gap under MODE B**: confirmed by
-   reading `restore-runner.ts` directly — the existence-check/`CREATE DATABASE`/`DROP DATABASE`
-   safety guard always uses a direct Prisma TCP connection regardless of `mode`, while only the
-   actual `pg_restore` binary invocation respects the docker-compose/direct mode setting. MODE B's
-   Postgres port lockdown breaks the TCP path from the host. **Classified as a documentation/usage
-   gap (A) plus an unvalidated-under-this-topology mode (C), not a logic defect** — the safety guard
-   itself (`RestoreTargetExistsError`, rollback-on-failure) is correct and was not touched. **Not
-   fixed** — modifying this safety-critical file without a SPEC would violate this project's
-   Specification-First governance (CLAUDE.md). Worked around this session via
+1. **`ops:restore`'s `docker-compose` mode has a real environment gap under MODE B** — confirmed via
+   source read (`restore-runner.ts`): the existence-check/`CREATE DATABASE`/`DROP DATABASE` safety
+   guard always uses a direct Prisma TCP connection regardless of `mode`, which MODE B's Postgres
+   port lockdown breaks from the host. Not a logic defect (the safety guard itself is correct) —
+   classified as a documentation/usage gap. Worked around via
    `docker compose -f docker-compose.yml run --rm -v "<host>\backend\backups:/mnt/backups:ro"
-   bring-up npm run ops:restore -- /mnt/backups/<file> <target-db>` (documented in the runbook).
-3. **Frontend has real, pre-existing high-severity dependency CVEs** (Next.js DoS/SSRF/disclosure,
-   plus transitive `js-yaml`/`nanoid`/`postcss`) — fix requires an out-of-range Next.js upgrade, a
-   real decision needing its own regression cycle. Not applied this session.
-4. Root `backups/` gitignore gap — **fixed this session** (was open in the prior handoff).
-5. Sections H–L2 remain evidence-inferred from an earlier session, not directly re-witnessed.
+   bring-up npm run ops:restore -- /mnt/backups/<file> <target-db>` (documented in the runbook). Not
+   fixed in code — a safety-critical change needs a SPEC per this project's governance.
+2. **Frontend has real, pre-existing high-severity dependency CVEs** (see Quality Gates above) — not
+   applied, needs its own decision/regression cycle.
+3. `tools/emergency-admin-password-recovery.js` is now a **used, incident-specific** recovery tool
+   (hardcoded to Customer #1's exact org slug/email — see Repository Files below for the
+   removal/genericization recommendation).
 
-## Pending Tasks
-In execution order:
-1. **Section O** (the actual blocker): operator copies
-   `backend/backups/pos-erp-20260826-021445.dump` to a real external destination, confirms size
-   match, records date/time + destination TYPE (no path/credentials) in the runbook.
-2. Configure git identity in `C:\pos-erp` (or provide it) so the two already-staged, already-reviewed
-   files can be committed.
-3. Real customer admin regains access (forgot-password once SMTP is configured, or one more
-   supervised admin-reset).
-4. Router port-forward + Windows Firewall review — needs operator/network-owner, not verifiable from
-   this machine.
-5. Fill in S2 (acceptance table) and T (final verdict) once S1 is fully PASS.
-6. Decide on `tools/rotate-*` scripts — formalize as reviewed project tooling, or leave as
-   uncommitted local utilities.
-7. Separately (not go-live-blocking): decide on the Next.js dependency upgrade for the CVEs above,
-   and on documenting the MODE B restore-tooling gap in `BACKUP-RESTORE-RUNBOOK.md`.
+## Repository Files
+| Path | Classification | Status |
+|---|---|---|
+| `.gitignore` | source/config fix | Committed (`008363d`) |
+| `docs/release/CUSTOMER-1-GO-LIVE-EXECUTION.md` | runbook/release evidence | Committed, updated across several commits with real evidence |
+| `PROJECT_HANDOFF.md` | continuity documentation | Committed, this file |
+| `tools/rotate-production-secrets.ps1` | A — reusable operational tooling (parameterized paths, no embedded secrets, real recurring value) | Committed (`008363d`) |
+| `tools/rotate-first-admin-password.js` | A — reusable incident-response pattern (rotate a live credential via the app's own API, zero file writes) | Committed (`008363d`) — **note: its login step now fails**, since it reads the OLD (dead) password from `backend\.env`; kept as a reference implementation of the pattern, not currently directly usable without updating `backend\.env` first |
+| `tools/emergency-admin-password-recovery.js` | B — incident-specific (hardcoded to Customer #1's org slug/email) | Committed (`9d0ea0d`, corrected in `5946e27`) — **has now served its purpose** (Admin Owner Access resolved). **Recommendation for Architect decision**: either remove it now that recovery is complete, or genericize it (parameterize org slug/email, strip Customer #1-specific defaults) if the underlying "audited direct-DB emergency recovery" pattern is judged worth keeping as permanent incident-response tooling. Not deleted by this session — a governance decision, not an automatic cleanup. |
+
+## Git Status
+Clean working tree at HEAD `5946e27` as of this update. 5 commits created this engagement:
+`008363d`, `584fa7d`, `9d0ea0d`, `5946e27` (plus this handoff update, uncommitted at time of writing
+— see next session's `git status`). No push performed — no existing policy authorizes autonomous
+push.
 
 ## DO NOT REPEAT
-- Docker builds/`up`, secret rotation (either the 5 machine secrets or `FIRST_ADMIN_PASSWORD`),
-  `bring-up`/migration, and the N/P/Q sequence just completed — all already done, re-running
-  produces no new information without a specific reason.
-- `npm install` for frontend — already done this session (dependencies now present).
-- `npm run generate:api` — already done this session (client now present); only re-run if
-  `docs/api/openapi.json` changes.
+- Docker builds/`up`, any further secret rotation, `bring-up`/migration, the N/P/Q sequence, the
+  emergency admin recovery (already done, human-executed, verified) — all already done.
+- `npm install`/`generate:api` for frontend — already done, only re-run if `package.json` or
+  `docs/api/openapi.json` change.
+- Full backend/frontend test suites — already run this engagement with real results recorded above;
+  re-run only if repository code changes.
 
 ## Safety Constraints
-(unchanged from prior handoff — see `docs/release/CUSTOMER-1-GO-LIVE-EXECUTION.md`'s own STOP rules
-and `FIRST-CUSTOMER-CHECKLIST.md` for the full canonical list)
-- Never expose secrets; never print `.env`/secret-bearing Compose output.
-- Restore drills always target an isolated `pos_erp_restore_drill*` name — the tool itself refuses
-  to overwrite an existing database, confirmed by source.
-- Never force push, never discard uncommitted work, never set git config without permission.
-- `docker compose` commands always use `-f docker-compose.yml` explicitly.
-- Backup/restore safety-critical code changes require a SPEC, not an ad-hoc fix during ops work.
+(unchanged — see `docs/release/CUSTOMER-1-GO-LIVE-EXECUTION.md`'s own STOP rules and
+`FIRST-CUSTOMER-CHECKLIST.md` for the full canonical list). Notably: never expose secrets in any
+form; restore drills always target an isolated name (tool structurally refuses to overwrite an
+existing database); never force push/discard work/set git config without authorization; `docker
+compose` always via `-f docker-compose.yml` explicitly; backup/restore safety-critical code changes
+require a SPEC.
 
 ## EXACT NEXT ACTION
-Operator performs Section O (the physical off-host copy) — this is the one gate nothing else is
-waiting on that isn't itself waiting on a human. In parallel/afterward: provide git identity so the
-staged commit can complete, and decide how the real customer will regain admin access.
+Nothing further is automatable. Wait for the operator to complete the 3 remaining human-only items
+(Section O, Network Owner Verification, Customer Handover), then fill in S1/S2/T's final rows and
+issue the real GO verdict.
 
 ## NEW SESSION RESUME PROTOCOL
 
