@@ -563,22 +563,31 @@ Artifact size (an toàn để ghi):  272737 bytes (backend/backups/pos-erp-20260
 **Off-host nghĩa là KHÔNG chỉ lưu trên máy triển khai/POS.**
 
 ```
-1. [ ] Copy file .dump ra khỏi máy chủ (ổ đĩa rời / NAS / máy thứ 2 đã bảo vệ / cloud storage đã duyệt)
-2. [ ] Xác nhận file đã copy tồn tại ở đích, kích thước khớp file gốc
-3. [ ] Ghi lại ngày giờ thực hiện
-Destination TYPE (chỉ loại, KHÔNG ghi đường dẫn/thông tin đăng nhập):  _____________________
+1. [x] Copy file .dump ra khỏi máy chủ (ổ đĩa rời / NAS / máy thứ 2 đã bảo vệ / cloud storage đã duyệt)
+2. [x] Xác nhận file đã copy tồn tại ở đích, kích thước khớp file gốc
+3. [x] Ghi lại ngày giờ thực hiện
+Destination TYPE (chỉ loại, KHÔNG ghi đường dẫn/thông tin đăng nhập):  Ổ đĩa rời USB (external/removable)
 ```
 
-**CHƯA THỰC HIỆN — HUMAN ACTION REQUIRED.** Đã kiểm tra máy triển khai (2026-08-26, phiên tự động):
-chỉ có 2 ổ đĩa Fixed/Local (C:, E: — không phải off-host theo định nghĩa của mục này), không có ổ
-rời/mạng nào đang gắn, không có cấu hình cloud storage nào trong repo. File nguồn đã sẵn sàng và đã
-xác minh toàn vẹn: `backend/backups/pos-erp-20260826-021445.dump` (272737 bytes, SHA-256
-`fa82ce3b0fe367077468d25ac7fc59fa84ecc80427332d6527e4d6a2947c56a7`, cấu trúc TOC hợp lệ qua
-`pg_restore --list`, 602 entries). Bước này theo đúng thiết kế (§ "ARCHITECT DECISION LOCKED" ở
-FIRST-CUSTOMER-CHECKLIST.md) là thao tác thủ công, cần vận hành viên chọn và thực hiện đích off-host
-thật.
+**HOÀN TẤT — PASS (2026-09-06).** Vận hành viên kết nối một ổ đĩa USB rời. Xác nhận độc lập bằng 2
+tín hiệu tách biệt trước khi copy: (a) mức filesystem — `Win32_LogicalDisk.DriveType = Removable`,
+VolumeName "USB DISK"; (b) mức đĩa vật lý — `Get-Disk` cho thấy đây là một đĩa vật lý RIÊNG BIỆT
+(Disk 1) với `BusType = USB`, khác hẳn Disk 0 (NVMe nội bộ) — nơi cả 2 ổ C: và E: cùng nằm trên đó.
+Đây không chỉ là "khác ký tự ổ đĩa" mà là khác hẳn thiết bị vật lý, thật sự off-host.
 
-**Không có bản copy off-host: GO-LIVE FAIL.**
+Đã tạo thư mục `POS-ERP-Customer1-Backup` trên ổ rời và copy file gốc vào đó (KHÔNG di chuyển/xoá
+file gốc — file gốc vẫn còn nguyên tại `backend/backups/`).
+
+Bằng chứng xác minh:
+- File: `pos-erp-20260826-021445.dump`
+- Kích thước nguồn: 272737 bytes
+- Kích thước đích: 272737 bytes — **KHỚP**
+- SHA-256 nguồn: `fa82ce3b0fe367077468d25ac7fc59fa84ecc80427332d6527e4d6a2947c56a7`
+- SHA-256 đích: `fa82ce3b0fe367077468d25ac7fc59fa84ecc80427332d6527e4d6a2947c56a7` — **KHỚP**
+- Xác minh bổ sung: `cmp` byte-for-byte giữa 2 file — không có khác biệt
+- Thời điểm xác minh: 2026-09-06
+
+**Bản copy off-host đã tồn tại, đã xác minh khớp: PASS.**
 
 ---
 
@@ -675,10 +684,12 @@ vận hành.
 | Redis không expose công khai | [x] | [ ] | `docker ps` — redis không có cột PORTS công khai |
 | Không có port-forward trên router | [x] | [ ] | 2026-09-06 — vận hành viên tự kiểm tra WebGUI router (FPT/ZTE ZXHN H3601 V9.1): DMZ=Off, không có rule Port Forwarding nào tới 192.168.102.10 hay cổng 3000/3001. Xem SECTION C mục 2 |
 | Firewall đã rà soát | [x] | [ ] | Windows Network Profile đã đổi Public→Private (2026-09-06, elevated PowerShell, độc lập xác minh lại). Router firewall posture = Middle (Recommended), tự kiểm tra qua WebGUI. Xem SECTION C mục 5 |
-| Backup đã có bản off-host | [ ] | [x] | SECTION O chưa thực hiện — HUMAN ACTION REQUIRED (xem SECTION O) |
+| Backup đã có bản off-host | [x] | [ ] | 2026-09-06 — copy vào ổ USB rời (Disk riêng biệt, BusType=USB), SHA-256 + cmp byte-for-byte khớp tuyệt đối. Xem SECTION O |
 | Restore đã được xác minh | [x] | [ ] | SECTION P — PASS thật, xem chi tiết ở trên |
 
-**Kết quả S1: FAIL (1 mục còn chặn: Backup off-host chưa có — SECTION O). Network (port-forward + firewall) nay đã PASS thật với bằng chứng. Bất kỳ FAIL nào ở đây chặn phê duyệt go-live.**
+**Kết quả S1: PASS 10/10 (2026-09-06)** — mọi mục kỹ thuật đều có bằng chứng thật. **Lưu ý: S1 PASS
+không tự động = GO-LIVE APPROVED** — SECTION S2/T vẫn còn chặn ở mục "Operator responsibility"
+(CUSTOMER HANDOVER) chưa có bằng chứng, xem SECTION T.
 
 ---
 
@@ -706,11 +717,11 @@ vận hành.
 | Trial/Plan procedure (L/L2) | [ ] N/A allowed w/ reason | [ ] | Customer #1 provisioned directly, not via trial signup | (automated session) | 2026-08-26 |
 | Password recovery (M) | [x] | [ ] | Admin reset fallback proven; emergency recovery human-executed, login verification PASS | (human operator) | 2026-08-26 |
 | Backup (N) | [x] | [ ] | `backend/backups/pos-erp-20260826-021445.dump`, integrity-verified | (automated session) | 2026-08-26 |
-| Off-host backup (O) | [ ] | [ ] | **WAITING — HUMAN ACTION REQUIRED, see SECTION O** | | |
+| Off-host backup (O) | [x] | [ ] | USB rời (Disk riêng biệt, BusType=USB), SHA-256 + cmp khớp tuyệt đối | (operator + automated session) | 2026-09-06 |
 | Restore verification (P) | [x] | [ ] | Real restore + verify, row counts matched source, cleanup done | (automated session) | 2026-08-26 |
 | Restart/Graceful shutdown (Q) | [x] | [ ] | 1.07s restart, health recovered, data intact; login now verifiable (M resolved) | (automated session) | 2026-08-26 |
 | LAN client (R) | [x] N/A allowed w/ reason | [ ] | No second physical LAN client machine available | (automated session) | 2026-08-26 |
-| Security final check (S1) | [ ] | [ ] | 9/10 rows PASS (router/firewall now resolved, 2026-09-06) — blocked only on Off-host backup (O) | | |
+| Security final check (S1) | [x] | [ ] | 10/10 rows PASS (2026-09-06) — see S1 table | (automated session) | 2026-09-06 |
 | Operator responsibility (see CUSTOMER HANDOVER in FIRST-CUSTOMER-CHECKLIST.md) | [ ] | [ ] | Not evaluated by this session — customer training/handover is inherently a human process | | |
 
 **N/A chỉ được dùng cho các mục đã đánh dấu rõ "N/A allowed w/ reason" ở trên (Purchase/Purchase
@@ -737,18 +748,19 @@ Chọn ĐÚNG 1:
 Nếu NOT APPROVED, liệt kê:
 
 ```
-Failed gates:                 Off-host backup (O) — WAITING, cần đích off-host thật;
-                              Security final check (S1) — 9/10, phụ thuộc riêng O;
-                              Operator responsibility — chưa đánh giá (thuộc vận hành viên/khách hàng)
-Required remediation:         (1) Vận hành viên copy backend/backups/pos-erp-20260826-021445.dump
-                              ra đích off-host thật; (2) hoàn tất CUSTOMER HANDOVER checklist ở
-                              FIRST-CUSTOMER-CHECKLIST.md (đăng nhập UI thật, hiểu quy trình
-                              Trial→Paid, xác định đầu mối vận hành có tên).
+Failed gates:                 Operator responsibility — chưa đánh giá (thuộc vận hành viên/khách hàng)
+Required remediation:         Hoàn tất CUSTOMER HANDOVER checklist ở FIRST-CUSTOMER-CHECKLIST.md
+                              (đăng nhập UI thật bằng mật khẩu thật do chủ tài khoản tự đặt, hiểu
+                              quy trình Trial→Paid, xác định đầu mối vận hành có tên).
 ```
 
-**2026-09-06 — cập nhật:** Network Gate (port-forward + Windows/router firewall) nay đã PASS với
-bằng chứng thật (SECTION C toàn bộ 7/7, xem chi tiết). KHÔNG còn là human-only blocker. Chỉ còn
-đúng 2 hạng mục con người: Section O (off-host backup) và Customer Handover.
+**2026-09-06 — cập nhật:** Section O (off-host backup) nay đã PASS thật (USB rời, SHA-256 + cmp
+byte-for-byte khớp tuyệt đối). SECTION S1 nay 10/10 PASS. Toàn bộ hạng mục MANDATORY kỹ thuật/network
+đều đã đóng. **Chỉ còn đúng 1 hạng mục con người**: Customer Handover — không thể tự động hoá, cần
+chính khách hàng/vận hành viên thực hiện và xác nhận.
+
+**2026-09-06 — cập nhật (trước):** Network Gate (port-forward + Windows/router firewall) đã PASS với
+bằng chứng thật (SECTION C toàn bộ 7/7).
 
 **2026-08-26 — cập nhật:** mọi mục MANDATORY còn lại đều là hành động con người thuần túy (physical
 off-host copy, quyền router/firewall của chủ mạng, quy trình bàn giao khách hàng) — không còn mục

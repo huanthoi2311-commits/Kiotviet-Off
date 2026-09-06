@@ -18,13 +18,22 @@ That document carries the authoritative per-section evidence (M/N/P/Q/K2/S2/T al
 real evidence this session) — read it directly; this file is the cross-session continuity summary.
 
 ## Current Milestone Status
-**CONDITIONAL GO.** Every machine-verifiable gate now has real PASS evidence, including Admin Owner
-Access (resolved this session — see below). **Exactly 3 items remain, and all 3 are purely
-human-only** — nothing technical is left blocking:
-1. Section O — off-host backup copy (needs a real external destination).
-2. Network Owner Verification — router port-forward + Windows Firewall review.
-3. Operator responsibility / customer handover (`FIRST-CUSTOMER-CHECKLIST.md`'s CUSTOMER HANDOVER
+**CONDITIONAL GO.** Every machine-verifiable gate now has real PASS evidence. S1 is 10/10 PASS.
+**Exactly 1 item remains, and it is purely human-only** — nothing technical is left blocking:
+1. Operator responsibility / customer handover (`FIRST-CUSTOMER-CHECKLIST.md`'s CUSTOMER HANDOVER
    checklist) — inherently a human training/handoff process, not evaluated by any session.
+
+Resolved since the last update:
+- **Section O (off-host backup)** — PASS (2026-09-06). Operator connected a genuine external USB
+  drive, independently confirmed via two separate signals (filesystem `DriveType=Removable` AND
+  `Get-Disk` showing a physically separate disk with `BusType=USB`, distinct from the internal NVMe
+  hosting C:/E:). Copied `pos-erp-20260826-021445.dump` to `POS-ERP-Customer1-Backup\` on that
+  drive; source untouched; SHA-256 and a full byte-for-byte `cmp` both confirmed an exact match.
+- **Network Owner Verification** — PASS (2026-09-06). Windows Wi-Fi profile "Duc An" switched
+  Public→Private (operator, elevated PowerShell, independently re-verified). Router (FPT/ZTE ZXHN
+  H3601 V9.1) inspected read-only by the operator: DMZ off, no Port Forwarding rule to
+  192.168.102.10 or ports 3000/3001, firewall posture Middle (Recommended). No router config
+  changed.
 
 ## Admin Owner Access — RESOLVED (2026-08-26)
 The real account owner ran `tools/emergency-admin-password-recovery.js` (security-reviewed,
@@ -47,18 +56,14 @@ read-only SQL. K, K3, K4, K5, L, L2, R — N/A, runbook-allowed, reasoned not fa
 business need yet for a second employee/purchase workflow/trial-signup path/second LAN client).
 
 ## Remaining Human-Only Items
-1. **Section O** — copy `backend/backups/pos-erp-20260826-021445.dump` to a real external
-   destination (USB/NAS/second machine/approved cloud). Checked this machine multiple times across
-   sessions: only 2 internal Fixed drives (C:, E:), nothing else available. Not re-checking again
-   unless something changes.
-2. **Network Owner Verification** — confirm no router port-forward to deployment ports; decide on
-   Windows Firewall "Public" vs "Private" for Wi-Fi "Duc An" (not changed automatically — MODE B
-   trusted-LAN policy stands regardless).
-3. **Operator responsibility / customer handover** — `FIRST-CUSTOMER-CHECKLIST.md`'s CUSTOMER
-   HANDOVER checklist (training, documentation handoff, support expectations) — a human process, not
-   machine-verifiable.
+1. **Operator responsibility / customer handover** — `FIRST-CUSTOMER-CHECKLIST.md`'s CUSTOMER
+   HANDOVER checklist (real browser UI login with the owner's own password, Trial→Paid walkthrough,
+   named operator/contact, accepted ongoing operational responsibilities) — a human process, not
+   machine-verifiable. Section O and Network Owner Verification are both now resolved (see above).
 
-Once these 3 are done: S1 becomes fully PASS → fill in S2's remaining rows → Section T → real GO.
+Once this is done: fill in S2's last row → Section T → real GO. Also pending, sequenced immediately
+before the final GO commit (not blocking on its own): remove
+`tools/emergency-admin-password-recovery.js` per its incident-specific classification.
 
 ## Quality Gates (established this engagement, not re-run this session — no repository change since)
 - **Backend**: `prisma:validate` PASS · `build` PASS · `lint` PASS · **241/241 suites, 2656/2656
