@@ -77,12 +77,12 @@ không giả định.
 | # | Kiểm tra | PASS | FAIL | Bằng chứng |
 |---|---|---|---|---|
 | 1 | Máy nằm trên mạng private/trusted (không phải Wi-Fi công cộng/khách vãng lai chung dải mạng) | [x] | [ ] | Vận hành viên xác nhận Wi-Fi "Duc An" là mạng riêng do họ sở hữu; đổi Windows NetworkCategory Public→Private (2026-09-06, elevated PowerShell, `Set-NetConnectionProfile`), xác minh lại độc lập: `NetworkCategory=Private`, IPv4 192.168.102.10 không đổi |
-| 2 | Không có port-forward trên router cho cổng backend(3000)/frontend(3001) | [ ] | [ ] | **CHƯA — cần chủ mạng/router xác nhận, không tự động hoá được** |
+| 2 | Không có port-forward trên router cho cổng backend(3000)/frontend(3001) | [x] | [ ] | Vận hành viên tự đăng nhập WebGUI router (FPT/ZTE ZXHN H3601 V9.1, `192.168.102.1`), tự kiểm tra thủ công (2026-09-06). No DMZ exposure and no configured Port Forwarding rule to 192.168.102.10 were observed in the router WebGUI (DMZ=Off, LAN Host trống; trang Port Forwarding: New Item=Off, LAN Host/WAN Port/LAN Host Port đều trống, không thấy rule nào cho cổng 3000/3001). Không có thay đổi cấu hình router nào được thực hiện. |
 | 3 | Postgres (5432) không reachable từ LAN/Internet công cộng | [x] | [ ] | `docker ps`: postgres không có cổng map ra host, chỉ backend(3000)/frontend(3001) |
 | 4 | Redis (6379) không reachable từ LAN/Internet công cộng | [x] | [ ] | `docker ps`: redis không có cổng map ra host |
-| 5 | Windows Firewall đã được rà soát | [ ] | [ ] | Rà soát kỹ thuật (read-only) đã thực hiện: cả 3 profile Domain/Private/Public đều Enabled, `DefaultInboundAction=NotConfigured`, không có rule tường minh nào cho TCP 3000/3001 (allow lẫn block). **Đánh giá "đã rà soát đầy đủ, chấp nhận được" vẫn cần con người quyết định** — chưa tự đánh dấu PASS |
+| 5 | Windows Firewall đã được rà soát | [x] | [ ] | Windows: cả 3 profile Domain/Private/Public đều Enabled (rà soát kỹ thuật read-only, không có rule tường minh cho TCP 3000/3001). Router: vận hành viên tự kiểm tra trang Firewall trên WebGUI router — mức Middle (Recommended). Cả 2 phía đã được con người + tự động cùng rà soát. |
 | 6 | Chỉ đúng cổng ứng dụng cần thiết mới reachable từ LAN tin cậy | [x] | [ ] | Xác nhận qua LAN IP thật (192.168.102.10): backend `/health`→200, frontend→200; postgres/redis không expose (mục 3/4) |
-| 7 | Ứng dụng KHÔNG bị chủ ý expose ra Internet công cộng | [ ] | [ ] | **CHƯA — phụ thuộc xác nhận không port-forward ở mục 2** |
+| 7 | Ứng dụng KHÔNG bị chủ ý expose ra Internet công cộng | [x] | [ ] | Dựa trên bằng chứng mục 2 (không DMZ, không port-forward quan sát được tới 192.168.102.10 hay cổng 3000/3001). **Lưu ý phạm vi bằng chứng**: đây là kiểm tra thủ công qua WebGUI router tại một thời điểm, KHÔNG phải chứng minh loại trừ tuyệt đối mọi cơ chế expose có thể có trên router — coi là bằng chứng hợp lý cho MODE B, không phải bảo đảm hình sự học. |
 
 **Xác minh #3/#4 kỹ thuật** (chạy trên chính máy triển khai, sau khi stack đã lên — xem SECTION E):
 ```powershell
@@ -673,12 +673,12 @@ vận hành.
 | Swagger theo đúng chính sách production (`SWAGGER_ENABLED=false`, xác nhận `/api/docs` không truy cập được) | [x] | [ ] | `curl -o /dev/null -w "%{http_code}" /api/docs` → 404 (live, xác nhận thật) |
 | Database không expose công khai | [x] | [ ] | `docker ps` — postgres không có cột PORTS công khai |
 | Redis không expose công khai | [x] | [ ] | `docker ps` — redis không có cột PORTS công khai |
-| Không có port-forward trên router | [ ] | [ ] | KHÔNG kiểm chứng được từ máy này — cần chủ mạng/vận hành viên xác nhận trên router |
-| Firewall đã rà soát | [ ] | [ ] | Windows Network Profile hiện là "Public" (không phải "Private") cho Wi-Fi "Duc An" — đã ghi nhận, Architect quyết định hoãn riêng (xem phiên Production Config Discovery trước) — chưa xử lý |
+| Không có port-forward trên router | [x] | [ ] | 2026-09-06 — vận hành viên tự kiểm tra WebGUI router (FPT/ZTE ZXHN H3601 V9.1): DMZ=Off, không có rule Port Forwarding nào tới 192.168.102.10 hay cổng 3000/3001. Xem SECTION C mục 2 |
+| Firewall đã rà soát | [x] | [ ] | Windows Network Profile đã đổi Public→Private (2026-09-06, elevated PowerShell, độc lập xác minh lại). Router firewall posture = Middle (Recommended), tự kiểm tra qua WebGUI. Xem SECTION C mục 5 |
 | Backup đã có bản off-host | [ ] | [x] | SECTION O chưa thực hiện — HUMAN ACTION REQUIRED (xem SECTION O) |
 | Restore đã được xác minh | [x] | [ ] | SECTION P — PASS thật, xem chi tiết ở trên |
 
-**Kết quả S1: FAIL (2 mục chặn: Backup off-host chưa có; port-forward/firewall chưa xác nhận được) — Bất kỳ FAIL nào ở đây chặn phê duyệt go-live.**
+**Kết quả S1: FAIL (1 mục còn chặn: Backup off-host chưa có — SECTION O). Network (port-forward + firewall) nay đã PASS thật với bằng chứng. Bất kỳ FAIL nào ở đây chặn phê duyệt go-live.**
 
 ---
 
@@ -710,7 +710,7 @@ vận hành.
 | Restore verification (P) | [x] | [ ] | Real restore + verify, row counts matched source, cleanup done | (automated session) | 2026-08-26 |
 | Restart/Graceful shutdown (Q) | [x] | [ ] | 1.07s restart, health recovered, data intact; login now verifiable (M resolved) | (automated session) | 2026-08-26 |
 | LAN client (R) | [x] N/A allowed w/ reason | [ ] | No second physical LAN client machine available | (automated session) | 2026-08-26 |
-| Security final check (S1) | [ ] | [ ] | 8/10 rows PASS — blocked on Off-host backup (O) + router/firewall verification | | |
+| Security final check (S1) | [ ] | [ ] | 9/10 rows PASS (router/firewall now resolved, 2026-09-06) — blocked only on Off-host backup (O) | | |
 | Operator responsibility (see CUSTOMER HANDOVER in FIRST-CUSTOMER-CHECKLIST.md) | [ ] | [ ] | Not evaluated by this session — customer training/handover is inherently a human process | | |
 
 **N/A chỉ được dùng cho các mục đã đánh dấu rõ "N/A allowed w/ reason" ở trên (Purchase/Purchase
@@ -731,20 +731,24 @@ Chọn ĐÚNG 1:
 
 ```
 [ ] CUSTOMER #1 GO-LIVE — APPROVED
-[x] CUSTOMER #1 GO-LIVE — NOT APPROVED (CONDITIONAL GO — 2 human-only items remain)
+[x] CUSTOMER #1 GO-LIVE — NOT APPROVED (CONDITIONAL GO — human-only items remain)
 ```
 
 Nếu NOT APPROVED, liệt kê:
 
 ```
 Failed gates:                 Off-host backup (O) — WAITING, cần đích off-host thật;
-                              Security final check (S1) — phụ thuộc O + router/firewall review;
+                              Security final check (S1) — 9/10, phụ thuộc riêng O;
                               Operator responsibility — chưa đánh giá (thuộc vận hành viên/khách hàng)
 Required remediation:         (1) Vận hành viên copy backend/backups/pos-erp-20260826-021445.dump
-                              ra đích off-host thật; (2) chủ mạng xác nhận không có port-forward +
-                              rà soát Windows Firewall cho Wi-Fi "Duc An"; (3) hoàn tất CUSTOMER
-                              HANDOVER checklist ở FIRST-CUSTOMER-CHECKLIST.md.
+                              ra đích off-host thật; (2) hoàn tất CUSTOMER HANDOVER checklist ở
+                              FIRST-CUSTOMER-CHECKLIST.md (đăng nhập UI thật, hiểu quy trình
+                              Trial→Paid, xác định đầu mối vận hành có tên).
 ```
+
+**2026-09-06 — cập nhật:** Network Gate (port-forward + Windows/router firewall) nay đã PASS với
+bằng chứng thật (SECTION C toàn bộ 7/7, xem chi tiết). KHÔNG còn là human-only blocker. Chỉ còn
+đúng 2 hạng mục con người: Section O (off-host backup) và Customer Handover.
 
 **2026-08-26 — cập nhật:** mọi mục MANDATORY còn lại đều là hành động con người thuần túy (physical
 off-host copy, quyền router/firewall của chủ mạng, quy trình bàn giao khách hàng) — không còn mục
