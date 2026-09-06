@@ -76,13 +76,13 @@ không giả định.
 
 | # | Kiểm tra | PASS | FAIL | Bằng chứng |
 |---|---|---|---|---|
-| 1 | Máy nằm trên mạng private/trusted (không phải Wi-Fi công cộng/khách vãng lai chung dải mạng) | [ ] | [ ] | ____________________ |
-| 2 | Không có port-forward trên router cho cổng backend(3000)/frontend(3001) | [ ] | [ ] | ____________________ |
-| 3 | Postgres (5432) không reachable từ LAN/Internet công cộng | [ ] | [ ] | ____________________ |
-| 4 | Redis (6379) không reachable từ LAN/Internet công cộng | [ ] | [ ] | ____________________ |
-| 5 | Windows Firewall đã được rà soát | [ ] | [ ] | ____________________ |
-| 6 | Chỉ đúng cổng ứng dụng cần thiết mới reachable từ LAN tin cậy | [ ] | [ ] | ____________________ |
-| 7 | Ứng dụng KHÔNG bị chủ ý expose ra Internet công cộng | [ ] | [ ] | ____________________ |
+| 1 | Máy nằm trên mạng private/trusted (không phải Wi-Fi công cộng/khách vãng lai chung dải mạng) | [x] | [ ] | Vận hành viên xác nhận Wi-Fi "Duc An" là mạng riêng do họ sở hữu; đổi Windows NetworkCategory Public→Private (2026-09-06, elevated PowerShell, `Set-NetConnectionProfile`), xác minh lại độc lập: `NetworkCategory=Private`, IPv4 192.168.102.10 không đổi |
+| 2 | Không có port-forward trên router cho cổng backend(3000)/frontend(3001) | [ ] | [ ] | **CHƯA — cần chủ mạng/router xác nhận, không tự động hoá được** |
+| 3 | Postgres (5432) không reachable từ LAN/Internet công cộng | [x] | [ ] | `docker ps`: postgres không có cổng map ra host, chỉ backend(3000)/frontend(3001) |
+| 4 | Redis (6379) không reachable từ LAN/Internet công cộng | [x] | [ ] | `docker ps`: redis không có cổng map ra host |
+| 5 | Windows Firewall đã được rà soát | [ ] | [ ] | Rà soát kỹ thuật (read-only) đã thực hiện: cả 3 profile Domain/Private/Public đều Enabled, `DefaultInboundAction=NotConfigured`, không có rule tường minh nào cho TCP 3000/3001 (allow lẫn block). **Đánh giá "đã rà soát đầy đủ, chấp nhận được" vẫn cần con người quyết định** — chưa tự đánh dấu PASS |
+| 6 | Chỉ đúng cổng ứng dụng cần thiết mới reachable từ LAN tin cậy | [x] | [ ] | Xác nhận qua LAN IP thật (192.168.102.10): backend `/health`→200, frontend→200; postgres/redis không expose (mục 3/4) |
+| 7 | Ứng dụng KHÔNG bị chủ ý expose ra Internet công cộng | [ ] | [ ] | **CHƯA — phụ thuộc xác nhận không port-forward ở mục 2** |
 
 **Xác minh #3/#4 kỹ thuật** (chạy trên chính máy triển khai, sau khi stack đã lên — xem SECTION E):
 ```powershell
