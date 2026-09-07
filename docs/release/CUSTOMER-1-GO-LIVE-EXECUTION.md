@@ -166,7 +166,7 @@ docker compose -f docker-compose.yml logs backend
 | Backend health | `curl.exe http://localhost:3000/health` — JSON chứa `"status":"ok"` | [ ] | [ ] |
 | Database dependency (trong cùng response trên) | `"dependencies":{"database":"up",...}` | [ ] | [ ] |
 | Redis dependency (trong cùng response trên) | `"dependencies":{...,"redis":"up"}` | [ ] | [ ] |
-| Frontend reachable từ chính máy triển khai | Mở trình duyệt: `http://localhost:3001` — load được trang đăng nhập | [ ] | [ ] |
+| Frontend reachable từ chính máy triển khai | Mở trình duyệt: `http://localhost:3001/login` — load được trang đăng nhập (lưu ý: `/` một mình là trang landing tĩnh có chủ đích, không phải trang đăng nhập — xem `frontend/src/middleware.ts`) | [ ] | [ ] |
 
 **Bất kỳ dependency nào (database/Redis) unhealthy: DỪNG GO-LIVE.**
 
@@ -638,7 +638,7 @@ docker compose -f docker-compose.yml restart backend
 [x] Backend dừng gracefully (không cần force-kill)
 [x] Restart hoàn tất, health phục hồi (curl /health lại → "status":"ok")
 [x] Dữ liệu đã tạo trước đó (SECTION I2/J2) vẫn còn nguyên sau reload (row-count trước/sau giống hệt: organizations=1, products=1, invoices=1)
-[ ] Đăng nhập/thao tác bình thường vẫn hoạt động sau restart — KHÔNG kiểm chứng được: FIRST_ADMIN_PASSWORD đã được xoay vòng (SECTION M follow-up) và không ai hiện đang biết giá trị mới (có chủ đích, xem ghi chú SECTION M) — cần khách hàng tự đăng nhập sau khi tự khôi phục mật khẩu qua forgot-password
+[x] Đăng nhập/thao tác bình thường vẫn hoạt động sau restart — xác nhận 2026-09-06: chủ tài khoản tự đăng nhập thật qua UI (`http://192.168.102.10:3001/login`), vào được `/dashboard`, độc lập xác nhận qua `audit_logs` (`auth.login.success`, User-Agent Chrome/Windows thật, cùng userId)
 Restart duration:             1.07 giây (docker compose restart backend), dưới ngưỡng tham khảo CI <8s
 ```
 
@@ -672,6 +672,38 @@ vận hành.
 
 ---
 
+## SECTION R2 — CUSTOMER HANDOVER (2026-09-06/07)
+
+Bằng chứng cho mục "Operator responsibility" ở SECTION S2 — 4 hạng mục theo
+`FIRST-CUSTOMER-CHECKLIST.md`'s CUSTOMER HANDOVER:
+
+```
+[x] Owner đăng nhập UI thật bằng mật khẩu tự đặt — xác nhận qua screenshot thật
+    (dashboard tại http://192.168.102.10:3001/dashboard, sidebar đầy đủ module) +
+    độc lập qua audit_logs (auth.login.success, User-Agent Chrome/Windows thật,
+    2026-09-06 10:02:24, cùng userId f7a9f11f-... xuyên suốt)
+[x] Quy trình Trial→Paid đã hiểu — vận hành viên xác nhận: "Tôi hiểu quy trình
+    nâng gói." (preview-trước-rồi-confirm qua subscription:change-plan CLI, T053.06I)
+    — KHÔNG thực hiện mutation, chỉ walkthrough, đúng theo yêu cầu
+[x] Đầu mối vận hành có tên đã xác định — vận hành viên xác nhận: "Tôi đã xác định
+    người vận hành và lưu thông tin liên hệ." Thông tin liên hệ lưu NGOÀI git
+    (theo đúng CUSTOMER DEPLOYMENT RECORD template) — không ghi vào tài liệu này
+[x] 7 trách nhiệm vận hành đã chấp nhận — vận hành viên xác nhận: "Tôi chấp nhận 7
+    trách nhiệm vận hành." (onboarding khách hàng mới, đổi plan qua CLI đã duyệt,
+    xuất hoá đơn thủ công, backup + off-host định kỳ, kiểm tra health/log định kỳ,
+    điểm dự phòng đặt lại mật khẩu khi SMTP chưa cấu hình, điểm ứng phó sự cố đầu
+    tiên — không có SLA/đội 24/7)
+```
+
+**Customer Handover: PASS.** Không có mật khẩu/thông tin cá nhân nào được ghi vào tài liệu này.
+
+**Giới hạn còn tồn tại (không chặn go-live, cần công khai đầy đủ)**: SMTP self-service
+password recovery vẫn CHƯA hoạt động (`SMTP_HOST` rỗng) — đường dự phòng (admin/emergency
+reset qua tooling đã audit) là đường DUY NHẤT cho tới khi SMTP được cấu hình. Vận hành
+viên đã xác nhận hiểu và chấp nhận trách nhiệm này (mục thứ 6 ở trên).
+
+---
+
 ## SECTION S1 — SECURITY FINAL CHECK
 
 | Kiểm tra | PASS | FAIL | Ghi chú (2026-08-26, phiên tự động) |
@@ -687,9 +719,7 @@ vận hành.
 | Backup đã có bản off-host | [x] | [ ] | 2026-09-06 — copy vào ổ USB rời (Disk riêng biệt, BusType=USB), SHA-256 + cmp byte-for-byte khớp tuyệt đối. Xem SECTION O |
 | Restore đã được xác minh | [x] | [ ] | SECTION P — PASS thật, xem chi tiết ở trên |
 
-**Kết quả S1: PASS 10/10 (2026-09-06)** — mọi mục kỹ thuật đều có bằng chứng thật. **Lưu ý: S1 PASS
-không tự động = GO-LIVE APPROVED** — SECTION S2/T vẫn còn chặn ở mục "Operator responsibility"
-(CUSTOMER HANDOVER) chưa có bằng chứng, xem SECTION T.
+**Kết quả S1: PASS 10/10** — mọi mục kỹ thuật đều có bằng chứng thật.
 
 ---
 
@@ -722,7 +752,7 @@ không tự động = GO-LIVE APPROVED** — SECTION S2/T vẫn còn chặn ở 
 | Restart/Graceful shutdown (Q) | [x] | [ ] | 1.07s restart, health recovered, data intact; login now verifiable (M resolved) | (automated session) | 2026-08-26 |
 | LAN client (R) | [x] N/A allowed w/ reason | [ ] | No second physical LAN client machine available | (automated session) | 2026-08-26 |
 | Security final check (S1) | [x] | [ ] | 10/10 rows PASS (2026-09-06) — see S1 table | (automated session) | 2026-09-06 |
-| Operator responsibility (see CUSTOMER HANDOVER in FIRST-CUSTOMER-CHECKLIST.md) | [ ] | [ ] | Not evaluated by this session — customer training/handover is inherently a human process | | |
+| Operator responsibility (see CUSTOMER HANDOVER in FIRST-CUSTOMER-CHECKLIST.md) | [x] | [ ] | Xem SECTION R2 — 4/4 hạng mục xác nhận bởi vận hành viên | (operator) | 2026-09-06/07 |
 
 **N/A chỉ được dùng cho các mục đã đánh dấu rõ "N/A allowed w/ reason" ở trên (Purchase/Purchase
 Return/Sales Return/Trial-Plan/LAN client — vì các mục này phụ thuộc vào plan/nhu cầu thật của
@@ -741,23 +771,28 @@ responsibility).
 Chọn ĐÚNG 1:
 
 ```
-[ ] CUSTOMER #1 GO-LIVE — APPROVED
-[x] CUSTOMER #1 GO-LIVE — NOT APPROVED (CONDITIONAL GO — human-only items remain)
+[x] CUSTOMER #1 GO-LIVE — APPROVED
+[ ] CUSTOMER #1 GO-LIVE — NOT APPROVED
 ```
 
-Nếu NOT APPROVED, liệt kê:
+**2026-09-07 — GO.** Toàn bộ hạng mục MANDATORY ở SECTION S2 đều PASS hoặc N/A hợp lệ (có lý do rõ
+ràng, không phải bypass). Customer Handover — hạng mục con người cuối cùng — đã hoàn tất và xác nhận
+(SECTION R2): Owner đăng nhập UI thật (bằng chứng ảnh chụp màn hình thật + `audit_logs` độc lập xác
+nhận), Trial→Paid đã hiểu, đầu mối vận hành đã ghi nhận (ngoài git), 7 trách nhiệm vận hành đã chấp
+nhận. Section O (USB rời, hash khớp tuyệt đối) và Network Gate (Wi-Fi Private + router WebGUI xác
+nhận không port-forward) đều PASS thật với bằng chứng, không suy luận.
 
-```
-Failed gates:                 Operator responsibility — chưa đánh giá (thuộc vận hành viên/khách hàng)
-Required remediation:         Hoàn tất CUSTOMER HANDOVER checklist ở FIRST-CUSTOMER-CHECKLIST.md
-                              (đăng nhập UI thật bằng mật khẩu thật do chủ tài khoản tự đặt, hiểu
-                              quy trình Trial→Paid, xác định đầu mối vận hành có tên).
-```
-
-**2026-09-06 — cập nhật:** Section O (off-host backup) nay đã PASS thật (USB rời, SHA-256 + cmp
-byte-for-byte khớp tuyệt đối). SECTION S1 nay 10/10 PASS. Toàn bộ hạng mục MANDATORY kỹ thuật/network
-đều đã đóng. **Chỉ còn đúng 1 hạng mục con người**: Customer Handover — không thể tự động hoá, cần
-chính khách hàng/vận hành viên thực hiện và xác nhận.
+**Giới hạn đã biết, KHÔNG chặn go-live, phải công khai với khách hàng:**
+- SMTP self-service password recovery CHƯA hoạt động (`SMTP_HOST` rỗng) — đường dự phòng
+  (admin/emergency reset đã audit) là đường duy nhất cho tới khi SMTP được cấu hình.
+- Không có billing/invoicing tự động — vận hành viên xuất hoá đơn thủ công.
+- Không có cảnh báo tự động (health/backup/trial-expiry) — vận hành viên tự kiểm tra định kỳ.
+- Không có SLA/đội vận hành 24/7 ở giai đoạn pilot này.
+- `ops:restore`'s `docker-compose` mode có khoảng trống tài liệu hoá dưới MODE B (xem
+  PROJECT_HANDOFF.md Known Problems) — quy trình thay thế đã xác minh hoạt động, chỉ chưa
+  tài liệu hoá đầy đủ trong `BACKUP-RESTORE-RUNBOOK.md`.
+- Frontend có CVE mức cao đã biết trên phiên bản Next.js hiện tại — cần một quyết định nâng cấp
+  riêng, có chu kỳ regression riêng (xem PROJECT_HANDOFF.md).
 
 **2026-09-06 — cập nhật (trước):** Network Gate (port-forward + Windows/router firewall) đã PASS với
 bằng chứng thật (SECTION C toàn bộ 7/7).

@@ -109,7 +109,9 @@ curl.exe http://localhost:3000/health
 # Kỳ vọng: JSON chứa "status":"ok", "dependencies":{"database":"up","redis":"up"}
 
 # Frontend
-# Mở trình duyệt: http://localhost:3001 — phải load được trang đăng nhập
+# Mở trình duyệt: http://localhost:3001/login — phải load được trang đăng nhập
+# (LƯU Ý: "/" một mình là trang landing tĩnh có chủ đích, KHÔNG phải trang đăng nhập
+# và KHÔNG redirect sang /login — xem frontend/src/middleware.ts)
 
 # Database/Redis (gián tiếp qua docker compose ps — cả 2 đã có healthcheck riêng)
 docker compose -f docker-compose.yml ps
