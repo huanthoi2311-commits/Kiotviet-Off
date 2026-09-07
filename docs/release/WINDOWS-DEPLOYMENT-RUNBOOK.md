@@ -131,7 +131,9 @@ curl.exe http://localhost:3000/health
 ```
 Kỳ vọng: JSON chứa `"status":"ok"`.
 
-Kiểm tra frontend: mở trình duyệt tới **http://localhost:3001**.
+Kiểm tra frontend: mở trình duyệt tới **http://localhost:3001** — chỉ để xác nhận frontend phản
+hồi (trang landing tĩnh, có chủ đích, KHÔNG phải trang đăng nhập). Để đăng nhập, dùng URL tường
+minh ở mục 6 ngay dưới đây.
 
 ## 6. Đăng nhập lần đầu
 

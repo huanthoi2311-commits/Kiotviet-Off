@@ -20,6 +20,11 @@ logs/
 .env.local
 !.env.example
 
+# Backup dumps chạy thủ công ở gốc repo (khác backend/backups/ đã có backend/.gitignore riêng) —
+# KHÔNG BAO GIỜ commit artifact backup (chứa toàn bộ dữ liệu nghiệp vụ, coi như dữ liệu nhạy cảm).
+/backups/
+*.dump
+
 # Playwright screenshot tooling output (tools/playwright/) — tạm thời, không phải artifact release
 /artifacts/screenshots/*
 !/artifacts/screenshots/.gitkeep
