@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { getCartControllerGetCartQueryKey } from '@/generated/cart/cart';
 import { getInvoiceControllerSearchQueryKey } from '@/generated/invoice/invoice';
 import type { CheckoutDto } from '@/generated/pOSERPEnterpriseAPI.schemas';
+import { generateUuid } from '@/utils/generate-uuid';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,7 +59,7 @@ interface CheckoutSuccessResult {
  */
 export function CheckoutForm({ cartIsEmpty }: { cartIsEmpty: boolean }) {
   const queryClient = useQueryClient();
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => generateUuid());
   const [successResult, setSuccessResult] = useState<CheckoutSuccessResult | null>(null);
 
   const { branchOptions } = useBranchOptions();
@@ -101,7 +102,7 @@ export function CheckoutForm({ cartIsEmpty }: { cartIsEmpty: boolean }) {
           paymentMethod: result.payment.method,
         });
         toast.success('Thanh toán thành công');
-        setIdempotencyKey(crypto.randomUUID());
+        setIdempotencyKey(generateUuid());
         form.reset();
       },
       onError: (error) => {
