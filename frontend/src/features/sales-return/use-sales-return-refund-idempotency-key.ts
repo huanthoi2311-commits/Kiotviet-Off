@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import { generateUuid } from '@/utils/generate-uuid';
 
 /**
  * T053.06E — the exact fields that participate in the backend's idempotency fingerprint
@@ -31,20 +32,20 @@ export interface SalesReturnRefundFingerprint {
  *   success (replay counts as success too) and when the form/dialog closes without success.
  */
 export function useSalesReturnRefundIdempotencyKey() {
-  const keyRef = useRef<string>(crypto.randomUUID());
+  const keyRef = useRef<string>(generateUuid());
   const lastFingerprintRef = useRef<string | null>(null);
 
   const prepareSubmit = useCallback((fingerprint: SalesReturnRefundFingerprint): string => {
     const serialized = JSON.stringify(fingerprint);
     if (lastFingerprintRef.current !== null && lastFingerprintRef.current !== serialized) {
-      keyRef.current = crypto.randomUUID();
+      keyRef.current = generateUuid();
     }
     lastFingerprintRef.current = serialized;
     return keyRef.current;
   }, []);
 
   const retire = useCallback(() => {
-    keyRef.current = crypto.randomUUID();
+    keyRef.current = generateUuid();
     lastFingerprintRef.current = null;
   }, []);
 

@@ -117,6 +117,28 @@ describe('CheckoutForm (T046 §5/§12 — AD-2 exception)', () => {
     expect(screen.getByRole('combobox', { name: 'Phương thức thanh toán' })).toBeInTheDocument();
   });
 
+  it('renders and sends a valid Idempotency-Key even when crypto.randomUUID is unavailable (Customer #1 LAN HTTP condition — reproduces the production "crypto.randomUUID is not a function" defect)', async () => {
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    try {
+      let capturedHeader: string | null = null;
+      server.use(
+        http.post(`${API_BASE_URL}/checkout`, async ({ request }) => {
+          capturedHeader = request.headers.get('Idempotency-Key');
+          return HttpResponse.json(envelope(buildCheckoutResponse()), { status: 201 });
+        }),
+      );
+
+      renderForm();
+      await screen.findByRole('combobox', { name: 'Chi nhánh' });
+      await fillRequiredFields();
+      await userEvent.click(screen.getByRole('button', { name: 'Thanh toán' }));
+
+      await waitFor(() => expect(capturedHeader).toMatch(/^[0-9a-f-]{36}$/i));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('sends the Idempotency-Key header, and the request body is exactly CheckoutDto with no items', async () => {
     let capturedHeader: string | null = null;
     let capturedBody: Record<string, unknown> | undefined;
