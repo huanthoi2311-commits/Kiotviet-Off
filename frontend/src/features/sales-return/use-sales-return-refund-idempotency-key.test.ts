@@ -1,5 +1,5 @@
 import { renderHook } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SalesReturnRefundFingerprint } from './use-sales-return-refund-idempotency-key';
 import { useSalesReturnRefundIdempotencyKey } from './use-sales-return-refund-idempotency-key';
 
@@ -86,5 +86,18 @@ describe('useSalesReturnRefundIdempotencyKey (T053.06E §17)', () => {
     const key1 = result.current.prepareSubmit(baseFingerprint);
     const key2 = result.current.prepareSubmit(baseFingerprint);
     expect(key1).toBe(key2);
+  });
+
+  describe('when crypto.randomUUID is unavailable (Customer #1 LAN HTTP condition)', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('still produces a usable, valid, stable key without throwing', () => {
+      vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+      const { result } = renderHook(() => useSalesReturnRefundIdempotencyKey());
+      const key = result.current.prepareSubmit(baseFingerprint);
+      expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    });
   });
 });
