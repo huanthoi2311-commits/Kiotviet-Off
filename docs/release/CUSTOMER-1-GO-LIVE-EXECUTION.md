@@ -615,6 +615,15 @@ bring-up npm run ops:restore -- /mnt/backups/<file>.dump pos_erp_restore_drill`.
 tài liệu hoá của `BACKUP-RESTORE-RUNBOOK.md` dưới MODE B, không phải lỗi logic của restore-runner
 (cơ chế an toàn `RestoreTargetExistsError`/rollback-on-failure đã xác nhận đúng qua source).
 
+**Đính chính (2026-09-09):** lệnh ở trên, đúng như đã viết, **thiếu một bước bắt buộc**. Xác minh
+lại hôm nay: image `bring-up` mặc định KHÔNG có sẵn `docker` CLI lẫn `pg_restore`/`pg_dump` (xác
+nhận qua `which docker`/`which pg_restore` — cả hai rỗng), nên lệnh trên tự nó không thể chạy được
+`pg_restore` bằng bất kỳ `BACKUP_MODE` nào nếu thiếu bước cài client trước. Không rõ chính xác bước
+nào đã thực sự tạo ra kết quả PASS ghi ở trên ngày 2026-08-26 (có thể là một bước cài đặt thủ công
+không được ghi lại đầy đủ vào lúc đó) — không có ý phủ nhận kết quả PASS đã ghi, chỉ đính chính rằng
+bản thân câu lệnh này, đọc đúng nguyên văn, không tự chạy được. Quy trình đầy đủ, chính xác, đã xác
+minh lại (không restore vào database thật) nằm ở `docs/release/BACKUP-RESTORE-RUNBOOK.md` §11a.
+
 **Dọn dẹp database tạm sau khi verify xong** (theo `BACKUP-RESTORE-RUNBOOK.md` — xoá
 `pos_erp_restore_drill` qua `psql`/pgAdmin sau khi đã xác nhận, không để tồn đọng vô thời hạn):
 ```

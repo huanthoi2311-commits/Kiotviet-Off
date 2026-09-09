@@ -234,6 +234,90 @@ docker compose exec -T -e PGPASSWORD=<mật khẩu> postgres pg_dump -h localhos
 `BACKUP_MODE=direct` dùng khi máy chạy script **có sẵn** client Postgres trên PATH (đúng trường
 hợp CI runner — xem §12).
 
+### 11a. Restore khi Postgres KHÔNG publish port ra host (triển khai production thật của Khách hàng #1)
+
+**Không nhầm với `BACKUP_MODE` (§11).** Đây là một khái niệm khác: **topology mạng** của
+`docker-compose.yml` — file production thật (không kèm `docker-compose.override.yml`) **không**
+map cổng Postgres (5432) ra host, theo đúng chính sách mạng đã duyệt cho Khách hàng #1 (tài liệu
+khác trong repo gọi chính sách mạng này là "MODE B — TRUSTED-LAN POS", xem
+`FIRST-CUSTOMER-CHECKLIST.md` §2 — không liên quan tới `BACKUP_MODE=docker-compose|direct` ở §11).
+
+**Vấn đề:** `npm run ops:backup` chạy tốt trên host với topology này (§11, `BACKUP_MODE=docker-
+compose` exec thẳng vào container qua `docker compose exec`, không cần TCP tới host). Nhưng
+`npm run ops:restore` có thêm một bước mà `ops:backup` không có: **trước khi** gọi `pg_restore`,
+`restore-runner.ts` mở một kết nối Prisma TCP trực tiếp (dùng chính `DATABASE_URL`) tới database
+bảo trì `postgres` để kiểm tra `<tên-database-đích>` chưa tồn tại, rồi `CREATE DATABASE`. Bước này
+**luôn** là kết nối TCP trực tiếp — không đi qua `docker compose exec` — bất kể `BACKUP_MODE` là
+gì. Nếu `DATABASE_URL` trỏ tới hostname nội bộ Docker (`postgres`, đúng như production `.env`
+dùng) và lệnh chạy từ host Windows (không phải từ trong container), kết nối này thất bại (hostname
+không resolve được từ host). Đây là khoảng trống đã biết, không phải lỗi logic — cơ chế an toàn
+`RestoreTargetExistsError`/rollback-on-failure (§4) vẫn đúng, chỉ là bước kết nối tiền-restore này
+cần chạy từ đúng ngữ cảnh mạng.
+
+**Quy trình đúng đã xác minh (2026-09-09, xác minh an toàn — không restore vào database thật, xem
+cuối mục này):**
+
+1. **Mục đích:** cho phép `ops:restore` chạy trọn vẹn (bước kiểm tra tồn tại + `CREATE DATABASE` +
+   `pg_restore`) khi Postgres không publish port ra host.
+2. **Khi nào dùng:** triển khai production thật (chạy `docker compose -f docker-compose.yml up -d`,
+   không kèm `docker-compose.override.yml`) — đúng topology của Khách hàng #1.
+3. **Điều kiện tiên quyết:** `docker compose ps` cho thấy `postgres` `healthy`; file backup `.dump`
+   đã tồn tại trên host (thư mục `backend/backups/` mặc định); Docker Desktop đang chạy.
+4. **Thư mục làm việc:** gốc repo (nơi có `docker-compose.yml`) — không phải `backend/`.
+5. **Cú pháp lệnh chính xác:**
+   ```powershell
+   docker compose -f docker-compose.yml run --rm `
+     -v "<đường-dẫn-tuyệt-đối-tới-repo>\backend\backups:/mnt/backups:ro" `
+     bring-up sh -c "apk add --no-cache postgresql16-client && BACKUP_MODE=direct npm run ops:restore -- /mnt/backups/<tên-file>.dump <tên-database-đích>"
+   ```
+6. **Tham số:** `<đường-dẫn-tuyệt-đối-tới-repo>` = đường dẫn thật tới thư mục gốc repo trên host
+   (vd `C:\pos-erp`); `<tên-file>.dump` = tên file backup (không kèm đường dẫn, vì đã bind-mount
+   vào `/mnt/backups`); `<tên-database-đích>` = tên database TẠM/MỚI, không phải tên production.
+7. **Ví dụ đầy đủ (giá trị placeholder, không phải thật):**
+   ```powershell
+   docker compose -f docker-compose.yml run --rm `
+     -v "C:\pos-erp\backend\backups:/mnt/backups:ro" `
+     bring-up sh -c "apk add --no-cache postgresql16-client && BACKUP_MODE=direct npm run ops:restore -- /mnt/backups/pos-erp-20260907-082352.dump pos_erp_restore_drill"
+   ```
+8. **Yêu cầu file backup:** phải là file `.dump` hợp lệ đã qua verify ở bước tạo (§3) — không dùng
+   file `.partial` hoặc file chưa xác minh.
+9. **Xác nhận/prompt:** **không có** — `ops:restore` không hỏi xác nhận, chạy thẳng ngay khi đủ 2
+   đối số. An toàn vì nó không bao giờ ghi đè database có sẵn (xem mục 11 dưới) — nhưng vẫn phải tự
+   kiểm tra kỹ `<tên-database-đích>` TRƯỚC khi Enter.
+10. **Dịch vụ/dữ liệu bị ảnh hưởng:** chỉ tạo MỘT database Postgres MỚI bên trong cùng cluster —
+    KHÔNG đụng tới database production đang chạy, KHÔNG đụng backend/frontend/redis (`bring-up` là
+    container tạm, `--rm` xoá ngay sau khi chạy xong, không phải container đang phục vụ traffic).
+11. **KHÔNG được làm trong lúc restore:** không đặt `<tên-database-đích>` trùng tên database
+    production; không chạy `docker compose down`/`stop postgres` song song; không sửa file backup
+    đang được đọc; không huỷ ngang tiến trình giữa chừng bằng Ctrl+C mạnh tay (để tiến trình tự
+    rollback nếu thất bại — xem mục 14).
+12. **Kết quả thành công mong đợi (console output):**
+    ```
+    Bắt đầu restore "..." vào database MỚI "..." (mode=direct)...
+    ✓ Restore thành công vào database "<tên-database-đích>".
+      Tiếp theo: chạy `npm run ops:verify-restore -- <tên-database-đích>` để xác nhận.
+    ```
+13. **Xác minh sau restore:** chạy tiếp `ops:verify-restore` **cũng từ trong `bring-up`** (cùng lý
+    do kết nối TCP nội bộ) — `docker compose -f docker-compose.yml run --rm bring-up sh -c
+    "BACKUP_MODE=direct npm run ops:verify-restore -- <tên-database-đích> --compare-source"` (không
+    cần `apk add` lại nếu chạy trong cùng `docker compose run` session; nếu là lần gọi mới, thêm lại
+    bước `apk add` vì container `--rm` đã bị xoá).
+14. **Thất bại/huỷ ngang:** giống §4 — `pg_restore` thất bại (exit code khác 0/timeout) khiến
+    database đích vừa tạo bị `DROP` tự động (rollback), không để lại database dở dang.
+15. **Phân biệt với trường hợp KHÔNG cần quy trình này:** nếu Postgres CÓ publish port ra host (máy
+    dev, có `docker-compose.override.yml`), `npm run ops:restore` chạy thẳng từ `backend/` trên host
+    theo đúng §4 — KHÔNG cần `bring-up`/`apk add`. Quy trình ở mục này CHỈ áp dụng khi Postgres
+    không publish port ra host (production thật).
+
+**Đã xác minh an toàn hôm nay (không restore vào database thật):** hostname `postgres` resolve
+được từ trong `bring-up` (DNS nội bộ Docker, xác nhận qua `getent hosts`); gói `postgresql16-client`
+cài được qua `apk add --no-cache` và cho `pg_restore`/`pg_dump` phiên bản 16.15 — khớp chính xác
+server `postgres:16-alpine`; `bring-up` mặc định KHÔNG có sẵn `docker` CLI lẫn `pg_restore`/`pg_dump`
+(xác nhận qua `which`) — đây là lý do bắt buộc phải có bước `apk add` và `BACKUP_MODE=direct` tường
+minh ở trên. **Chưa thực hiện:** một lần chạy `ops:restore` thật với dữ liệu thật (đối số thật) —
+việc đó nên được operator tự làm như một "restore drill" đầu tiên (giống khuyến nghị chung ở §12),
+không phải trong phạm vi xác minh tài liệu này.
+
 ## 12. Bằng chứng CI (Integration test thật)
 
 `backend/test/backup-restore.e2e-spec.ts` chạy **thật** — không mock `pg_dump`/`pg_restore` —
