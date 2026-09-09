@@ -88,14 +88,18 @@ elevated PowerShell, independently re-verified).
 1. **SMTP self-service password recovery is not operational** (`SMTP_HOST` empty) — the audited
    admin/emergency-reset path is the only recovery route until SMTP is configured. Operator has
    acknowledged this as one of their accepted ongoing responsibilities.
-2. **`ops:restore`'s `docker-compose` mode has a real environment gap under MODE B** — confirmed via
-   source read (`restore-runner.ts`): the existence-check/`CREATE DATABASE`/`DROP DATABASE` safety
-   guard always uses a direct Prisma TCP connection regardless of `mode`, which MODE B's Postgres
-   port lockdown breaks from the host. Not a logic defect — classified as a documentation/usage gap.
-   Worked around via `docker compose -f docker-compose.yml run --rm -v
-   "<host>\backend\backups:/mnt/backups:ro" bring-up npm run ops:restore -- /mnt/backups/<file>
-   <target-db>` (documented in the runbook). Not fixed in code — a safety-critical change needs a
-   SPEC per this project's governance.
+2. **`ops:restore`'s existence-check/`CREATE DATABASE` pre-flight always uses a direct Prisma TCP
+   connection regardless of `BACKUP_MODE`** — confirmed via source read (`restore-runner.ts`). This
+   breaks from the host when Postgres's port isn't published (Customer #1's actual production
+   `docker-compose.yml`, no override). Not a logic defect — classified as a documentation gap, now
+   closed: `docs/release/BACKUP-RESTORE-RUNBOOK.md` §11a documents the verified working procedure
+   (run via `docker compose run --rm bring-up`, with an ad-hoc `apk add postgresql16-client` +
+   `BACKUP_MODE=direct` — the `bring-up` image has neither Docker CLI nor a Postgres client
+   pre-installed, confirmed empirically 2026-09-09; an earlier note in
+   `CUSTOMER-1-GO-LIVE-EXECUTION.md` describing this workaround without the `apk add` step was
+   incomplete/inaccurate as literally written, corrected there with a dated addendum). Connectivity
+   mechanics (DNS resolution, client-version match) were verified safely; a full live restore drill
+   was intentionally not performed as part of this documentation task.
 3. **Frontend has real, pre-existing high-severity dependency CVEs** (see Quality Gates above) — not
    applied, needs its own decision/regression cycle.
 4. **No automated billing/invoicing, no automated health/backup/trial-expiry alerting, no 24/7
@@ -139,8 +143,8 @@ backup/restore safety-critical code changes require a SPEC.
 Customer #1 go-live is closed. Next milestone is operational: the customer begins real use, with the
 operator carrying the accepted ongoing responsibilities (periodic backup + off-host copy, health
 checks, manual plan changes/invoicing, password-reset fallback, first incident response). Separately,
-non-blocking: decide on the Next.js CVE remediation, and on documenting the MODE B restore-tooling
-workaround properly in `BACKUP-RESTORE-RUNBOOK.md`.
+non-blocking: decide on the Next.js CVE remediation. The `ops:restore` production-topology
+documentation gap described above is now closed (`BACKUP-RESTORE-RUNBOOK.md` §11a).
 
 ## NEW SESSION RESUME PROTOCOL
 
