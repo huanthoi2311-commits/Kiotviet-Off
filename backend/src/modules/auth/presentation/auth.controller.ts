@@ -106,8 +106,20 @@ export class AuthController {
   ): Promise<LoginResponseDto> {
     const device = this.buildDeviceContext(req, dto.deviceName);
     const rawToken = this.extractRefreshToken(req, dto, device.clientType);
-    const issued = await this.authService.refreshToken(rawToken, device);
-    return this.deliver(issued, device.clientType, res);
+    try {
+      const issued = await this.authService.refreshToken(rawToken, device);
+      return this.deliver(issued, device.clientType, res);
+    } catch (error) {
+      // A rejected refresh (revoked/invalid/expired token) must not leave the
+      // stale refresh_token cookie behind — otherwise the frontend middleware
+      // (which only checks cookie presence, never validity) keeps bouncing an
+      // already-logged-out browser between /login and /dashboard. Same
+      // attributes/path as every other set/clear of this cookie (cookieAttributes()).
+      if (device.clientType === 'WEB') {
+        res.clearCookie(REFRESH_COOKIE_NAME, this.cookieAttributes());
+      }
+      throw error;
+    }
   }
 
   @Post('logout')

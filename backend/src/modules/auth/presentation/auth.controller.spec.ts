@@ -168,6 +168,60 @@ describe('AuthController — cookie transport (T051.08B/T051.08C)', () => {
     });
   });
 
+  describe('refresh() failure — stale refresh_token cookie must be cleared, not left behind', () => {
+    it('authService.refreshToken() throws → clearCookie called once with the same attributes as login/logout, original error rethrown unchanged', async () => {
+      const controller = buildController(false);
+      const res = fakeResponse();
+      const originalError = new Error('refresh token revoked or invalid');
+      authService.refreshToken.mockRejectedValueOnce(originalError);
+
+      await expect(
+        controller.refresh(
+          {},
+          fakeRequest({ cookies: { refresh_token: 'stale-token' } }),
+          res as unknown as Response,
+        ),
+      ).rejects.toBe(originalError);
+
+      expect(res.clearCookie).toHaveBeenCalledTimes(1);
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        'refresh_token',
+        expect.objectContaining({
+          httpOnly: true,
+          secure: false,
+          sameSite: 'lax',
+          path: '/',
+        }),
+      );
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+
+    it('authService.refreshToken() throws → does not log the rejected refresh_token value', async () => {
+      const controller = buildController(false);
+      const res = fakeResponse();
+      authService.refreshToken.mockRejectedValueOnce(new Error('revoked'));
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await expect(
+        controller.refresh(
+          {},
+          fakeRequest({ cookies: { refresh_token: 'stale-token-value' } }),
+          res as unknown as Response,
+        ),
+      ).rejects.toThrow();
+
+      const allLoggedText = [...errorSpy.mock.calls, ...warnSpy.mock.calls]
+        .flat()
+        .map((arg) => String(arg))
+        .join(' ');
+      expect(allLoggedText).not.toContain('stale-token-value');
+
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    });
+  });
+
   describe('logout()/logout-all() — clearCookie uses the SAME attributes as the create path', () => {
     const user = {
       sub: 'user-1',
