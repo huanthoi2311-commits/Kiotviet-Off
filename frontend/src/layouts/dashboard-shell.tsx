@@ -53,7 +53,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     return <SessionRestoreErrorState />;
   }
 
-  if (sessionStatus === 'restoring') {
+  // 'unauthenticated' also renders this loading state rather than null — the
+  // redirect to /login above is async, so a bare blank screen would otherwise
+  // flash for the duration of that transition.
+  if (sessionStatus === 'restoring' || sessionStatus === 'unauthenticated') {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8">
         <Skeleton className="h-8 w-48" />

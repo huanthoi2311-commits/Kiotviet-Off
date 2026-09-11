@@ -87,6 +87,14 @@ describe('DashboardShell', () => {
     expect(replace).toHaveBeenCalledWith('/login');
   });
 
+  it('renders a loading state (not a bare blank screen) while unauthenticated and redirecting', () => {
+    useSessionRestore.mockReturnValue('unauthenticated');
+    const { container } = renderShell('Nội dung');
+    expect(replace).toHaveBeenCalledWith('/login');
+    expect(screen.queryByText('Nội dung')).not.toBeInTheDocument();
+    expect(container.firstChild).not.toBeNull();
+  });
+
   it('renders the restoring skeleton without redirecting or rendering children', () => {
     useSessionRestore.mockReturnValue('restoring');
     renderShell('Nội dung');
